@@ -99,6 +99,32 @@ impl VTab for ReadZarrVTab {
         Ok(())
     }
 }
+#[allow(dead_code)] // Will be used in Task 3
+fn calculate_global_indices(
+    local_cursor: usize,
+    chunk_shape: &[u64],
+    chunk_grid: &[u64],
+) -> Vec<u64> {
+    let rank = chunk_shape.len();
+    let mut local_coords = vec![0; rank];
+    let mut remainder = local_cursor as u64;
+
+    // Calculate local coordinates (C-contiguous order, so we process from right to left)
+    for i in (0..rank).rev() {
+        let dim_size = chunk_shape[i];
+        local_coords[i] = remainder % dim_size;
+        remainder /= dim_size;
+    }
+
+    // Add global chunk offset
+    let mut global_coords = vec![0; rank];
+    for i in 0..rank {
+        global_coords[i] = (chunk_grid[i] * chunk_shape[i]) + local_coords[i];
+    }
+
+    global_coords
+}
+
 fn resolve_dimension_names(metadata: &ArrayMetadata, rank: usize) -> Vec<String> {
     let attributes = match metadata {
         ArrayMetadata::V2(meta) => &meta.attributes,
@@ -182,5 +208,21 @@ mod tests {
         assert_eq!(state.local_chunk_cursor, 0);
         assert!(state.current_chunk_buffer.is_none());
         assert!(!state.exhausted);
+    }
+
+    #[test]
+    fn test_calculate_global_indices() {
+        let chunk_shape = vec![10, 10, 10];
+        let chunk_grid = vec![2, 0, 1]; // We are in chunk [2, 0, 1]
+
+        // Test the first element in the chunk
+        let indices = calculate_global_indices(0, &chunk_shape, &chunk_grid);
+        assert_eq!(indices, vec![20, 0, 10]);
+
+        // Test the 15th element (index 14). Since shape is [10, 10, 10],
+        // index 14 is z=0, y=1, x=4 locally.
+        // Global should be z=20, y=1, x=14
+        let indices = calculate_global_indices(14, &chunk_shape, &chunk_grid);
+        assert_eq!(indices, vec![20, 1, 14]);
     }
 }
