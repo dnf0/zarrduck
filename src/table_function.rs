@@ -2,6 +2,7 @@ use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
 use duckdb::vtab::{BindInfo, InitInfo, VTab};
 use duckdb::Result;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use zarrs::array::{Array, ArrayMetadata, DataType};
 use zarrs::storage::store::FilesystemStore;
@@ -14,6 +15,10 @@ macro_rules! dispatch_yield_loop {
         let batch_size = std::cmp::min(2048, elements_remaining);
 
         let rank = $bind_data.shape.len();
+
+        let coord_arrays: Vec<Option<&Vec<f64>>> = (0..rank)
+            .map(|dim| $bind_data.coords.get(&$bind_data.dim_names[dim]))
+            .collect();
 
         // Output vectors
         // Coordinates are the first `rank` columns. Value is the last column.
@@ -30,9 +35,20 @@ macro_rules! dispatch_yield_loop {
 
             // Write coordinates
             for dim in 0..rank {
-                let mut coord_vector = $output.flat_vector(dim);
-                let coord_slice = coord_vector.as_mut_slice::<i64>();
-                coord_slice[i] = global_coords[dim] as i64;
+                if let Some(coord_vals) = coord_arrays[dim] {
+                    let mut coord_vector = $output.flat_vector(dim);
+                    let coord_slice = coord_vector.as_mut_slice::<f64>();
+                    // O(1) lookup of the physical coordinate value, with graceful fallback
+                    coord_slice[i] = coord_vals
+                        .get(global_coords[dim] as usize)
+                        .copied()
+                        .unwrap_or(f64::NAN);
+                } else {
+                    let mut coord_vector = $output.flat_vector(dim);
+                    let coord_slice = coord_vector.as_mut_slice::<i64>();
+                    // Fallback to integer index
+                    coord_slice[i] = global_coords[dim] as i64;
+                }
             }
 
             // Write value
@@ -73,6 +89,8 @@ pub struct ReadZarrBindData {
     pub shape: Vec<u64>,
     pub chunk_shape: Vec<u64>,
     pub data_type: DataType,
+    pub dim_names: Vec<String>,
+    pub coords: HashMap<String, Vec<f64>>,
 }
 
 pub struct IterationState {
@@ -104,8 +122,9 @@ impl VTab for ReadZarrVTab {
         let path = bind.get_parameter(0).to_string();
 
         let store = FilesystemStore::new(&path).map_err(|e| format!("zarrs error: {}", e))?;
-        let array =
-            Array::open(Arc::new(store), "/").map_err(|e| format!("zarrs error (array): {}", e))?;
+        let store_arc = Arc::new(store);
+        let array = Array::open(Arc::clone(&store_arc), "/")
+            .map_err(|e| format!("zarrs error (array): {}", e))?;
 
         let shape = array.shape();
         let rank = shape.len();
@@ -113,9 +132,55 @@ impl VTab for ReadZarrVTab {
 
         let dim_names = resolve_dimension_names(metadata, rank);
 
-        // Add coordinate columns (DuckDB integers for now)
-        for name in dim_names {
-            bind.add_result_column(&name, LogicalTypeId::Bigint.into());
+        let mut coords = std::collections::HashMap::new();
+        // Eagerly load 1D coordinate arrays if they exist
+        for (dim_index, name) in dim_names.iter().enumerate() {
+            if let Ok(coord_array) = Array::open(Arc::clone(&store_arc), &format!("/{}", name)) {
+                // Ensure it's a 1D array
+                if coord_array.shape().len() == 1 {
+                    // Assuming coordinate arrays are small and fit in a single chunk [0]
+                    if let Ok(chunk_bytes) = coord_array.retrieve_chunk(&[0]) {
+                        let bytes = chunk_bytes.into_fixed().unwrap().into_owned();
+                        let vals: Vec<f64> = match coord_array.data_type() {
+                            zarrs::array::DataType::Float64 => {
+                                bytemuck::cast_slice::<u8, f64>(&bytes).to_vec()
+                            }
+                            zarrs::array::DataType::Float32 => {
+                                bytemuck::cast_slice::<u8, f32>(&bytes)
+                                    .iter()
+                                    .map(|&v| v as f64)
+                                    .collect()
+                            }
+                            zarrs::array::DataType::Int64 => {
+                                bytemuck::cast_slice::<u8, i64>(&bytes)
+                                    .iter()
+                                    .map(|&v| v as f64)
+                                    .collect()
+                            }
+                            zarrs::array::DataType::Int32 => {
+                                bytemuck::cast_slice::<u8, i32>(&bytes)
+                                    .iter()
+                                    .map(|&v| v as f64)
+                                    .collect()
+                            }
+                            _ => continue,
+                        };
+                        // Validate that the loaded chunk covers the entire dimension length
+                        if vals.len() as u64 == shape[dim_index] {
+                            coords.insert(name.clone(), vals);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add coordinate columns (DuckDB Double if physical, Bigint if fallback)
+        for name in &dim_names {
+            if coords.contains_key(name) {
+                bind.add_result_column(name, LogicalTypeId::Double.into());
+            } else {
+                bind.add_result_column(name, LogicalTypeId::Bigint.into());
+            }
         }
 
         // Add the value column based on the array's data type
@@ -144,6 +209,8 @@ impl VTab for ReadZarrVTab {
             shape,
             chunk_shape,
             data_type,
+            dim_names,
+            coords,
         })
     }
 
