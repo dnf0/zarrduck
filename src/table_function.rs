@@ -2,8 +2,7 @@ use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
 use duckdb::vtab::{BindInfo, InitInfo, VTab};
 use duckdb::Result;
 use serde_json::Value;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use zarrs::array::{Array, ArrayMetadata};
 use zarrs::storage::store::FilesystemStore;
 
@@ -11,8 +10,15 @@ pub struct ReadZarrBindData {
     _path: String,
 }
 
+pub struct IterationState {
+    pub current_chunk_grid: Vec<u64>,
+    pub local_chunk_cursor: usize,
+    pub current_chunk_buffer: Option<Vec<u8>>,
+    pub exhausted: bool,
+}
+
 pub struct ReadZarrInitData {
-    done: AtomicBool,
+    state: Mutex<IterationState>,
 }
 
 pub struct ReadZarrVTab;
@@ -61,8 +67,14 @@ impl VTab for ReadZarrVTab {
     }
 
     fn init(_init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        // We will initialize current_chunk_grid properly in func, but for now we just need a default
         Ok(ReadZarrInitData {
-            done: AtomicBool::new(false),
+            state: Mutex::new(IterationState {
+                current_chunk_grid: vec![0],
+                local_chunk_cursor: 0,
+                current_chunk_buffer: None,
+                exhausted: false,
+            }),
         })
     }
 
@@ -73,10 +85,15 @@ impl VTab for ReadZarrVTab {
         let _bind_data = func.get_bind_data();
         let init_data = func.get_init_data();
 
-        if init_data.done.swap(true, Ordering::SeqCst) {
+        let mut state = init_data.state.lock().unwrap();
+
+        if state.exhausted {
             output.set_len(0);
             return Ok(());
         }
+
+        // Just mark exhausted immediately for now to match old behavior
+        state.exhausted = true;
 
         output.set_len(0);
         Ok(())
@@ -150,5 +167,20 @@ mod tests {
         let metadata_attrs: ArrayMetadata = serde_json::from_str(json_meta).unwrap();
         let names = resolve_dimension_names(&metadata_attrs, 3);
         assert_eq!(names, vec!["time", "lat", "lon"]);
+    }
+
+    #[test]
+    fn test_iteration_state_initialization() {
+        let state = IterationState {
+            current_chunk_grid: vec![0, 0, 0],
+            local_chunk_cursor: 0,
+            current_chunk_buffer: None,
+            exhausted: false,
+        };
+
+        assert_eq!(state.current_chunk_grid, vec![0, 0, 0]);
+        assert_eq!(state.local_chunk_cursor, 0);
+        assert!(state.current_chunk_buffer.is_none());
+        assert!(!state.exhausted);
     }
 }
