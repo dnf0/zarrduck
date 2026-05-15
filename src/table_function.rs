@@ -99,6 +99,20 @@ impl VTab for ReadZarrVTab {
         Ok(())
     }
 }
+#[allow(dead_code)] // Will be used in the final yielding task
+fn increment_chunk_grid(current_grid: &mut [u64], grid_shape: &[u64]) -> bool {
+    let rank = current_grid.len();
+    for i in (0..rank).rev() {
+        current_grid[i] += 1;
+        if current_grid[i] < grid_shape[i] {
+            return true; // Successfully incremented within bounds
+        } else {
+            current_grid[i] = 0; // Carry over to the next dimension
+        }
+    }
+    false // All dimensions carried over, we are out of bounds (exhausted)
+}
+
 #[allow(dead_code)] // Will be used in Task 3
 fn calculate_global_indices(
     local_cursor: usize,
@@ -224,5 +238,27 @@ mod tests {
         // Global should be z=20, y=1, x=14
         let indices = calculate_global_indices(14, &chunk_shape, &chunk_grid);
         assert_eq!(indices, vec![20, 1, 14]);
+    }
+
+    #[test]
+    fn test_increment_chunk_grid() {
+        let grid_shape = vec![2, 3, 2];
+
+        // Start at [0, 0, 0]
+        let mut current = vec![0, 0, 0];
+
+        // Increment should move the fastest varying dimension (the last one)
+        assert_eq!(increment_chunk_grid(&mut current, &grid_shape), true);
+        assert_eq!(current, vec![0, 0, 1]);
+
+        // Increment again should carry over
+        assert_eq!(increment_chunk_grid(&mut current, &grid_shape), true);
+        assert_eq!(current, vec![0, 1, 0]);
+
+        // Skip to [1, 2, 1] (the very last chunk)
+        current = vec![1, 2, 1];
+
+        // Incrementing the last chunk should return false (exhausted)
+        assert_eq!(increment_chunk_grid(&mut current, &grid_shape), false);
     }
 }
