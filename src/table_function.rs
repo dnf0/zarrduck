@@ -353,6 +353,52 @@ fn calculate_global_indices(
     global_coords
 }
 
+#[allow(dead_code)]
+fn translate_filter(
+    coords: &[f64],
+    operator: &str,
+    value: f64,
+    current_min: u64,
+    current_max: u64,
+) -> (u64, u64) {
+    if coords.is_empty() {
+        return (current_min, current_max);
+    }
+
+    // Determine if array is ascending or descending
+    let _ascending = coords.first().unwrap_or(&0.0) <= coords.last().unwrap_or(&0.0);
+
+    // A simple linear scan for MVP. Binary search can be added later for huge arrays.
+    let mut matched_min = u64::MAX;
+    let mut matched_max = u64::MIN;
+
+    for (i, &coord) in coords.iter().enumerate() {
+        let i = i as u64;
+        let matches = match operator {
+            "=" => (coord - value).abs() < 1e-8,
+            "<" => coord < value,
+            "<=" => coord <= value,
+            ">" => coord > value,
+            ">=" => coord >= value,
+            _ => true,
+        };
+        if matches {
+            matched_min = std::cmp::min(matched_min, i);
+            matched_max = std::cmp::max(matched_max, i);
+        }
+    }
+
+    if matched_min <= matched_max {
+        (
+            std::cmp::max(current_min, matched_min),
+            std::cmp::min(current_max, matched_max),
+        )
+    } else {
+        // No matches found, return empty bounds
+        (1, 0)
+    }
+}
+
 fn resolve_dimension_names(metadata: &ArrayMetadata, rank: usize) -> Vec<String> {
     let attributes = match metadata {
         ArrayMetadata::V2(meta) => &meta.attributes,
@@ -537,5 +583,23 @@ mod tests {
             &bounds_min,
             &bounds_max
         ));
+    }
+
+    #[test]
+    fn test_translate_filter() {
+        // Array: [0.0, 10.0, 20.0, 30.0, 40.0, 50.0]
+        let coords = vec![0.0, 10.0, 20.0, 30.0, 40.0, 50.0];
+
+        // lat = 20.0  => min_idx: 2, max_idx: 2
+        let (min, max) = translate_filter(&coords, "=", 20.0, 0, 5);
+        assert_eq!((min, max), (2, 2));
+
+        // lat < 25.0 => min_idx: 0, max_idx: 2
+        let (min, max) = translate_filter(&coords, "<", 25.0, 0, 5);
+        assert_eq!((min, max), (0, 2));
+
+        // lat >= 30.0 => min_idx: 3, max_idx: 5
+        let (min, max) = translate_filter(&coords, ">=", 30.0, 0, 5);
+        assert_eq!((min, max), (3, 5));
     }
 }
