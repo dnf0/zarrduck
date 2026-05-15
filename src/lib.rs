@@ -1,7 +1,10 @@
 use duckdb::{Connection, Result};
 
+mod table_function;
+use table_function::ReadZarrVTab;
+
 #[duckdb::duckdb_entrypoint_c_api]
-fn init(_conn: Connection) -> Result<()> {
-    // Basic initialization empty for now
+fn init(conn: Connection) -> Result<()> {
+    conn.register_table_function::<ReadZarrVTab>("read_zarr")?;
     Ok(())
 }
