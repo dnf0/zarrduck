@@ -70,12 +70,21 @@ macro_rules! dispatch_yield_loop {
 
             // Calculate chunk grid shape to know when we are done
             let mut grid_shape = vec![0; rank];
+            let mut chunk_bounds_min = vec![0; rank];
+            let mut chunk_bounds_max = vec![0; rank];
             for i in 0..rank {
                 grid_shape[i] =
                     ($bind_data.shape[i] as f64 / $bind_data.chunk_shape[i] as f64).ceil() as u64;
+                chunk_bounds_min[i] = $state.bounds_min[i] / $bind_data.chunk_shape[i];
+                chunk_bounds_max[i] = $state.bounds_max[i] / $bind_data.chunk_shape[i];
             }
 
-            if !increment_chunk_grid(&mut $state.current_chunk_grid, &grid_shape) {
+            if !increment_chunk_grid(
+                &mut $state.current_chunk_grid,
+                &grid_shape,
+                &chunk_bounds_min,
+                &chunk_bounds_max,
+            ) {
                 $state.exhausted = true;
             }
         }
@@ -91,6 +100,8 @@ pub struct ReadZarrBindData {
     pub data_type: DataType,
     pub dim_names: Vec<String>,
     pub coords: HashMap<String, Vec<f64>>,
+    pub bounds_min: Vec<u64>,
+    pub bounds_max: Vec<u64>,
 }
 
 pub struct IterationState {
@@ -98,6 +109,8 @@ pub struct IterationState {
     pub local_chunk_cursor: usize,
     pub current_chunk_buffer: Option<Vec<u8>>,
     pub exhausted: bool,
+    pub bounds_min: Vec<u64>,
+    pub bounds_max: Vec<u64>,
 }
 
 pub struct ReadZarrInitData {
@@ -204,6 +217,12 @@ impl VTab for ReadZarrVTab {
             .collect();
         let data_type = array.data_type().clone();
 
+        let bounds_min = vec![0; rank];
+        let mut bounds_max = vec![0; rank];
+        for i in 0..rank {
+            bounds_max[i] = if shape[i] > 0 { shape[i] - 1 } else { 0 };
+        }
+
         Ok(ReadZarrBindData {
             path,
             shape,
@@ -211,17 +230,21 @@ impl VTab for ReadZarrVTab {
             data_type,
             dim_names,
             coords,
+            bounds_min,
+            bounds_max,
         })
     }
 
     fn init(_init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
-        // We will initialize current_chunk_grid properly in func, but for now we just need a default
+        let bind_data = _init.get_bind_data::<ReadZarrBindData>();
         Ok(ReadZarrInitData {
             state: Mutex::new(IterationState {
-                current_chunk_grid: vec![0],
+                current_chunk_grid: unsafe { (*bind_data).bounds_min.clone() },
                 local_chunk_cursor: 0,
                 current_chunk_buffer: None,
                 exhausted: false,
+                bounds_min: unsafe { (*bind_data).bounds_min.clone() },
+                bounds_max: unsafe { (*bind_data).bounds_max.clone() },
             }),
         })
     }
@@ -286,14 +309,19 @@ impl VTab for ReadZarrVTab {
 }
 
 #[allow(dead_code)] // Will be used in the final yielding task
-fn increment_chunk_grid(current_grid: &mut [u64], grid_shape: &[u64]) -> bool {
+fn increment_chunk_grid(
+    current_grid: &mut [u64],
+    _grid_shape: &[u64], // We can ignore grid_shape now, bounds_max is our limit
+    bounds_min: &[u64],
+    bounds_max: &[u64],
+) -> bool {
     let rank = current_grid.len();
     for i in (0..rank).rev() {
-        current_grid[i] += 1;
-        if current_grid[i] < grid_shape[i] {
+        if current_grid[i] < bounds_max[i] {
+            current_grid[i] += 1;
             return true; // Successfully incremented within bounds
         } else {
-            current_grid[i] = 0; // Carry over to the next dimension
+            current_grid[i] = bounds_min[i]; // Carry over to the minimum bound of this dimension
         }
     }
     false // All dimensions carried over, we are out of bounds (exhausted)
@@ -323,6 +351,52 @@ fn calculate_global_indices(
     }
 
     global_coords
+}
+
+#[allow(dead_code)]
+fn translate_filter(
+    coords: &[f64],
+    operator: &str,
+    value: f64,
+    current_min: u64,
+    current_max: u64,
+) -> (u64, u64) {
+    if coords.is_empty() {
+        return (current_min, current_max);
+    }
+
+    // Determine if array is ascending or descending
+    let _ascending = coords.first().unwrap_or(&0.0) <= coords.last().unwrap_or(&0.0);
+
+    // A simple linear scan for MVP. Binary search can be added later for huge arrays.
+    let mut matched_min = u64::MAX;
+    let mut matched_max = u64::MIN;
+
+    for (i, &coord) in coords.iter().enumerate() {
+        let i = i as u64;
+        let matches = match operator {
+            "=" => (coord - value).abs() < 1e-8,
+            "<" => coord < value,
+            "<=" => coord <= value,
+            ">" => coord > value,
+            ">=" => coord >= value,
+            _ => true,
+        };
+        if matches {
+            matched_min = std::cmp::min(matched_min, i);
+            matched_max = std::cmp::max(matched_max, i);
+        }
+    }
+
+    if matched_min <= matched_max {
+        (
+            std::cmp::max(current_min, matched_min),
+            std::cmp::min(current_max, matched_max),
+        )
+    } else {
+        // No matches found, return empty bounds
+        (1, 0)
+    }
 }
 
 fn resolve_dimension_names(metadata: &ArrayMetadata, rank: usize) -> Vec<String> {
@@ -402,12 +476,16 @@ mod tests {
             local_chunk_cursor: 0,
             current_chunk_buffer: None,
             exhausted: false,
+            bounds_min: vec![0, 0, 0],
+            bounds_max: vec![9, 9, 9],
         };
 
         assert_eq!(state.current_chunk_grid, vec![0, 0, 0]);
         assert_eq!(state.local_chunk_cursor, 0);
         assert!(state.current_chunk_buffer.is_none());
         assert!(!state.exhausted);
+        assert_eq!(state.bounds_min, vec![0, 0, 0]);
+        assert_eq!(state.bounds_max, vec![9, 9, 9]);
     }
 
     #[test]
@@ -429,22 +507,99 @@ mod tests {
     #[test]
     fn test_increment_chunk_grid() {
         let grid_shape = vec![2, 3, 2];
+        let bounds_min = vec![0, 0, 0];
+        let bounds_max = vec![1, 2, 1];
 
         // Start at [0, 0, 0]
         let mut current = vec![0, 0, 0];
 
         // Increment should move the fastest varying dimension (the last one)
-        assert!(increment_chunk_grid(&mut current, &grid_shape));
+        assert!(increment_chunk_grid(
+            &mut current,
+            &grid_shape,
+            &bounds_min,
+            &bounds_max
+        ));
         assert_eq!(current, vec![0, 0, 1]);
 
         // Increment again should carry over
-        assert!(increment_chunk_grid(&mut current, &grid_shape));
+        assert!(increment_chunk_grid(
+            &mut current,
+            &grid_shape,
+            &bounds_min,
+            &bounds_max
+        ));
         assert_eq!(current, vec![0, 1, 0]);
 
         // Skip to [1, 2, 1] (the very last chunk)
         current = vec![1, 2, 1];
 
         // Incrementing the last chunk should return false (exhausted)
-        assert!(!increment_chunk_grid(&mut current, &grid_shape));
+        assert!(!increment_chunk_grid(
+            &mut current,
+            &grid_shape,
+            &bounds_min,
+            &bounds_max
+        ));
+    }
+
+    #[test]
+    fn test_increment_chunk_grid_with_bounds() {
+        // A 4x4x4 chunk grid
+        let grid_shape = vec![4, 4, 4];
+
+        // Bounding box from chunk [1, 1, 1] to [2, 2, 2] inclusive
+        let bounds_min = vec![1, 1, 1];
+        let bounds_max = vec![2, 2, 2];
+
+        // Start at min bound
+        let mut current = bounds_min.clone();
+
+        // Increment should move the fastest varying dimension (the last one)
+        assert!(increment_chunk_grid(
+            &mut current,
+            &grid_shape,
+            &bounds_min,
+            &bounds_max
+        ));
+        assert_eq!(current, vec![1, 1, 2]);
+
+        // Increment again should carry over, but floor at bounds_min[2]
+        assert!(increment_chunk_grid(
+            &mut current,
+            &grid_shape,
+            &bounds_min,
+            &bounds_max
+        ));
+        assert_eq!(current, vec![1, 2, 1]); // Notice the last dimension reset to 1, not 0
+
+        // Skip to [2, 2, 2] (the very last chunk in the bounding box)
+        current = vec![2, 2, 2];
+
+        // Incrementing the last chunk in the bounds should return false (exhausted)
+        assert!(!increment_chunk_grid(
+            &mut current,
+            &grid_shape,
+            &bounds_min,
+            &bounds_max
+        ));
+    }
+
+    #[test]
+    fn test_translate_filter() {
+        // Array: [0.0, 10.0, 20.0, 30.0, 40.0, 50.0]
+        let coords = vec![0.0, 10.0, 20.0, 30.0, 40.0, 50.0];
+
+        // lat = 20.0  => min_idx: 2, max_idx: 2
+        let (min, max) = translate_filter(&coords, "=", 20.0, 0, 5);
+        assert_eq!((min, max), (2, 2));
+
+        // lat < 25.0 => min_idx: 0, max_idx: 2
+        let (min, max) = translate_filter(&coords, "<", 25.0, 0, 5);
+        assert_eq!((min, max), (0, 2));
+
+        // lat >= 30.0 => min_idx: 3, max_idx: 5
+        let (min, max) = translate_filter(&coords, ">=", 30.0, 0, 5);
+        assert_eq!((min, max), (3, 5));
     }
 }
