@@ -3,11 +3,76 @@ use duckdb::vtab::{BindInfo, InitInfo, VTab};
 use duckdb::Result;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
-use zarrs::array::{Array, ArrayMetadata};
+use zarrs::array::{Array, ArrayMetadata, DataType};
 use zarrs::storage::store::FilesystemStore;
 
+macro_rules! dispatch_yield_loop {
+    ($rust_type:ty, $buffer:expr, $output:expr, $state:expr, $bind_data:expr) => {{
+        // Calculate how many elements we can yield this batch (max 2048)
+        let chunk_len = $bind_data.chunk_shape.iter().product::<u64>() as usize;
+        let elements_remaining = chunk_len - $state.local_chunk_cursor;
+        let batch_size = std::cmp::min(2048, elements_remaining);
+
+        let rank = $bind_data.shape.len();
+
+        // Output vectors
+        // Coordinates are the first `rank` columns. Value is the last column.
+        let mut value_vector = $output.flat_vector(rank);
+        let value_slice = value_vector.as_mut_slice::<$rust_type>();
+
+        for i in 0..batch_size {
+            let local_idx = $state.local_chunk_cursor + i;
+            let global_coords = calculate_global_indices(
+                local_idx,
+                &$bind_data.chunk_shape,
+                &$state.current_chunk_grid,
+            );
+
+            // Write coordinates
+            for dim in 0..rank {
+                let mut coord_vector = $output.flat_vector(dim);
+                let coord_slice = coord_vector.as_mut_slice::<i64>();
+                coord_slice[i] = global_coords[dim] as i64;
+            }
+
+            // Write value
+            let byte_offset = local_idx * std::mem::size_of::<$rust_type>();
+            let val_bytes: [u8; std::mem::size_of::<$rust_type>()] = $buffer
+                [byte_offset..byte_offset + std::mem::size_of::<$rust_type>()]
+                .try_into()
+                .unwrap();
+            let val = <$rust_type>::from_ne_bytes(val_bytes);
+            value_slice[i] = val;
+        }
+
+        // Advance state
+        $state.local_chunk_cursor += batch_size;
+        if $state.local_chunk_cursor >= chunk_len {
+            // Chunk exhausted, move to next
+            $state.local_chunk_cursor = 0;
+            $state.current_chunk_buffer = None; // Drop buffer
+
+            // Calculate chunk grid shape to know when we are done
+            let mut grid_shape = vec![0; rank];
+            for i in 0..rank {
+                grid_shape[i] =
+                    ($bind_data.shape[i] as f64 / $bind_data.chunk_shape[i] as f64).ceil() as u64;
+            }
+
+            if !increment_chunk_grid(&mut $state.current_chunk_grid, &grid_shape) {
+                $state.exhausted = true;
+            }
+        }
+
+        $output.set_len(batch_size);
+    }};
+}
+
 pub struct ReadZarrBindData {
-    _path: String,
+    pub path: String,
+    pub shape: Vec<u64>,
+    pub chunk_shape: Vec<u64>,
+    pub data_type: DataType,
 }
 
 pub struct IterationState {
@@ -55,15 +120,31 @@ impl VTab for ReadZarrVTab {
 
         // Add the value column based on the array's data type
         let value_type = match array.data_type() {
-            zarrs::array::DataType::Float32 => LogicalTypeId::Float,
-            zarrs::array::DataType::Float64 => LogicalTypeId::Double,
-            zarrs::array::DataType::Int32 => LogicalTypeId::Integer,
-            zarrs::array::DataType::Int64 => LogicalTypeId::Bigint,
+            DataType::Float32 => LogicalTypeId::Float,
+            DataType::Float64 => LogicalTypeId::Double,
+            DataType::Int32 => LogicalTypeId::Integer,
+            DataType::Int64 => LogicalTypeId::Bigint,
             _ => LogicalTypeId::Varchar, // Fallback
         };
         bind.add_result_column("value", value_type.into());
 
-        Ok(ReadZarrBindData { _path: path })
+        let shape = array.shape().to_vec();
+        let chunk_shape = array
+            .chunk_grid()
+            .chunk_shape(&vec![0; rank], &shape)
+            .unwrap()
+            .unwrap()
+            .iter()
+            .map(|n| n.get())
+            .collect();
+        let data_type = array.data_type().clone();
+
+        Ok(ReadZarrBindData {
+            path,
+            shape,
+            chunk_shape,
+            data_type,
+        })
     }
 
     fn init(_init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
@@ -82,7 +163,7 @@ impl VTab for ReadZarrVTab {
         func: &duckdb::vtab::TableFunctionInfo<ReadZarrVTab>,
         output: &mut DataChunkHandle,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let _bind_data = func.get_bind_data();
+        let bind_data = func.get_bind_data();
         let init_data = func.get_init_data();
 
         let mut state = init_data.state.lock().unwrap();
@@ -92,13 +173,51 @@ impl VTab for ReadZarrVTab {
             return Ok(());
         }
 
-        // Just mark exhausted immediately for now to match old behavior
-        state.exhausted = true;
+        // Initialize current_chunk_grid properly on first run
+        if state.current_chunk_grid.len() != bind_data.shape.len() {
+            state.current_chunk_grid = vec![0; bind_data.shape.len()];
+        }
 
-        output.set_len(0);
+        // If buffer is empty, fetch the next chunk
+        if state.current_chunk_buffer.is_none() {
+            let store =
+                FilesystemStore::new(&bind_data.path).map_err(|e| format!("zarrs error: {}", e))?;
+            let array =
+                Array::open(Arc::new(store), "/").map_err(|e| format!("zarrs error: {}", e))?;
+
+            // zarrs uses `retrieve_chunk`
+            let chunk_bytes = array
+                .retrieve_chunk(&state.current_chunk_grid)
+                .map_err(|e| format!("zarrs read error: {}", e))?;
+
+            // Extract the raw bytes from the ArrayBytes enum.
+            let bytes = chunk_bytes.into_fixed().unwrap().into_owned();
+            state.current_chunk_buffer = Some(bytes);
+        }
+
+        let buffer = state.current_chunk_buffer.as_ref().unwrap();
+
+        // Dispatch based on data type
+        match bind_data.data_type {
+            zarrs::array::DataType::Float32 => {
+                dispatch_yield_loop!(f32, buffer, output, state, bind_data)
+            }
+            zarrs::array::DataType::Float64 => {
+                dispatch_yield_loop!(f64, buffer, output, state, bind_data)
+            }
+            zarrs::array::DataType::Int32 => {
+                dispatch_yield_loop!(i32, buffer, output, state, bind_data)
+            }
+            zarrs::array::DataType::Int64 => {
+                dispatch_yield_loop!(i64, buffer, output, state, bind_data)
+            }
+            _ => return Err(format!("Unsupported data type: {:?}", bind_data.data_type).into()),
+        }
+
         Ok(())
     }
 }
+
 #[allow(dead_code)] // Will be used in the final yielding task
 fn increment_chunk_grid(current_grid: &mut [u64], grid_shape: &[u64]) -> bool {
     let rank = current_grid.len();
@@ -248,17 +367,17 @@ mod tests {
         let mut current = vec![0, 0, 0];
 
         // Increment should move the fastest varying dimension (the last one)
-        assert_eq!(increment_chunk_grid(&mut current, &grid_shape), true);
+        assert!(increment_chunk_grid(&mut current, &grid_shape));
         assert_eq!(current, vec![0, 0, 1]);
 
         // Increment again should carry over
-        assert_eq!(increment_chunk_grid(&mut current, &grid_shape), true);
+        assert!(increment_chunk_grid(&mut current, &grid_shape));
         assert_eq!(current, vec![0, 1, 0]);
 
         // Skip to [1, 2, 1] (the very last chunk)
         current = vec![1, 2, 1];
 
         // Incrementing the last chunk should return false (exhausted)
-        assert_eq!(increment_chunk_grid(&mut current, &grid_shape), false);
+        assert!(!increment_chunk_grid(&mut current, &grid_shape));
     }
 }

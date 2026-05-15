@@ -67,5 +67,13 @@ fn test_read_zarr_schema() -> Result<()> {
     println!("Columns: {:?}", column_names);
     assert_eq!(column_names, vec!["time", "lat", "value"]);
 
+    let count: i64 = conn.query_row(
+        &format!("SELECT count(*) FROM read_zarr('{}')", store_path.display()),
+        [],
+        |row| row.get(0),
+    )?;
+    // The array has shape [10, 20], so total elements is 200
+    assert_eq!(count, 200);
+
     Ok(())
 }
