@@ -2,8 +2,7 @@ use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
 use duckdb::vtab::{BindInfo, InitInfo, VTab};
 use duckdb::Result;
 use serde_json::Value;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use zarrs::array::{Array, ArrayMetadata};
 use zarrs::storage::store::FilesystemStore;
 
@@ -11,8 +10,15 @@ pub struct ReadZarrBindData {
     _path: String,
 }
 
+pub struct IterationState {
+    pub current_chunk_grid: Vec<u64>,
+    pub local_chunk_cursor: usize,
+    pub current_chunk_buffer: Option<Vec<u8>>,
+    pub exhausted: bool,
+}
+
 pub struct ReadZarrInitData {
-    done: AtomicBool,
+    state: Mutex<IterationState>,
 }
 
 pub struct ReadZarrVTab;
@@ -61,8 +67,14 @@ impl VTab for ReadZarrVTab {
     }
 
     fn init(_init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        // We will initialize current_chunk_grid properly in func, but for now we just need a default
         Ok(ReadZarrInitData {
-            done: AtomicBool::new(false),
+            state: Mutex::new(IterationState {
+                current_chunk_grid: vec![0],
+                local_chunk_cursor: 0,
+                current_chunk_buffer: None,
+                exhausted: false,
+            }),
         })
     }
 
@@ -73,15 +85,60 @@ impl VTab for ReadZarrVTab {
         let _bind_data = func.get_bind_data();
         let init_data = func.get_init_data();
 
-        if init_data.done.swap(true, Ordering::SeqCst) {
+        let mut state = init_data.state.lock().unwrap();
+
+        if state.exhausted {
             output.set_len(0);
             return Ok(());
         }
+
+        // Just mark exhausted immediately for now to match old behavior
+        state.exhausted = true;
 
         output.set_len(0);
         Ok(())
     }
 }
+#[allow(dead_code)] // Will be used in the final yielding task
+fn increment_chunk_grid(current_grid: &mut [u64], grid_shape: &[u64]) -> bool {
+    let rank = current_grid.len();
+    for i in (0..rank).rev() {
+        current_grid[i] += 1;
+        if current_grid[i] < grid_shape[i] {
+            return true; // Successfully incremented within bounds
+        } else {
+            current_grid[i] = 0; // Carry over to the next dimension
+        }
+    }
+    false // All dimensions carried over, we are out of bounds (exhausted)
+}
+
+#[allow(dead_code)] // Will be used in Task 3
+fn calculate_global_indices(
+    local_cursor: usize,
+    chunk_shape: &[u64],
+    chunk_grid: &[u64],
+) -> Vec<u64> {
+    let rank = chunk_shape.len();
+    let mut local_coords = vec![0; rank];
+    let mut remainder = local_cursor as u64;
+
+    // Calculate local coordinates (C-contiguous order, so we process from right to left)
+    for i in (0..rank).rev() {
+        let dim_size = chunk_shape[i];
+        local_coords[i] = remainder % dim_size;
+        remainder /= dim_size;
+    }
+
+    // Add global chunk offset
+    let mut global_coords = vec![0; rank];
+    for i in 0..rank {
+        global_coords[i] = (chunk_grid[i] * chunk_shape[i]) + local_coords[i];
+    }
+
+    global_coords
+}
+
 fn resolve_dimension_names(metadata: &ArrayMetadata, rank: usize) -> Vec<String> {
     let attributes = match metadata {
         ArrayMetadata::V2(meta) => &meta.attributes,
@@ -150,5 +207,58 @@ mod tests {
         let metadata_attrs: ArrayMetadata = serde_json::from_str(json_meta).unwrap();
         let names = resolve_dimension_names(&metadata_attrs, 3);
         assert_eq!(names, vec!["time", "lat", "lon"]);
+    }
+
+    #[test]
+    fn test_iteration_state_initialization() {
+        let state = IterationState {
+            current_chunk_grid: vec![0, 0, 0],
+            local_chunk_cursor: 0,
+            current_chunk_buffer: None,
+            exhausted: false,
+        };
+
+        assert_eq!(state.current_chunk_grid, vec![0, 0, 0]);
+        assert_eq!(state.local_chunk_cursor, 0);
+        assert!(state.current_chunk_buffer.is_none());
+        assert!(!state.exhausted);
+    }
+
+    #[test]
+    fn test_calculate_global_indices() {
+        let chunk_shape = vec![10, 10, 10];
+        let chunk_grid = vec![2, 0, 1]; // We are in chunk [2, 0, 1]
+
+        // Test the first element in the chunk
+        let indices = calculate_global_indices(0, &chunk_shape, &chunk_grid);
+        assert_eq!(indices, vec![20, 0, 10]);
+
+        // Test the 15th element (index 14). Since shape is [10, 10, 10],
+        // index 14 is z=0, y=1, x=4 locally.
+        // Global should be z=20, y=1, x=14
+        let indices = calculate_global_indices(14, &chunk_shape, &chunk_grid);
+        assert_eq!(indices, vec![20, 1, 14]);
+    }
+
+    #[test]
+    fn test_increment_chunk_grid() {
+        let grid_shape = vec![2, 3, 2];
+
+        // Start at [0, 0, 0]
+        let mut current = vec![0, 0, 0];
+
+        // Increment should move the fastest varying dimension (the last one)
+        assert_eq!(increment_chunk_grid(&mut current, &grid_shape), true);
+        assert_eq!(current, vec![0, 0, 1]);
+
+        // Increment again should carry over
+        assert_eq!(increment_chunk_grid(&mut current, &grid_shape), true);
+        assert_eq!(current, vec![0, 1, 0]);
+
+        // Skip to [1, 2, 1] (the very last chunk)
+        current = vec![1, 2, 1];
+
+        // Incrementing the last chunk should return false (exhausted)
+        assert_eq!(increment_chunk_grid(&mut current, &grid_shape), false);
     }
 }
