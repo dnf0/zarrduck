@@ -48,7 +48,7 @@ fn test_read_zarr_schema() -> Result<()> {
     array.store_metadata().unwrap();
 
     let query = format!("SELECT * FROM read_zarr('{}')", store_path.display());
-    let mut stmt = conn.prepare(&query).expect("Prepare failed");
+    let _stmt = conn.prepare(&query).expect("Prepare failed");
 
     // Use an actual query to get the columns if column_names fails
     let query_info = format!(

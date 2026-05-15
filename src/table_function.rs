@@ -8,7 +8,7 @@ use zarrs::array::{Array, ArrayMetadata};
 use zarrs::storage::store::FilesystemStore;
 
 pub struct ReadZarrBindData {
-    path: String,
+    _path: String,
 }
 
 pub struct ReadZarrInitData {
@@ -57,7 +57,7 @@ impl VTab for ReadZarrVTab {
         };
         bind.add_result_column("value", value_type.into());
 
-        Ok(ReadZarrBindData { path })
+        Ok(ReadZarrBindData { _path: path })
     }
 
     fn init(_init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
