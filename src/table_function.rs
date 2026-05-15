@@ -118,6 +118,65 @@ impl VTab for ReadZarrVTab {
         Ok(())
     }
 }
+
+macro_rules! dispatch_yield_loop {
+    ($rust_type:ty, $buffer:expr, $output:expr, $state:expr, $bind_data:expr) => {{
+        // Calculate how many elements we can yield this batch (max 2048)
+        let chunk_len = $bind_data.chunk_shape.iter().product::<u64>() as usize;
+        let elements_remaining = chunk_len - $state.local_chunk_cursor;
+        let batch_size = std::cmp::min(2048, elements_remaining);
+
+        // Transmute the raw bytes into a strongly-typed slice
+        // Zarrs returns bytes in native endianness.
+        let typed_slice: &[$rust_type] = bytemuck::cast_slice($buffer);
+
+        let rank = $bind_data.shape.len();
+
+        // Output vectors
+        // Coordinates are the first `rank` columns. Value is the last column.
+        let mut value_vector = $output.flat_vector::<$rust_type>(rank);
+
+        for i in 0..batch_size {
+            let local_idx = $state.local_chunk_cursor + i;
+            let global_coords = calculate_global_indices(
+                local_idx,
+                &$bind_data.chunk_shape,
+                &$state.current_chunk_grid,
+            );
+
+            // Write coordinates
+            for dim in 0..rank {
+                let mut coord_vector = $output.flat_vector::<i64>(dim);
+                coord_vector.insert(i, global_coords[dim] as i64);
+            }
+
+            // Write value
+            value_vector.insert(i, typed_slice[local_idx]);
+        }
+
+        // Advance state
+        $state.local_chunk_cursor += batch_size;
+        if $state.local_chunk_cursor >= chunk_len {
+            // Chunk exhausted, move to next
+            $state.local_chunk_cursor = 0;
+            $state.current_chunk_buffer = None; // Drop buffer
+
+            // Calculate chunk grid shape to know when we are done
+            let mut grid_shape = vec![0; rank];
+            for i in 0..rank {
+                grid_shape[i] =
+                    ($bind_data.shape[i] as f64 / $bind_data.chunk_shape[i] as f64).ceil() as u64;
+            }
+
+            if !increment_chunk_grid(&mut $state.current_chunk_grid, &grid_shape) {
+                $state.exhausted = true;
+            }
+        }
+
+        $output.set_len(batch_size);
+    }};
+}
+
 #[allow(dead_code)] // Will be used in the final yielding task
 fn increment_chunk_grid(current_grid: &mut [u64], grid_shape: &[u64]) -> bool {
     let rank = current_grid.len();

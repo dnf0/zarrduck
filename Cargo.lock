@@ -665,6 +665,7 @@ dependencies = [
 name = "duckdb_geozarr"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "duckdb",
  "serde_json",
  "tempfile",
