@@ -1,0 +1,12 @@
+[package]
+name = "duckdb_geozarr"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "geozarr"
+crate-type = ["cdylib"]
+
+[dependencies]
+duckdb = { version = "1.1.1", features = ["loadable-extension"] }
+zarrs = "0.16.4"
