@@ -3,7 +3,7 @@
 **Date:** 2026-05-15
 
 ## 1. Purpose & Context
-The project aims to transition from S2-indexed Parquet to Zarr to better support N-dimensional scientific datasets (time, depth, variables). The ultimate goal is to enable **Agentic Data Discovery**, where LLMs can intuitively explore and query massive geospatial arrays. 
+The project aims to transition from S2-indexed Parquet to Zarr to better support N-dimensional scientific datasets (time, depth, variables). The ultimate goal is to enable **Agentic Data Discovery**, where LLMs can intuitively explore and query massive geospatial arrays.
 
 While existing tools like `duckdb_zarr` offer an MVP for SQL-over-Zarr, they lack robust support for complex Blosc codecs, native Zarr v3 features, and advanced spatial pushdown. To achieve state-of-the-art performance and reliability, we will build a custom, high-performance DuckDB extension in Rust.
 
@@ -25,8 +25,8 @@ The extension acts as a high-performance bridge between N-dimensional cloud arra
 5. **Byte Fetch & Materialization:** It fetches only the required chunks directly from S3/HTTP, decompresses them, and materializes the N-dimensional data directly into DuckDB's 1D columnar vectors.
 
 ## 4. LLM Integration Strategy
-By solving the N-dimensional data access problem at the database engine level, the LLM agent integration is drastically simplified. 
-- An LLM (e.g., via MCP or a custom agent framework) does not need to execute arbitrary Python/Xarray code. 
+By solving the N-dimensional data access problem at the database engine level, the LLM agent integration is drastically simplified.
+- An LLM (e.g., via MCP or a custom agent framework) does not need to execute arbitrary Python/Xarray code.
 - It simply uses standard DuckDB SQL (Text-to-SQL) to query the Zarr stores.
 - The heavy lifting of spatial chunking and N-dimensional mapping is safely abstracted away inside the Rust database engine.
 
