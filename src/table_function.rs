@@ -228,10 +228,46 @@ impl VTab for ReadZarrVTab {
             .collect();
         let data_type = array.data_type().clone();
 
-        let bounds_min = vec![0; rank];
+        let mut bounds_min = vec![0; rank];
         let mut bounds_max = vec![0; rank];
         for i in 0..rank {
             bounds_max[i] = if shape[i] > 0 { shape[i] - 1 } else { 0 };
+        }
+
+        for (dim_index, name) in dim_names.iter().enumerate() {
+            if let Some(coord_vals) = coords.get(name) {
+                // Check for minimum bound parameter (e.g. "lat_min")
+                let min_param_name = format!("{}_min", name);
+                if let Some(min_val_wrapped) = bind.get_named_parameter(&min_param_name) {
+                    if let Ok(min_val) = min_val_wrapped.to_string().parse::<f64>() {
+                        let (translated_min, _) = crate::table_function::translate_filter(
+                            coord_vals,
+                            ">=",
+                            min_val,
+                            bounds_min[dim_index],
+                            bounds_max[dim_index],
+                        );
+                        bounds_min[dim_index] =
+                            std::cmp::max(bounds_min[dim_index], translated_min);
+                    }
+                }
+
+                // Check for maximum bound parameter (e.g. "lat_max")
+                let max_param_name = format!("{}_max", name);
+                if let Some(max_val_wrapped) = bind.get_named_parameter(&max_param_name) {
+                    if let Ok(max_val) = max_val_wrapped.to_string().parse::<f64>() {
+                        let (_, translated_max) = crate::table_function::translate_filter(
+                            coord_vals,
+                            "<=",
+                            max_val,
+                            bounds_min[dim_index],
+                            bounds_max[dim_index],
+                        );
+                        bounds_max[dim_index] =
+                            std::cmp::min(bounds_max[dim_index], translated_max);
+                    }
+                }
+            }
         }
 
         Ok(ReadZarrBindData {
@@ -247,15 +283,22 @@ impl VTab for ReadZarrVTab {
     }
 
     fn init(_init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
-        let bind_data = _init.get_bind_data::<ReadZarrBindData>();
+        let bind_data = unsafe { &*_init.get_bind_data::<ReadZarrBindData>() };
+
+        let rank = bind_data.shape.len();
+        let mut chunk_bounds_min = vec![0; rank];
+        for (i, bound) in chunk_bounds_min.iter_mut().enumerate().take(rank) {
+            *bound = bind_data.bounds_min[i] / bind_data.chunk_shape[i];
+        }
+
         Ok(ReadZarrInitData {
             state: Mutex::new(IterationState {
-                current_chunk_grid: unsafe { (*bind_data).bounds_min.clone() },
+                current_chunk_grid: chunk_bounds_min,
                 local_chunk_cursor: 0,
                 current_chunk_buffer: None,
                 exhausted: false,
-                bounds_min: unsafe { (*bind_data).bounds_min.clone() },
-                bounds_max: unsafe { (*bind_data).bounds_max.clone() },
+                bounds_min: bind_data.bounds_min.clone(),
+                bounds_max: bind_data.bounds_max.clone(),
             }),
         })
     }

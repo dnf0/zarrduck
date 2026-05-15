@@ -110,15 +110,20 @@ fn test_read_zarr_schema() -> Result<()> {
     // The array has shape [10, 20], so total elements is 200
     assert_eq!(count, 200);
 
-    // Test that named parameters compile and execute
+    // Test that named parameters compile and execute and filter down the rows
     let query_params = format!(
-        "SELECT count(*) FROM read_zarr('{}', lat_min := 45.0, lat_max := 50.0)",
+        "SELECT count(*) FROM read_zarr('{}', lat_min := 50.0, lat_max := 55.0)",
         store_path.display()
     );
     let mut stmt_params = conn.prepare(&query_params)?;
     let count_params: i64 = stmt_params.query_row([], |row| row.get(0))?;
-    // The count will change depending on filtering logic. We just want it to compile for this test.
-    assert!(count_params >= 0);
+    // lat goes from 45.0 to 64.0 (20 elements).
+    // 50.0 to 55.0 covers indices 5 through 10.
+    // Chunk shape is 5. So it fetches chunks 1 and 2.
+    // Chunks 1 and 2 cover indices 5 through 14 (10 elements total).
+    // The other dimension (time) is length 10.
+    // Total expected rows yielded before DuckDB applies a WHERE filter: 10 * 10 = 100.
+    assert_eq!(count_params, 100);
 
     Ok(())
 }
