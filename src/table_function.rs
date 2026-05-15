@@ -18,6 +18,9 @@ impl VTab for ReadZarrVTab {
     type BindData = ReadZarrBindData;
 
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        if bind.get_parameter_count() < 1 {
+            return Err("read_zarr requires at least 1 parameter (path)".into());
+        }
         bind.add_result_column("path", LogicalTypeId::Varchar.into());
         let path = bind.get_parameter(0).to_string();
         Ok(ReadZarrBindData { path })
