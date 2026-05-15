@@ -3,11 +3,14 @@ use duckdb::vtab::{BindInfo, InitInfo, VTab};
 use duckdb::Result;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
-use zarrs::array::{Array, ArrayMetadata};
+use zarrs::array::{Array, ArrayMetadata, DataType};
 use zarrs::storage::store::FilesystemStore;
 
 pub struct ReadZarrBindData {
-    _path: String,
+    pub path: String,
+    pub shape: Vec<u64>,
+    pub chunk_shape: Vec<u64>,
+    pub data_type: DataType,
 }
 
 pub struct IterationState {
@@ -55,15 +58,31 @@ impl VTab for ReadZarrVTab {
 
         // Add the value column based on the array's data type
         let value_type = match array.data_type() {
-            zarrs::array::DataType::Float32 => LogicalTypeId::Float,
-            zarrs::array::DataType::Float64 => LogicalTypeId::Double,
-            zarrs::array::DataType::Int32 => LogicalTypeId::Integer,
-            zarrs::array::DataType::Int64 => LogicalTypeId::Bigint,
+            DataType::Float32 => LogicalTypeId::Float,
+            DataType::Float64 => LogicalTypeId::Double,
+            DataType::Int32 => LogicalTypeId::Integer,
+            DataType::Int64 => LogicalTypeId::Bigint,
             _ => LogicalTypeId::Varchar, // Fallback
         };
         bind.add_result_column("value", value_type.into());
 
-        Ok(ReadZarrBindData { _path: path })
+        let shape = array.shape().to_vec();
+        let chunk_shape = array
+            .chunk_grid()
+            .chunk_shape(&vec![0; rank], &shape)
+            .unwrap()
+            .unwrap()
+            .iter()
+            .map(|n| n.get())
+            .collect();
+        let data_type = array.data_type().clone();
+
+        Ok(ReadZarrBindData {
+            path,
+            shape,
+            chunk_shape,
+            data_type,
+        })
     }
 
     fn init(_init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
