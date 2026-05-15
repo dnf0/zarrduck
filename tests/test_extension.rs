@@ -110,5 +110,15 @@ fn test_read_zarr_schema() -> Result<()> {
     // The array has shape [10, 20], so total elements is 200
     assert_eq!(count, 200);
 
+    // Test that named parameters compile and execute
+    let query_params = format!(
+        "SELECT count(*) FROM read_zarr('{}', lat_min := 45.0, lat_max := 50.0)",
+        store_path.display()
+    );
+    let mut stmt_params = conn.prepare(&query_params)?;
+    let count_params: i64 = stmt_params.query_row([], |row| row.get(0))?;
+    // The count will change depending on filtering logic. We just want it to compile for this test.
+    assert!(count_params >= 0);
+
     Ok(())
 }

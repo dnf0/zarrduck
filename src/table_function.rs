@@ -127,6 +127,17 @@ impl VTab for ReadZarrVTab {
         Some(vec![LogicalTypeHandle::from(LogicalTypeId::Varchar)])
     }
 
+    fn named_parameters() -> Option<Vec<(String, LogicalTypeHandle)>> {
+        Some(vec![
+            ("lat_min".to_string(), LogicalTypeId::Double.into()),
+            ("lat_max".to_string(), LogicalTypeId::Double.into()),
+            ("lon_min".to_string(), LogicalTypeId::Double.into()),
+            ("lon_max".to_string(), LogicalTypeId::Double.into()),
+            ("time_min".to_string(), LogicalTypeId::Double.into()), // Can be cast to timestamp later if needed
+            ("time_max".to_string(), LogicalTypeId::Double.into()),
+        ])
+    }
+
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
         if bind.get_parameter_count() < 1 {
             return Err("read_zarr requires at least 1 parameter (path)".into());
