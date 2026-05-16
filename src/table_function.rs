@@ -27,27 +27,35 @@ macro_rules! dispatch_yield_loop {
 
         for i in 0..batch_size {
             let local_idx = $state.local_chunk_cursor + i;
-            let global_coords = calculate_global_indices(
-                local_idx,
-                &$bind_data.chunk_shape,
-                &$state.current_chunk_grid,
-            );
+            let has_projected_coords = (0..rank).any(|dim| $state.projected_columns.contains(&dim));
+
+            let global_coords = if has_projected_coords {
+                calculate_global_indices(
+                    local_idx,
+                    &$bind_data.chunk_shape,
+                    &$state.current_chunk_grid,
+                )
+            } else {
+                vec![]
+            };
 
             // Write coordinates
             for dim in 0..rank {
-                if let Some(coord_vals) = coord_arrays[dim] {
-                    let mut coord_vector = $output.flat_vector(dim);
-                    let coord_slice = coord_vector.as_mut_slice::<f64>();
-                    // O(1) lookup of the physical coordinate value, with graceful fallback
-                    coord_slice[i] = coord_vals
-                        .get(global_coords[dim] as usize)
-                        .copied()
-                        .unwrap_or(f64::NAN);
-                } else {
-                    let mut coord_vector = $output.flat_vector(dim);
-                    let coord_slice = coord_vector.as_mut_slice::<i64>();
-                    // Fallback to integer index
-                    coord_slice[i] = global_coords[dim] as i64;
+                if $state.projected_columns.contains(&dim) {
+                    if let Some(coord_vals) = coord_arrays[dim] {
+                        let mut coord_vector = $output.flat_vector(dim);
+                        let coord_slice = coord_vector.as_mut_slice::<f64>();
+                        // O(1) lookup of the physical coordinate value, with graceful fallback
+                        coord_slice[i] = coord_vals
+                            .get(global_coords[dim] as usize)
+                            .copied()
+                            .unwrap_or(f64::NAN);
+                    } else {
+                        let mut coord_vector = $output.flat_vector(dim);
+                        let coord_slice = coord_vector.as_mut_slice::<i64>();
+                        // Fallback to integer index
+                        coord_slice[i] = global_coords[dim] as i64;
+                    }
                 }
             }
 
@@ -58,7 +66,11 @@ macro_rules! dispatch_yield_loop {
                 .try_into()
                 .unwrap();
             let val = <$rust_type>::from_ne_bytes(val_bytes);
-            value_slice[i] = val;
+
+            // Write value (the value column is always at index `rank`)
+            if $state.projected_columns.contains(&rank) {
+                value_slice[i] = val;
+            }
         }
 
         // Advance state
@@ -111,6 +123,9 @@ pub struct IterationState {
     pub exhausted: bool,
     pub bounds_min: Vec<u64>,
     pub bounds_max: Vec<u64>,
+    pub chunk_bounds_min: Vec<u64>,
+    pub chunk_bounds_max: Vec<u64>,
+    pub projected_columns: Vec<usize>,
 }
 
 pub struct ReadZarrInitData {
@@ -287,18 +302,27 @@ impl VTab for ReadZarrVTab {
 
         let rank = bind_data.shape.len();
         let mut chunk_bounds_min = vec![0; rank];
-        for (i, bound) in chunk_bounds_min.iter_mut().enumerate().take(rank) {
-            *bound = bind_data.bounds_min[i] / bind_data.chunk_shape[i];
+        let mut chunk_bounds_max = vec![0; rank];
+        for i in 0..rank {
+            chunk_bounds_min[i] = bind_data.bounds_min[i] / bind_data.chunk_shape[i];
+            chunk_bounds_max[i] = bind_data.bounds_max[i] / bind_data.chunk_shape[i];
         }
 
         Ok(ReadZarrInitData {
             state: Mutex::new(IterationState {
-                current_chunk_grid: chunk_bounds_min,
+                current_chunk_grid: chunk_bounds_min.clone(),
                 local_chunk_cursor: 0,
                 current_chunk_buffer: None,
                 exhausted: false,
                 bounds_min: bind_data.bounds_min.clone(),
                 bounds_max: bind_data.bounds_max.clone(),
+                chunk_bounds_min,
+                chunk_bounds_max,
+                projected_columns: _init
+                    .get_column_indices()
+                    .into_iter()
+                    .map(|i| i as usize)
+                    .collect(),
             }),
         })
     }
@@ -532,6 +556,9 @@ mod tests {
             exhausted: false,
             bounds_min: vec![0, 0, 0],
             bounds_max: vec![9, 9, 9],
+            chunk_bounds_min: vec![0, 0, 0],
+            chunk_bounds_max: vec![1, 1, 1],
+            projected_columns: vec![0, 1],
         };
 
         assert_eq!(state.current_chunk_grid, vec![0, 0, 0]);
@@ -540,6 +567,9 @@ mod tests {
         assert!(!state.exhausted);
         assert_eq!(state.bounds_min, vec![0, 0, 0]);
         assert_eq!(state.bounds_max, vec![9, 9, 9]);
+        assert_eq!(state.chunk_bounds_min, vec![0, 0, 0]);
+        assert_eq!(state.chunk_bounds_max, vec![1, 1, 1]);
+        assert_eq!(state.projected_columns, vec![0, 1]);
     }
 
     #[test]
