@@ -1,9 +1,17 @@
 {
-  "branches": [
-    { "name": "main", "prerelease": "beta" }
-  ],
+  "branches": ["main"],
   "plugins": [
-    "@semantic-release/commit-analyzer",
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "angular",
+        "releaseRules": [
+          { "breaking": true, "release": "minor" },
+          { "type": "feat", "release": "minor" },
+          { "type": "fix", "release": "patch" }
+        ]
+      }
+    ],
     "@semantic-release/release-notes-generator",
     "@semantic-release/github"
   ]
