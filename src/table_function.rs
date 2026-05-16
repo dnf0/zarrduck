@@ -111,6 +111,9 @@ pub struct IterationState {
     pub exhausted: bool,
     pub bounds_min: Vec<u64>,
     pub bounds_max: Vec<u64>,
+    pub chunk_bounds_min: Vec<u64>,
+    pub chunk_bounds_max: Vec<u64>,
+    pub projected_columns: Vec<usize>,
 }
 
 pub struct ReadZarrInitData {
@@ -287,18 +290,27 @@ impl VTab for ReadZarrVTab {
 
         let rank = bind_data.shape.len();
         let mut chunk_bounds_min = vec![0; rank];
-        for (i, bound) in chunk_bounds_min.iter_mut().enumerate().take(rank) {
-            *bound = bind_data.bounds_min[i] / bind_data.chunk_shape[i];
+        let mut chunk_bounds_max = vec![0; rank];
+        for i in 0..rank {
+            chunk_bounds_min[i] = bind_data.bounds_min[i] / bind_data.chunk_shape[i];
+            chunk_bounds_max[i] = bind_data.bounds_max[i] / bind_data.chunk_shape[i];
         }
 
         Ok(ReadZarrInitData {
             state: Mutex::new(IterationState {
-                current_chunk_grid: chunk_bounds_min,
+                current_chunk_grid: chunk_bounds_min.clone(),
                 local_chunk_cursor: 0,
                 current_chunk_buffer: None,
                 exhausted: false,
                 bounds_min: bind_data.bounds_min.clone(),
                 bounds_max: bind_data.bounds_max.clone(),
+                chunk_bounds_min,
+                chunk_bounds_max,
+                projected_columns: _init
+                    .get_column_indices()
+                    .into_iter()
+                    .map(|i| i as usize)
+                    .collect(),
             }),
         })
     }
@@ -532,6 +544,9 @@ mod tests {
             exhausted: false,
             bounds_min: vec![0, 0, 0],
             bounds_max: vec![9, 9, 9],
+            chunk_bounds_min: vec![0, 0, 0],
+            chunk_bounds_max: vec![1, 1, 1],
+            projected_columns: vec![0, 1],
         };
 
         assert_eq!(state.current_chunk_grid, vec![0, 0, 0]);
@@ -540,6 +555,9 @@ mod tests {
         assert!(!state.exhausted);
         assert_eq!(state.bounds_min, vec![0, 0, 0]);
         assert_eq!(state.bounds_max, vec![9, 9, 9]);
+        assert_eq!(state.chunk_bounds_min, vec![0, 0, 0]);
+        assert_eq!(state.chunk_bounds_max, vec![1, 1, 1]);
+        assert_eq!(state.projected_columns, vec![0, 1]);
     }
 
     #[test]
