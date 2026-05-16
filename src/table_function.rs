@@ -424,7 +424,7 @@ impl VTab for ReadZarrVTab {
                 // Strings must be handled explicitly since DuckDB Varchar FlatVectors don't use as_mut_slice
                 let mut valid_rows = 0;
                 let rank = bind_data.shape.len();
-                let value_vector = output.flat_vector(rank);
+                let mut value_vector = output.flat_vector(rank);
 
                 while valid_rows == 0 && !state.exhausted {
                     // If buffer is empty, fetch the next chunk using typed retrieval
@@ -490,10 +490,15 @@ impl VTab for ReadZarrVTab {
                     }
 
                     if state.projected_columns.contains(&rank) {
+                        let fill_bytes_slice = bind_data.fill_value_bytes.as_slice();
                         for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
                             let val = &buffer[*local_idx];
-                            // Insert string using the dedicated insert method
-                            value_vector.insert(valid_rows + idx, val.as_str());
+                            if val.as_bytes() == fill_bytes_slice {
+                                value_vector.set_null(valid_rows + idx);
+                            } else {
+                                // Insert string using the dedicated insert method
+                                value_vector.insert(valid_rows + idx, val.as_str());
+                            }
                         }
                     }
 
