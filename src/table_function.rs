@@ -333,7 +333,15 @@ impl VTab for ReadZarrVTab {
             DataType::Float64 => LogicalTypeId::Double,
             DataType::Int32 => LogicalTypeId::Integer,
             DataType::Int64 => LogicalTypeId::Bigint,
-            _ => LogicalTypeId::Varchar, // Fallback
+            DataType::String => LogicalTypeId::Varchar,
+            DataType::Bool => LogicalTypeId::Boolean,
+            DataType::Int8 => LogicalTypeId::Tinyint,
+            DataType::Int16 => LogicalTypeId::Smallint,
+            DataType::UInt8 => LogicalTypeId::UTinyint,
+            DataType::UInt16 => LogicalTypeId::USmallint,
+            DataType::UInt32 => LogicalTypeId::UInteger,
+            DataType::UInt64 => LogicalTypeId::UBigint,
+            _ => return Err(format!("Unsupported data type: {:?}", array.data_type()).into()),
         };
         bind.add_result_column("value", value_type.into());
 
