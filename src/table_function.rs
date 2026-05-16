@@ -60,120 +60,119 @@ impl_fill_value_cmp!(u32);
 impl_fill_value_cmp!(u64);
 
 macro_rules! dispatch_yield_loop {
-    ($rust_type:ty, $enum_variant:path, $output:expr, $state:expr, $bind_data:expr) => {{
+    ($rust_type:ty, $enum_variant:path, $output:expr, $local_state:expr, $global_state:expr, $bind_data:expr) => {{
+        // If buffer is empty, lock global state to get a new chunk grid, then fetch
+        if $local_state.current_chunk_buffer.is_none() {
+            let mut g_state = $global_state.lock().map_err(|e| format!("Mutex poisoned: {}", e))?;
+            if g_state.exhausted {
+                $output.set_len(0);
+                return Ok(());
+            }
+
+            // Copy the current global grid to our local assigned grid
+            $local_state.assigned_grid = g_state.current_chunk_grid.clone();
+
+            // Increment the global grid for the next thread
+            let rank = $bind_data.shape.len();
+            let mut grid_shape = vec![0; rank];
+            let mut chunk_bounds_min = vec![0; rank];
+            let mut chunk_bounds_max = vec![0; rank];
+            for i in 0..rank {
+                grid_shape[i] = ($bind_data.shape[i] as f64 / $bind_data.chunk_shape[i] as f64).ceil() as u64;
+                chunk_bounds_min[i] = $bind_data.bounds_min[i] / $bind_data.chunk_shape[i];
+                chunk_bounds_max[i] = $bind_data.bounds_max[i] / $bind_data.chunk_shape[i];
+            }
+
+            if !crate::table_function::increment_chunk_grid(
+                &mut g_state.current_chunk_grid,
+                &grid_shape,
+                &chunk_bounds_min,
+                &chunk_bounds_max,
+            ) {
+                g_state.exhausted = true;
+            }
+            // Explicitly drop global lock before I/O
+            drop(g_state);
+
+            // Fetch the chunk lock-free
+            let elements = $bind_data
+                .array
+                .retrieve_chunk_elements::<$rust_type>(&$local_state.assigned_grid)
+                .map_err(|e| format!("zarrs read error: {}", e))?;
+            $local_state.current_chunk_buffer = Some($enum_variant(elements));
+        }
+
+        let buffer = match $local_state.current_chunk_buffer.as_ref().unwrap() {
+            $enum_variant(buf) => buf,
+            _ => return Err("Chunk buffer type mismatch".into()),
+        };
+
+        let chunk_len = $bind_data.chunk_shape.iter().product::<u64>() as usize;
+        let elements_remaining = chunk_len - $local_state.local_chunk_cursor;
+        let batch_size = std::cmp::min(2048, elements_remaining);
+
         let rank = $bind_data.shape.len();
         let mut value_vector = $output.flat_vector(rank);
-
-        let fill_bytes_slice = $bind_data.fill_value_bytes.as_deref().unwrap_or_default();
+        
+        let fill_bytes_slice = $bind_data.fill_value_bytes.as_slice();
 
         let mut valid_rows = 0;
 
-        while valid_rows == 0 && !$state.exhausted {
-            // If buffer is empty, fetch the next chunk using typed retrieval
-            if $state.current_chunk_buffer.is_none() {
-                let elements = $bind_data
-                    .array
-                    .retrieve_chunk_elements::<$rust_type>(&$state.current_chunk_grid)
-                    .map_err(|e| format!("zarrs read error: {}", e))?;
-                $state.current_chunk_buffer = Some($enum_variant(elements));
-            }
+        for i in 0..batch_size {
+            let local_idx = $local_state.local_chunk_cursor + i;
+            let global_coords = crate::table_function::calculate_global_indices(
+                local_idx,
+                &$bind_data.chunk_shape,
+                &$local_state.assigned_grid,
+            );
 
-            let buffer = match $state.current_chunk_buffer.as_ref().unwrap() {
-                $enum_variant(buf) => buf,
-                _ => return Err("Chunk buffer type mismatch".into()),
-            };
-
-            let chunk_len = $bind_data.chunk_shape.iter().product::<u64>() as usize;
-            let elements_remaining = chunk_len - $state.local_chunk_cursor;
-            let batch_size = std::cmp::min(2048, elements_remaining);
-
-            let mut valid_coords = Vec::with_capacity(batch_size);
-            for i in 0..batch_size {
-                let local_idx = $state.local_chunk_cursor + i;
-                let global_coords = crate::table_function::calculate_global_indices(
-                    local_idx,
-                    &$bind_data.chunk_shape,
-                    &$state.current_chunk_grid,
-                );
-
-                // Ghost row check: Ensure global coords do not exceed array shape bounds
-                let mut out_of_bounds = false;
-                for dim in 0..rank {
-                    if global_coords[dim] > $bind_data.bounds_max[dim] {
-                        out_of_bounds = true;
-                        break;
-                    }
-                }
-                if !out_of_bounds {
-                    valid_coords.push((local_idx, global_coords));
-                }
-            }
-
-            // Write coordinates
+            let mut out_of_bounds = false;
             for dim in 0..rank {
-                if $state.projected_columns.contains(&dim) {
+                if global_coords[dim] > $bind_data.bounds_max[dim] {
+                    out_of_bounds = true;
+                    break;
+                }
+            }
+            if out_of_bounds {
+                continue;
+            }
+
+            for dim in 0..rank {
+                if $local_state.projected_columns.contains(&dim) {
                     if let Some(coord_vals) = $bind_data.coords.get(&$bind_data.dim_names[dim]) {
                         let mut coord_vector = $output.flat_vector(dim);
                         let coord_slice = coord_vector.as_mut_slice::<f64>();
-                        for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
-                            coord_slice[valid_rows + idx] = coord_vals
-                                .get(global_coords[dim] as usize)
-                                .copied()
-                                .unwrap_or(f64::NAN);
-                        }
+                        coord_slice[valid_rows] = coord_vals
+                            .get(global_coords[dim] as usize)
+                            .copied()
+                            .unwrap_or(f64::NAN);
                     } else {
                         let mut coord_vector = $output.flat_vector(dim);
                         let coord_slice = coord_vector.as_mut_slice::<i64>();
-                        for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
-                            coord_slice[valid_rows + idx] = global_coords[dim] as i64;
-                        }
+                        coord_slice[valid_rows] = global_coords[dim] as i64;
                     }
                 }
             }
 
-            // Write value
-            if $state.projected_columns.contains(&rank) {
-                {
-                    let value_slice = value_vector.as_mut_slice::<$rust_type>();
-                    for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
-                        value_slice[valid_rows + idx] = buffer[*local_idx];
-                    }
-                }
-                for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
-                    let val = buffer[*local_idx];
-                    if val.is_fill_value(fill_bytes_slice) {
-                        value_vector.set_null(valid_rows + idx);
-                    }
+            if $local_state.projected_columns.contains(&rank) {
+                let val = buffer[local_idx];
+                let val_bytes = val.to_ne_bytes();
+                let is_fill = val_bytes.as_ref() == fill_bytes_slice;
+
+                if is_fill {
+                    value_vector.set_null(valid_rows);
+                } else {
+                    value_vector.as_mut_slice::<$rust_type>()[valid_rows] = val;
                 }
             }
 
-            valid_rows += valid_coords.len();
+            valid_rows += 1;
+        }
 
-            // Advance state
-            $state.local_chunk_cursor += batch_size;
-            if $state.local_chunk_cursor >= chunk_len {
-                $state.local_chunk_cursor = 0;
-                $state.current_chunk_buffer = None;
-
-                let mut grid_shape = vec![0; rank];
-                let mut chunk_bounds_min = vec![0; rank];
-                let mut chunk_bounds_max = vec![0; rank];
-                for i in 0..rank {
-                    grid_shape[i] = ($bind_data.shape[i] as f64 / $bind_data.chunk_shape[i] as f64)
-                        .ceil() as u64;
-                    chunk_bounds_min[i] = $state.bounds_min[i] / $bind_data.chunk_shape[i];
-                    chunk_bounds_max[i] = $state.bounds_max[i] / $bind_data.chunk_shape[i];
-                }
-
-                if !crate::table_function::increment_chunk_grid(
-                    &mut $state.current_chunk_grid,
-                    &grid_shape,
-                    &chunk_bounds_min,
-                    &chunk_bounds_max,
-                ) {
-                    $state.exhausted = true;
-                }
-            }
+        $local_state.local_chunk_cursor += batch_size;
+        if $local_state.local_chunk_cursor >= chunk_len {
+            $local_state.local_chunk_cursor = 0;
+            $local_state.current_chunk_buffer = None;
         }
 
         $output.set_len(valid_rows);
