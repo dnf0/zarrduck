@@ -12,6 +12,7 @@ if [ -f "$BENCHMARK_FILE" ]; then
         echo "Posting benchmark to PR #$PR_EXISTS..."
         gh pr comment "$BRANCH_NAME" --body-file "$BENCHMARK_FILE"
         echo "Successfully posted benchmark."
+        rm "$BENCHMARK_FILE"
     else
         echo "No open PR found for branch $BRANCH_NAME. Skipping benchmark report."
     fi
