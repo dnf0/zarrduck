@@ -1,4 +1,4 @@
-use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+use duckdb::core::{DataChunkHandle, Inserter, LogicalTypeHandle, LogicalTypeId};
 use duckdb::vtab::{BindInfo, InitInfo, VTab};
 use duckdb::Result;
 use serde_json::Value;
@@ -141,6 +141,7 @@ pub enum ChunkBuffer {
     Float64(Vec<f64>),
     Int32(Vec<i32>),
     Int64(Vec<i64>),
+    String(Vec<String>),
 }
 
 pub struct IterationState {
@@ -382,6 +383,110 @@ impl VTab for ReadZarrVTab {
             }
             zarrs::array::DataType::Int64 => {
                 dispatch_yield_loop!(i64, ChunkBuffer::Int64, output, state, bind_data)
+            }
+            zarrs::array::DataType::String => {
+                // Strings must be handled explicitly since DuckDB Varchar FlatVectors don't use as_mut_slice
+                // If buffer is empty, fetch the next chunk using typed retrieval
+                if state.current_chunk_buffer.is_none() {
+                    let store = zarrs::storage::store::FilesystemStore::new(&bind_data.path)
+                        .map_err(|e| format!("zarrs error: {}", e))?;
+                    let array = zarrs::array::Array::open(std::sync::Arc::new(store), "/")
+                        .map_err(|e| format!("zarrs error: {}", e))?;
+
+                    let elements = array
+                        .retrieve_chunk_elements::<String>(&state.current_chunk_grid)
+                        .map_err(|e| format!("zarrs read error: {}", e))?;
+                    state.current_chunk_buffer = Some(ChunkBuffer::String(elements));
+                }
+
+                let buffer = match state.current_chunk_buffer.as_ref().unwrap() {
+                    ChunkBuffer::String(buf) => buf,
+                    _ => return Err("Chunk buffer type mismatch".into()),
+                };
+
+                let chunk_len = bind_data.chunk_shape.iter().product::<u64>() as usize;
+                let elements_remaining = chunk_len - state.local_chunk_cursor;
+                let batch_size = std::cmp::min(2048, elements_remaining);
+
+                let rank = bind_data.shape.len();
+                let value_vector = output.flat_vector(rank);
+
+                let mut valid_rows = 0;
+
+                for i in 0..batch_size {
+                    let local_idx = state.local_chunk_cursor + i;
+                    let global_coords = crate::table_function::calculate_global_indices(
+                        local_idx,
+                        &bind_data.chunk_shape,
+                        &state.current_chunk_grid,
+                    );
+
+                    let mut out_of_bounds = false;
+                    for (dim, &global_coord) in global_coords.iter().enumerate().take(rank) {
+                        if global_coord > bind_data.bounds_max[dim] {
+                            out_of_bounds = true;
+                            break;
+                        }
+                    }
+                    if out_of_bounds {
+                        continue;
+                    }
+
+                    for (dim, &global_coord) in global_coords.iter().enumerate().take(rank) {
+                        if state.projected_columns.contains(&dim) {
+                            if let Some(coord_vals) =
+                                bind_data.coords.get(&bind_data.dim_names[dim])
+                            {
+                                let mut coord_vector = output.flat_vector(dim);
+                                let coord_slice = coord_vector.as_mut_slice::<f64>();
+                                coord_slice[valid_rows] = coord_vals
+                                    .get(global_coord as usize)
+                                    .copied()
+                                    .unwrap_or(f64::NAN);
+                            } else {
+                                let mut coord_vector = output.flat_vector(dim);
+                                let coord_slice = coord_vector.as_mut_slice::<i64>();
+                                coord_slice[valid_rows] = global_coord as i64;
+                            }
+                        }
+                    }
+
+                    if state.projected_columns.contains(&rank) {
+                        let val = &buffer[local_idx];
+                        // Insert string using the dedicated insert method
+                        value_vector.insert(valid_rows, val.as_str());
+                    }
+
+                    valid_rows += 1;
+                }
+
+                state.local_chunk_cursor += batch_size;
+                if state.local_chunk_cursor >= chunk_len {
+                    state.local_chunk_cursor = 0;
+                    state.current_chunk_buffer = None;
+
+                    let mut grid_shape = vec![0; rank];
+                    let mut chunk_bounds_min = vec![0; rank];
+                    let mut chunk_bounds_max = vec![0; rank];
+                    for i in 0..rank {
+                        grid_shape[i] = (bind_data.shape[i] as f64
+                            / bind_data.chunk_shape[i] as f64)
+                            .ceil() as u64;
+                        chunk_bounds_min[i] = state.bounds_min[i] / bind_data.chunk_shape[i];
+                        chunk_bounds_max[i] = state.bounds_max[i] / bind_data.chunk_shape[i];
+                    }
+
+                    if !crate::table_function::increment_chunk_grid(
+                        &mut state.current_chunk_grid,
+                        &grid_shape,
+                        &chunk_bounds_min,
+                        &chunk_bounds_max,
+                    ) {
+                        state.exhausted = true;
+                    }
+                }
+
+                output.set_len(valid_rows);
             }
             _ => return Err(format!("Unsupported data type: {:?}", bind_data.data_type).into()),
         }
