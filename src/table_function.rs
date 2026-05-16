@@ -37,7 +37,7 @@ macro_rules! dispatch_yield_loop {
         let rank = $bind_data.shape.len();
         let mut value_vector = $output.flat_vector(rank);
 
-        let fill_bytes_slice = $bind_data.fill_value_bytes.as_slice();
+        let fill_bytes_slice = $bind_data.fill_value_bytes.as_deref().unwrap_or_default();
 
         let mut valid_rows = 0;
 
@@ -162,7 +162,7 @@ pub struct ReadZarrBindData {
     pub coords: HashMap<String, Vec<f64>>,
     pub bounds_min: Vec<u64>,
     pub bounds_max: Vec<u64>,
-    pub fill_value_bytes: Vec<u8>,
+    pub fill_value_bytes: Option<Vec<u8>>,
     pub array: std::sync::Arc<zarrs::array::Array<zarrs::storage::store::FilesystemStore>>,
 }
 
@@ -336,7 +336,12 @@ impl VTab for ReadZarrVTab {
             }
         }
 
-        let fill_value_bytes = array.fill_value().as_ne_bytes().to_vec();
+        let fv_bytes = array.fill_value().as_ne_bytes().to_vec();
+        let fill_value_bytes = if fv_bytes.is_empty() {
+            None
+        } else {
+            Some(fv_bytes)
+        };
 
         Ok(ReadZarrBindData {
             path,
@@ -490,10 +495,9 @@ impl VTab for ReadZarrVTab {
                     }
 
                     if state.projected_columns.contains(&rank) {
-                        let fill_bytes_slice = bind_data.fill_value_bytes.as_slice();
                         for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
                             let val = &buffer[*local_idx];
-                            if val.as_bytes() == fill_bytes_slice {
+                            if Some(val.as_bytes()) == bind_data.fill_value_bytes.as_deref() {
                                 value_vector.set_null(valid_rows + idx);
                             } else {
                                 // Insert string using the dedicated insert method
