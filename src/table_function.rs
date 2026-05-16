@@ -27,27 +27,35 @@ macro_rules! dispatch_yield_loop {
 
         for i in 0..batch_size {
             let local_idx = $state.local_chunk_cursor + i;
-            let global_coords = calculate_global_indices(
-                local_idx,
-                &$bind_data.chunk_shape,
-                &$state.current_chunk_grid,
-            );
+            let has_projected_coords = (0..rank).any(|dim| $state.projected_columns.contains(&dim));
+
+            let global_coords = if has_projected_coords {
+                calculate_global_indices(
+                    local_idx,
+                    &$bind_data.chunk_shape,
+                    &$state.current_chunk_grid,
+                )
+            } else {
+                vec![]
+            };
 
             // Write coordinates
             for dim in 0..rank {
-                if let Some(coord_vals) = coord_arrays[dim] {
-                    let mut coord_vector = $output.flat_vector(dim);
-                    let coord_slice = coord_vector.as_mut_slice::<f64>();
-                    // O(1) lookup of the physical coordinate value, with graceful fallback
-                    coord_slice[i] = coord_vals
-                        .get(global_coords[dim] as usize)
-                        .copied()
-                        .unwrap_or(f64::NAN);
-                } else {
-                    let mut coord_vector = $output.flat_vector(dim);
-                    let coord_slice = coord_vector.as_mut_slice::<i64>();
-                    // Fallback to integer index
-                    coord_slice[i] = global_coords[dim] as i64;
+                if $state.projected_columns.contains(&dim) {
+                    if let Some(coord_vals) = coord_arrays[dim] {
+                        let mut coord_vector = $output.flat_vector(dim);
+                        let coord_slice = coord_vector.as_mut_slice::<f64>();
+                        // O(1) lookup of the physical coordinate value, with graceful fallback
+                        coord_slice[i] = coord_vals
+                            .get(global_coords[dim] as usize)
+                            .copied()
+                            .unwrap_or(f64::NAN);
+                    } else {
+                        let mut coord_vector = $output.flat_vector(dim);
+                        let coord_slice = coord_vector.as_mut_slice::<i64>();
+                        // Fallback to integer index
+                        coord_slice[i] = global_coords[dim] as i64;
+                    }
                 }
             }
 
@@ -58,7 +66,11 @@ macro_rules! dispatch_yield_loop {
                 .try_into()
                 .unwrap();
             let val = <$rust_type>::from_ne_bytes(val_bytes);
-            value_slice[i] = val;
+
+            // Write value (the value column is always at index `rank`)
+            if $state.projected_columns.contains(&rank) {
+                value_slice[i] = val;
+            }
         }
 
         // Advance state
