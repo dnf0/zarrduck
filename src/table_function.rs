@@ -204,39 +204,37 @@ impl VTab for ReadZarrVTab {
             if let Ok(coord_array) = Array::open(Arc::clone(&store_arc), &format!("/{}", name)) {
                 // Ensure it's a 1D array and small enough to avoid OOM
                 if coord_array.shape().len() == 1 && coord_array.shape()[0] < 1_000_000 {
-                    // Assuming coordinate arrays are small and fit in a single chunk [0]
-                    if let Ok(chunk_bytes) = coord_array.retrieve_chunk(&[0]) {
-                        if let Ok(fixed_bytes) = chunk_bytes.into_fixed() {
-                            let bytes = fixed_bytes.into_owned();
-                            let vals: Vec<f64> = match coord_array.data_type() {
-                                zarrs::array::DataType::Float64 => {
-                                    bytemuck::cast_slice::<u8, f64>(&bytes).to_vec()
-                                }
-                                zarrs::array::DataType::Float32 => {
-                                    bytemuck::cast_slice::<u8, f32>(&bytes)
-                                        .iter()
-                                        .map(|&v| v as f64)
-                                        .collect()
-                                }
-                                zarrs::array::DataType::Int64 => {
-                                    bytemuck::cast_slice::<u8, i64>(&bytes)
-                                        .iter()
-                                        .map(|&v| v as f64)
-                                        .collect()
-                                }
-                                zarrs::array::DataType::Int32 => {
-                                    bytemuck::cast_slice::<u8, i32>(&bytes)
-                                        .iter()
-                                        .map(|&v| v as f64)
-                                        .collect()
-                                }
-                                _ => continue,
-                            };
-                            // Validate that the loaded chunk covers the entire dimension length
-                            if vals.len() as u64 == shape[dim_index] {
-                                coords.insert(name.clone(), vals);
-                            }
-                        }
+                    let subset = zarrs::array_subset::ArraySubset::new_with_shape(
+                        coord_array.shape().to_vec(),
+                    );
+                    let vals: Vec<f64> = match coord_array.data_type() {
+                        zarrs::array::DataType::Float64 => coord_array
+                            .retrieve_array_subset_elements::<f64>(&subset)
+                            .unwrap_or_default(),
+                        zarrs::array::DataType::Float32 => coord_array
+                            .retrieve_array_subset_elements::<f32>(&subset)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|v| v as f64)
+                            .collect(),
+                        zarrs::array::DataType::Int64 => coord_array
+                            .retrieve_array_subset_elements::<i64>(&subset)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|v| v as f64)
+                            .collect(),
+                        zarrs::array::DataType::Int32 => coord_array
+                            .retrieve_array_subset_elements::<i32>(&subset)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|v| v as f64)
+                            .collect(),
+                        _ => continue,
+                    };
+
+                    // Validate that the loaded chunk covers the entire dimension length
+                    if vals.len() as u64 == shape[dim_index] {
+                        coords.insert(name.clone(), vals);
                     }
                 }
             }
