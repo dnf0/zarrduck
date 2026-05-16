@@ -135,10 +135,11 @@ fn test_read_zarr_schema() -> Result<()> {
     // lat goes from 45.0 to 64.0 (20 elements).
     // 50.0 to 55.0 covers indices 5 through 10.
     // Chunk shape is 5. So it fetches chunks 1 and 2.
-    // Chunks 1 and 2 cover indices 5 through 14 (10 elements total).
+    // Chunks 1 and 2 cover indices 5 through 14.
+    // The table function now prunes rows exceeding bounds_max (index 10), so it yields 6 elements (5 through 10).
     // The other dimension (time) is length 10.
-    // Total expected rows yielded before DuckDB applies a WHERE filter: 10 * 10 = 100.
-    assert_eq!(count_params, 100);
+    // Total expected rows yielded: 10 * 6 = 60.
+    assert_eq!(count_params, 60);
 
     // Test Projection Pushdown: Aggregation without coordinate columns
     let query_proj = format!(
@@ -150,6 +151,17 @@ fn test_read_zarr_schema() -> Result<()> {
     let sum_val: f64 = stmt_proj.query_row([], |row| row.get(0))?;
     println!("Total sum: {}", sum_val);
     assert_eq!(sum_val, 19900.0); // sum(0..=199)
+
+    // Test SQL NULL Mapping
+    // The very first element inserted was 0.0, which matches the FillValue.
+    // Therefore, count(value) should be 199 (since NULLs are not counted).
+    let query_null = format!(
+        "SELECT count(value) FROM read_zarr('{}')",
+        store_path.display()
+    );
+    let mut stmt_null = conn.prepare(&query_null)?;
+    let non_null_count: i64 = stmt_null.query_row([], |row| row.get(0))?;
+    assert_eq!(non_null_count, 199);
 
     // Test Projection Pushdown: Aggregation without value column
     let query_coord_proj = format!("SELECT SUM(lat) FROM read_zarr('{}')", store_path.display());

@@ -1,4 +1,4 @@
-use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+use duckdb::core::{DataChunkHandle, Inserter, LogicalTypeHandle, LogicalTypeId};
 use duckdb::vtab::{BindInfo, InitInfo, VTab};
 use duckdb::Result;
 use serde_json::Value;
@@ -7,107 +7,149 @@ use std::sync::{Arc, Mutex};
 use zarrs::array::{Array, ArrayMetadata, DataType};
 use zarrs::storage::store::FilesystemStore;
 
+trait FillValueCmp {
+    fn is_fill_value(&self, fill_bytes: &[u8]) -> bool;
+}
+
+macro_rules! impl_fill_value_cmp {
+    ($t:ty) => {
+        impl FillValueCmp for $t {
+            fn is_fill_value(&self, fill_bytes: &[u8]) -> bool {
+                self.to_ne_bytes().as_ref() == fill_bytes
+            }
+        }
+    };
+}
+
+impl_fill_value_cmp!(f32);
+impl_fill_value_cmp!(f64);
+impl_fill_value_cmp!(i8);
+impl_fill_value_cmp!(i16);
+impl_fill_value_cmp!(i32);
+impl_fill_value_cmp!(i64);
+impl_fill_value_cmp!(u8);
+impl_fill_value_cmp!(u16);
+impl_fill_value_cmp!(u32);
+impl_fill_value_cmp!(u64);
+
 macro_rules! dispatch_yield_loop {
-    ($rust_type:ty, $buffer:expr, $output:expr, $state:expr, $bind_data:expr) => {{
-        // Calculate how many elements we can yield this batch (max 2048)
-        let chunk_len = $bind_data.chunk_shape.iter().product::<u64>() as usize;
-        let elements_remaining = chunk_len - $state.local_chunk_cursor;
-        let batch_size = std::cmp::min(2048, elements_remaining);
-
+    ($rust_type:ty, $enum_variant:path, $output:expr, $state:expr, $bind_data:expr) => {{
         let rank = $bind_data.shape.len();
-
-        let coord_arrays: Vec<Option<&Vec<f64>>> = (0..rank)
-            .map(|dim| $bind_data.coords.get(&$bind_data.dim_names[dim]))
-            .collect();
-
-        // Output vectors
-        // Coordinates are the first `rank` columns. Value is the last column.
         let mut value_vector = $output.flat_vector(rank);
-        let value_slice = value_vector.as_mut_slice::<$rust_type>();
 
-        for i in 0..batch_size {
-            let local_idx = $state.local_chunk_cursor + i;
-            let has_projected_coords = (0..rank).any(|dim| $state.projected_columns.contains(&dim));
+        let fill_bytes_slice = $bind_data.fill_value_bytes.as_deref().unwrap_or_default();
 
-            let global_coords = if has_projected_coords {
-                calculate_global_indices(
+        let mut valid_rows = 0;
+
+        while valid_rows == 0 && !$state.exhausted {
+            // If buffer is empty, fetch the next chunk using typed retrieval
+            if $state.current_chunk_buffer.is_none() {
+                let elements = $bind_data
+                    .array
+                    .retrieve_chunk_elements::<$rust_type>(&$state.current_chunk_grid)
+                    .map_err(|e| format!("zarrs read error: {}", e))?;
+                $state.current_chunk_buffer = Some($enum_variant(elements));
+            }
+
+            let buffer = match $state.current_chunk_buffer.as_ref().unwrap() {
+                $enum_variant(buf) => buf,
+                _ => return Err("Chunk buffer type mismatch".into()),
+            };
+
+            let chunk_len = $bind_data.chunk_shape.iter().product::<u64>() as usize;
+            let elements_remaining = chunk_len - $state.local_chunk_cursor;
+            let batch_size = std::cmp::min(2048, elements_remaining);
+
+            let mut valid_coords = Vec::with_capacity(batch_size);
+            for i in 0..batch_size {
+                let local_idx = $state.local_chunk_cursor + i;
+                let global_coords = crate::table_function::calculate_global_indices(
                     local_idx,
                     &$bind_data.chunk_shape,
                     &$state.current_chunk_grid,
-                )
-            } else {
-                vec![]
-            };
+                );
+
+                // Ghost row check: Ensure global coords do not exceed array shape bounds
+                let mut out_of_bounds = false;
+                for dim in 0..rank {
+                    if global_coords[dim] > $bind_data.bounds_max[dim] {
+                        out_of_bounds = true;
+                        break;
+                    }
+                }
+                if !out_of_bounds {
+                    valid_coords.push((local_idx, global_coords));
+                }
+            }
 
             // Write coordinates
             for dim in 0..rank {
                 if $state.projected_columns.contains(&dim) {
-                    if let Some(coord_vals) = coord_arrays[dim] {
+                    if let Some(coord_vals) = $bind_data.coords.get(&$bind_data.dim_names[dim]) {
                         let mut coord_vector = $output.flat_vector(dim);
                         let coord_slice = coord_vector.as_mut_slice::<f64>();
-                        // O(1) lookup of the physical coordinate value, with graceful fallback
-                        coord_slice[i] = coord_vals
-                            .get(global_coords[dim] as usize)
-                            .copied()
-                            .unwrap_or(f64::NAN);
+                        for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
+                            coord_slice[valid_rows + idx] = coord_vals
+                                .get(global_coords[dim] as usize)
+                                .copied()
+                                .unwrap_or(f64::NAN);
+                        }
                     } else {
                         let mut coord_vector = $output.flat_vector(dim);
                         let coord_slice = coord_vector.as_mut_slice::<i64>();
-                        // Fallback to integer index
-                        coord_slice[i] = global_coords[dim] as i64;
+                        for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
+                            coord_slice[valid_rows + idx] = global_coords[dim] as i64;
+                        }
                     }
                 }
             }
 
             // Write value
-            let byte_offset = local_idx * std::mem::size_of::<$rust_type>();
-
-            // Check bounds to prevent panic
-            if byte_offset + std::mem::size_of::<$rust_type>() > $buffer.len() {
-                return Err("zarrs error: chunk buffer too small for data type".into());
-            }
-
-            let val_bytes: [u8; std::mem::size_of::<$rust_type>()] = $buffer
-                [byte_offset..byte_offset + std::mem::size_of::<$rust_type>()]
-                .try_into()
-                .unwrap(); // This unwrap is now safe due to bounds check above
-            let val = <$rust_type>::from_ne_bytes(val_bytes);
-
-            // Write value (the value column is always at index `rank`)
             if $state.projected_columns.contains(&rank) {
-                value_slice[i] = val;
+                {
+                    let value_slice = value_vector.as_mut_slice::<$rust_type>();
+                    for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
+                        value_slice[valid_rows + idx] = buffer[*local_idx];
+                    }
+                }
+                for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
+                    let val = buffer[*local_idx];
+                    if val.is_fill_value(fill_bytes_slice) {
+                        value_vector.set_null(valid_rows + idx);
+                    }
+                }
+            }
+
+            valid_rows += valid_coords.len();
+
+            // Advance state
+            $state.local_chunk_cursor += batch_size;
+            if $state.local_chunk_cursor >= chunk_len {
+                $state.local_chunk_cursor = 0;
+                $state.current_chunk_buffer = None;
+
+                let mut grid_shape = vec![0; rank];
+                let mut chunk_bounds_min = vec![0; rank];
+                let mut chunk_bounds_max = vec![0; rank];
+                for i in 0..rank {
+                    grid_shape[i] = ($bind_data.shape[i] as f64 / $bind_data.chunk_shape[i] as f64)
+                        .ceil() as u64;
+                    chunk_bounds_min[i] = $state.bounds_min[i] / $bind_data.chunk_shape[i];
+                    chunk_bounds_max[i] = $state.bounds_max[i] / $bind_data.chunk_shape[i];
+                }
+
+                if !crate::table_function::increment_chunk_grid(
+                    &mut $state.current_chunk_grid,
+                    &grid_shape,
+                    &chunk_bounds_min,
+                    &chunk_bounds_max,
+                ) {
+                    $state.exhausted = true;
+                }
             }
         }
 
-        // Advance state
-        $state.local_chunk_cursor += batch_size;
-        if $state.local_chunk_cursor >= chunk_len {
-            // Chunk exhausted, move to next
-            $state.local_chunk_cursor = 0;
-            $state.current_chunk_buffer = None; // Drop buffer
-
-            // Calculate chunk grid shape to know when we are done
-            let mut grid_shape = vec![0; rank];
-            let mut chunk_bounds_min = vec![0; rank];
-            let mut chunk_bounds_max = vec![0; rank];
-            for i in 0..rank {
-                grid_shape[i] =
-                    ($bind_data.shape[i] as f64 / $bind_data.chunk_shape[i] as f64).ceil() as u64;
-                chunk_bounds_min[i] = $state.bounds_min[i] / $bind_data.chunk_shape[i];
-                chunk_bounds_max[i] = $state.bounds_max[i] / $bind_data.chunk_shape[i];
-            }
-
-            if !increment_chunk_grid(
-                &mut $state.current_chunk_grid,
-                &grid_shape,
-                &chunk_bounds_min,
-                &chunk_bounds_max,
-            ) {
-                $state.exhausted = true;
-            }
-        }
-
-        $output.set_len(batch_size);
+        $output.set_len(valid_rows);
     }};
 }
 
@@ -120,12 +162,22 @@ pub struct ReadZarrBindData {
     pub coords: HashMap<String, Vec<f64>>,
     pub bounds_min: Vec<u64>,
     pub bounds_max: Vec<u64>,
+    pub fill_value_bytes: Option<Vec<u8>>,
+    pub array: std::sync::Arc<zarrs::array::Array<zarrs::storage::store::FilesystemStore>>,
+}
+
+pub enum ChunkBuffer {
+    Float32(Vec<f32>),
+    Float64(Vec<f64>),
+    Int32(Vec<i32>),
+    Int64(Vec<i64>),
+    String(Vec<String>),
 }
 
 pub struct IterationState {
     pub current_chunk_grid: Vec<u64>,
     pub local_chunk_cursor: usize,
-    pub current_chunk_buffer: Option<Vec<u8>>,
+    pub current_chunk_buffer: Option<ChunkBuffer>,
     pub exhausted: bool,
     pub bounds_min: Vec<u64>,
     pub bounds_max: Vec<u64>,
@@ -183,38 +235,29 @@ impl VTab for ReadZarrVTab {
             if let Ok(coord_array) = Array::open(Arc::clone(&store_arc), &format!("/{}", name)) {
                 // Ensure it's a 1D array and small enough to avoid OOM
                 if coord_array.shape().len() == 1 && coord_array.shape()[0] < 1_000_000 {
-                    // Assuming coordinate arrays are small and fit in a single chunk [0]
-                    if let Ok(chunk_bytes) = coord_array.retrieve_chunk(&[0]) {
-                        if let Ok(fixed_bytes) = chunk_bytes.into_fixed() {
-                            let bytes = fixed_bytes.into_owned();
-                            let vals: Vec<f64> = match coord_array.data_type() {
-                                zarrs::array::DataType::Float64 => {
-                                    bytemuck::cast_slice::<u8, f64>(&bytes).to_vec()
-                                }
-                                zarrs::array::DataType::Float32 => {
-                                    bytemuck::cast_slice::<u8, f32>(&bytes)
-                                        .iter()
-                                        .map(|&v| v as f64)
-                                        .collect()
-                                }
-                                zarrs::array::DataType::Int64 => {
-                                    bytemuck::cast_slice::<u8, i64>(&bytes)
-                                        .iter()
-                                        .map(|&v| v as f64)
-                                        .collect()
-                                }
-                                zarrs::array::DataType::Int32 => {
-                                    bytemuck::cast_slice::<u8, i32>(&bytes)
-                                        .iter()
-                                        .map(|&v| v as f64)
-                                        .collect()
-                                }
-                                _ => continue,
-                            };
-                            // Validate that the loaded chunk covers the entire dimension length
-                            if vals.len() as u64 == shape[dim_index] {
-                                coords.insert(name.clone(), vals);
-                            }
+                    let subset = zarrs::array_subset::ArraySubset::new_with_shape(
+                        coord_array.shape().to_vec(),
+                    );
+                    let vals_result: Result<Vec<f64>, _> = match coord_array.data_type() {
+                        zarrs::array::DataType::Float64 => {
+                            coord_array.retrieve_array_subset_elements::<f64>(&subset)
+                        }
+                        zarrs::array::DataType::Float32 => coord_array
+                            .retrieve_array_subset_elements::<f32>(&subset)
+                            .map(|v| v.into_iter().map(|x| x as f64).collect()),
+                        zarrs::array::DataType::Int64 => coord_array
+                            .retrieve_array_subset_elements::<i64>(&subset)
+                            .map(|v| v.into_iter().map(|x| x as f64).collect()),
+                        zarrs::array::DataType::Int32 => coord_array
+                            .retrieve_array_subset_elements::<i32>(&subset)
+                            .map(|v| v.into_iter().map(|x| x as f64).collect()),
+                        _ => continue,
+                    };
+
+                    // Validate that the loaded chunk covers the entire dimension length
+                    if let Ok(vals) = vals_result {
+                        if vals.len() as u64 == shape[dim_index] {
+                            coords.insert(name.clone(), vals);
                         }
                     }
                 }
@@ -293,6 +336,13 @@ impl VTab for ReadZarrVTab {
             }
         }
 
+        let fv_bytes = array.fill_value().as_ne_bytes().to_vec();
+        let fill_value_bytes = if fv_bytes.is_empty() {
+            None
+        } else {
+            Some(fv_bytes)
+        };
+
         Ok(ReadZarrBindData {
             path,
             shape,
@@ -302,6 +352,8 @@ impl VTab for ReadZarrVTab {
             coords,
             bounds_min,
             bounds_max,
+            fill_value_bytes,
+            array: std::sync::Arc::new(array),
         })
     }
 
@@ -316,12 +368,14 @@ impl VTab for ReadZarrVTab {
             chunk_bounds_max[i] = bind_data.bounds_max[i] / bind_data.chunk_shape[i];
         }
 
+        let exhausted = bind_data.shape.contains(&0);
+
         Ok(ReadZarrInitData {
             state: Mutex::new(IterationState {
                 current_chunk_grid: chunk_bounds_min.clone(),
                 local_chunk_cursor: 0,
                 current_chunk_buffer: None,
-                exhausted: false,
+                exhausted,
                 bounds_min: bind_data.bounds_min.clone(),
                 bounds_max: bind_data.bounds_max.clone(),
                 chunk_bounds_min,
@@ -342,7 +396,10 @@ impl VTab for ReadZarrVTab {
         let bind_data = func.get_bind_data();
         let init_data = func.get_init_data();
 
-        let mut state = init_data.state.lock().unwrap();
+        let mut state = init_data
+            .state
+            .lock()
+            .map_err(|e| format!("Mutex poisoned: {}", e))?;
 
         if state.exhausted {
             output.set_len(0);
@@ -354,41 +411,131 @@ impl VTab for ReadZarrVTab {
             state.current_chunk_grid = vec![0; bind_data.shape.len()];
         }
 
-        // If buffer is empty, fetch the next chunk
-        if state.current_chunk_buffer.is_none() {
-            let store =
-                FilesystemStore::new(&bind_data.path).map_err(|e| format!("zarrs error: {}", e))?;
-            let array =
-                Array::open(Arc::new(store), "/").map_err(|e| format!("zarrs error: {}", e))?;
-
-            // zarrs uses `retrieve_chunk`
-            let chunk_bytes = array
-                .retrieve_chunk(&state.current_chunk_grid)
-                .map_err(|e| format!("zarrs read error: {}", e))?;
-
-            // Extract the raw bytes from the ArrayBytes enum.
-            let bytes = chunk_bytes
-                .into_fixed()
-                .map_err(|_| "zarrs error: variable length chunks not supported".to_string())?
-                .into_owned();
-            state.current_chunk_buffer = Some(bytes);
-        }
-
-        let buffer = state.current_chunk_buffer.as_ref().unwrap();
-
         // Dispatch based on data type
         match bind_data.data_type {
             zarrs::array::DataType::Float32 => {
-                dispatch_yield_loop!(f32, buffer, output, state, bind_data)
+                dispatch_yield_loop!(f32, ChunkBuffer::Float32, output, state, bind_data)
             }
             zarrs::array::DataType::Float64 => {
-                dispatch_yield_loop!(f64, buffer, output, state, bind_data)
+                dispatch_yield_loop!(f64, ChunkBuffer::Float64, output, state, bind_data)
             }
             zarrs::array::DataType::Int32 => {
-                dispatch_yield_loop!(i32, buffer, output, state, bind_data)
+                dispatch_yield_loop!(i32, ChunkBuffer::Int32, output, state, bind_data)
             }
             zarrs::array::DataType::Int64 => {
-                dispatch_yield_loop!(i64, buffer, output, state, bind_data)
+                dispatch_yield_loop!(i64, ChunkBuffer::Int64, output, state, bind_data)
+            }
+            zarrs::array::DataType::String => {
+                // Strings must be handled explicitly since DuckDB Varchar FlatVectors don't use as_mut_slice
+                let mut valid_rows = 0;
+                let rank = bind_data.shape.len();
+                let mut value_vector = output.flat_vector(rank);
+
+                while valid_rows == 0 && !state.exhausted {
+                    // If buffer is empty, fetch the next chunk using typed retrieval
+                    if state.current_chunk_buffer.is_none() {
+                        let elements = bind_data
+                            .array
+                            .retrieve_chunk_elements::<String>(&state.current_chunk_grid)
+                            .map_err(|e| format!("zarrs read error: {}", e))?;
+                        state.current_chunk_buffer = Some(ChunkBuffer::String(elements));
+                    }
+
+                    let buffer = match state.current_chunk_buffer.as_ref().unwrap() {
+                        ChunkBuffer::String(buf) => buf,
+                        _ => return Err("Chunk buffer type mismatch".into()),
+                    };
+
+                    let chunk_len = bind_data.chunk_shape.iter().product::<u64>() as usize;
+                    let elements_remaining = chunk_len - state.local_chunk_cursor;
+                    let batch_size = std::cmp::min(2048, elements_remaining);
+
+                    let mut valid_coords = Vec::with_capacity(batch_size);
+                    for i in 0..batch_size {
+                        let local_idx = state.local_chunk_cursor + i;
+                        let global_coords = crate::table_function::calculate_global_indices(
+                            local_idx,
+                            &bind_data.chunk_shape,
+                            &state.current_chunk_grid,
+                        );
+
+                        let mut out_of_bounds = false;
+                        for (dim, &global_coord) in global_coords.iter().enumerate().take(rank) {
+                            if global_coord > bind_data.bounds_max[dim] {
+                                out_of_bounds = true;
+                                break;
+                            }
+                        }
+                        if !out_of_bounds {
+                            valid_coords.push((local_idx, global_coords));
+                        }
+                    }
+
+                    for dim in 0..rank {
+                        if state.projected_columns.contains(&dim) {
+                            if let Some(coord_vals) =
+                                bind_data.coords.get(&bind_data.dim_names[dim])
+                            {
+                                let mut coord_vector = output.flat_vector(dim);
+                                let coord_slice = coord_vector.as_mut_slice::<f64>();
+                                for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
+                                    coord_slice[valid_rows + idx] = coord_vals
+                                        .get(global_coords[dim] as usize)
+                                        .copied()
+                                        .unwrap_or(f64::NAN);
+                                }
+                            } else {
+                                let mut coord_vector = output.flat_vector(dim);
+                                let coord_slice = coord_vector.as_mut_slice::<i64>();
+                                for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
+                                    coord_slice[valid_rows + idx] = global_coords[dim] as i64;
+                                }
+                            }
+                        }
+                    }
+
+                    if state.projected_columns.contains(&rank) {
+                        for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
+                            let val = &buffer[*local_idx];
+                            if Some(val.as_bytes()) == bind_data.fill_value_bytes.as_deref() {
+                                value_vector.set_null(valid_rows + idx);
+                            } else {
+                                // Insert string using the dedicated insert method
+                                value_vector.insert(valid_rows + idx, val.as_str());
+                            }
+                        }
+                    }
+
+                    valid_rows += valid_coords.len();
+
+                    state.local_chunk_cursor += batch_size;
+                    if state.local_chunk_cursor >= chunk_len {
+                        state.local_chunk_cursor = 0;
+                        state.current_chunk_buffer = None;
+
+                        let mut grid_shape = vec![0; rank];
+                        let mut chunk_bounds_min = vec![0; rank];
+                        let mut chunk_bounds_max = vec![0; rank];
+                        for i in 0..rank {
+                            grid_shape[i] = (bind_data.shape[i] as f64
+                                / bind_data.chunk_shape[i] as f64)
+                                .ceil() as u64;
+                            chunk_bounds_min[i] = state.bounds_min[i] / bind_data.chunk_shape[i];
+                            chunk_bounds_max[i] = state.bounds_max[i] / bind_data.chunk_shape[i];
+                        }
+
+                        if !crate::table_function::increment_chunk_grid(
+                            &mut state.current_chunk_grid,
+                            &grid_shape,
+                            &chunk_bounds_min,
+                            &chunk_bounds_max,
+                        ) {
+                            state.exhausted = true;
+                        }
+                    }
+                }
+
+                output.set_len(valid_rows);
             }
             _ => return Err(format!("Unsupported data type: {:?}", bind_data.data_type).into()),
         }
