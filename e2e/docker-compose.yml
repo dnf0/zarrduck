@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  builder:
+    image: rust:1.80
+    volumes:
+      - ../:/app
+    environment:
+      - CARGO_TARGET_DIR=/app/target_docker
+    command: >
+      sh -c "apt-get update && apt-get install -y clang cmake
+      && cd /app
+      && cargo build --release"
+
+  generator:
+    image: python:3.12-slim
+    volumes:
+      - ./data:/data
+      - ./generate_zarr.py:/app/generate_zarr.py
+    command: sh -c "pip install zarr numpy && python /app/generate_zarr.py"
+
+  duckdb:
+    image: ubuntu:22.04
+    depends_on:
+      - builder
+      - generator
+    volumes:
+      - ./data:/data
+      - ../:/app
+    command: >
+      sh -c "apt-get update && apt-get install -y curl unzip time
+      && curl -L -o duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.1.1/duckdb_cli_linux_amd64.zip
+      && unzip duckdb.zip
+      && /usr/bin/time -o /app/e2e_benchmark.txt -v ./duckdb -unsigned -c \"LOAD '/app/target_docker/release/libduckdb_geozarr.so'; SELECT SUM(value) FROM read_zarr('/data/test.zarr');\""
