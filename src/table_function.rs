@@ -175,8 +175,8 @@ impl VTab for ReadZarrVTab {
         // Eagerly load 1D coordinate arrays if they exist
         for (dim_index, name) in dim_names.iter().enumerate() {
             if let Ok(coord_array) = Array::open(Arc::clone(&store_arc), &format!("/{}", name)) {
-                // Ensure it's a 1D array
-                if coord_array.shape().len() == 1 {
+                // Ensure it's a 1D array and small enough to avoid OOM
+                if coord_array.shape().len() == 1 && coord_array.shape()[0] < 1_000_000 {
                     // Assuming coordinate arrays are small and fit in a single chunk [0]
                     if let Ok(chunk_bytes) = coord_array.retrieve_chunk(&[0]) {
                         let bytes = chunk_bytes.into_fixed().unwrap().into_owned();
