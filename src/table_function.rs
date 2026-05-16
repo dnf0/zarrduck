@@ -23,8 +23,14 @@ macro_rules! impl_fill_value_cmp {
 
 impl_fill_value_cmp!(f32);
 impl_fill_value_cmp!(f64);
+impl_fill_value_cmp!(i8);
+impl_fill_value_cmp!(i16);
 impl_fill_value_cmp!(i32);
 impl_fill_value_cmp!(i64);
+impl_fill_value_cmp!(u8);
+impl_fill_value_cmp!(u16);
+impl_fill_value_cmp!(u32);
+impl_fill_value_cmp!(u64);
 
 macro_rules! dispatch_yield_loop {
     ($rust_type:ty, $enum_variant:path, $output:expr, $state:expr, $bind_data:expr) => {{
