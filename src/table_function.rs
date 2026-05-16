@@ -61,10 +61,16 @@ macro_rules! dispatch_yield_loop {
 
             // Write value
             let byte_offset = local_idx * std::mem::size_of::<$rust_type>();
+
+            // Check bounds to prevent panic
+            if byte_offset + std::mem::size_of::<$rust_type>() > $buffer.len() {
+                return Err("zarrs error: chunk buffer too small for data type".into());
+            }
+
             let val_bytes: [u8; std::mem::size_of::<$rust_type>()] = $buffer
                 [byte_offset..byte_offset + std::mem::size_of::<$rust_type>()]
                 .try_into()
-                .unwrap();
+                .unwrap(); // This unwrap is now safe due to bounds check above
             let val = <$rust_type>::from_ne_bytes(val_bytes);
 
             // Write value (the value column is always at index `rank`)
@@ -238,8 +244,8 @@ impl VTab for ReadZarrVTab {
         let chunk_shape = array
             .chunk_grid()
             .chunk_shape(&vec![0; rank], &shape)
-            .unwrap()
-            .unwrap()
+            .map_err(|_| "zarrs error: array bounds are out of grid".to_string())?
+            .ok_or_else(|| "zarrs error: array has no chunk shape".to_string())?
             .iter()
             .map(|n| n.get())
             .collect();
