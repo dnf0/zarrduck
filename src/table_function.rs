@@ -441,7 +441,7 @@ impl VTab for ReadZarrVTab {
                         }
                     }
 
-                    for (dim, _) in (0..rank).enumerate() {
+                    for dim in 0..rank {
                         if state.projected_columns.contains(&dim) {
                             if let Some(coord_vals) =
                                 bind_data.coords.get(&bind_data.dim_names[dim])
