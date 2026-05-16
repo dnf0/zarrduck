@@ -58,9 +58,24 @@ fn test_read_zarr_schema() -> Result<()> {
     lat_array.store_metadata().unwrap();
     // Write physical values to the lat array (e.g. 45.0, 46.0, ...)
     let lat_data: Vec<f32> = (0..20).map(|i| 45.0 + i as f32).collect();
-    lat_array
-        .store_chunk_elements::<f32>(&[0], &lat_data)
-        .unwrap();
+    lat_array.store_chunk_elements(&[0], &lat_data).unwrap();
+
+    // Write actual data to the main array so we can verify sums
+    let mut val = 0.0f32;
+    for t_c in 0..2 {
+        for l_c in 0..4 {
+            let chunk_data: Vec<f32> = (0..25)
+                .map(|_| {
+                    let v = val;
+                    val += 1.0;
+                    v
+                })
+                .collect();
+            array
+                .store_chunk_elements(&[t_c, l_c], &chunk_data)
+                .unwrap();
+        }
+    }
 
     let query = format!("SELECT * FROM read_zarr('{}')", store_path.display());
     let _stmt = conn.prepare(&query).expect("Prepare failed");
@@ -124,6 +139,25 @@ fn test_read_zarr_schema() -> Result<()> {
     // The other dimension (time) is length 10.
     // Total expected rows yielded before DuckDB applies a WHERE filter: 10 * 10 = 100.
     assert_eq!(count_params, 100);
+
+    // Test Projection Pushdown: Aggregation without coordinate columns
+    let query_proj = format!(
+        "SELECT SUM(value) FROM read_zarr('{}')",
+        store_path.display()
+    );
+    let mut stmt_proj = conn.prepare(&query_proj)?;
+    // If projection pushdown fails, this might panic or return bad data
+    let sum_val: f64 = stmt_proj.query_row([], |row| row.get(0))?;
+    println!("Total sum: {}", sum_val);
+    assert_eq!(sum_val, 19900.0); // sum(0..=199)
+
+    // Test Projection Pushdown: Aggregation without value column
+    let query_coord_proj = format!("SELECT SUM(lat) FROM read_zarr('{}')", store_path.display());
+    let mut stmt_coord_proj = conn.prepare(&query_coord_proj)?;
+    let sum_lat: f64 = stmt_coord_proj.query_row([], |row| row.get(0))?;
+    // lat goes from 45.0 to 64.0. The sum of 45..64 is 1090.
+    // Since there are 10 time intervals, the total sum is 1090 * 10 = 10900.
+    assert_eq!(sum_lat, 10900.0);
 
     Ok(())
 }
