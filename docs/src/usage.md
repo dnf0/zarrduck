@@ -1,6 +1,6 @@
-# Usage
+# Usage Guide
 
-The extension exposes a single table function: `read_zarr`.
+The extension exposes a single, powerful table function: `read_zarr`.
 
 ## Basic Querying
 
@@ -10,48 +10,73 @@ To read a Zarr array from a local file path:
 SELECT * FROM read_zarr('/path/to/my_data.zarr');
 ```
 
-The extension automatically inspects the Zarr metadata to determine the schema. For an array with dimensions `[time, lat, lon]`, it will yield four columns: `time`, `lat`, `lon`, and `value`.
+The extension automatically inspects the Zarr `_ARRAY_DIMENSIONS` metadata to determine the schema. For an array with dimensions `[time, lat, lon]`, it will automatically look for corresponding 1D coordinate arrays (`/time`, `/lat`, `/lon`) in the same store and yield four columns: 
+`time`, `lat`, `lon`, and `value`.
+
+If a coordinate array does not exist, the extension gracefully falls back to yielding the raw integer index for that dimension (e.g., `0, 1, 2...`).
 
 ## Cloud Storage (S3 / HTTP)
 
-You can read directly from AWS S3 or HTTP endpoints. The extension uses Apache OpenDAL under the hood.
+You can read directly from AWS S3 or public HTTP endpoints. The extension dynamically resolves the backend using Apache OpenDAL.
 
 ```sql
 -- Read from an S3 bucket
-SELECT SUM(value) FROM read_zarr('s3://my-bucket/climate-data.zarr');
+SELECT count(value) FROM read_zarr('s3://my-bucket/climate-data.zarr');
 
 -- Read from a public HTTP endpoint
 SELECT AVG(value) FROM read_zarr('https://public-data.com/dataset.zarr');
 ```
 
 ### AWS Credentials
-When using `s3://`, the extension automatically looks for standard AWS environment variables. Ensure these are set in the terminal before starting DuckDB:
+When querying `s3://` URIs, the extension automatically looks for standard AWS environment variables. Ensure these are set in the terminal environment where DuckDB is launched:
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 - `AWS_REGION`
+- `AWS_SESSION_TOKEN` (optional)
 
-## Spatial Pruning (Filtering)
+*Note: The extension manages its own cloud connections via OpenDAL, so DuckDB's internal `CREATE SECRET` or `httpfs` configurations do not apply here.*
 
-Due to limitations in current DuckDB extension bindings, standard `WHERE` clauses cannot be pushed down to the network layer. To prevent the extension from downloading chunks outside of your region of interest, use **Named Parameters**.
+## Spatial Pruning (Network Optimization)
 
-You can pass `_min` and `_max` parameters for any coordinate dimension. The extension will binary-search the coordinate arrays and strictly prune out-of-bounds chunks before performing network I/O.
+Due to limitations in current DuckDB extension bindings, standard `WHERE` clauses (e.g., `WHERE lat > 45.0`) cannot be "pushed down" to the network layer. If you use a `WHERE` clause, DuckDB will download the *entire* Zarr array from S3 and filter the rows in memory—which is disastrous for performance.
+
+To solve this, use **Named Parameters**. 
+
+You can pass `_min` and `_max` parameters for any coordinate dimension. The extension will perform a binary search on the cached coordinate arrays and **strictly prune out-of-bounds chunks before performing network I/O**.
 
 ```sql
-SELECT count(*) 
+SELECT 
+    time, 
+    AVG(value) as regional_average
 FROM read_zarr(
     's3://my-bucket/climate.zarr', 
     lat_min := 45.0, 
     lat_max := 55.0,
+    lon_min := -10.0,
+    lon_max := 5.0,
     time_min := 1609459200 -- Epoch timestamp
-);
+)
+GROUP BY time;
 ```
+In this query, only the chunks that intersect the bounding box of `lat`, `lon`, and `time` are downloaded. All other S3 requests are bypassed.
 
 ## Projection Pushdown
 
-The extension intelligently detects which columns are actually requested by your query. If you run an aggregation that only requires the `value` column:
+DuckDB is a columnar engine. If your query does not explicitly request all columns, the extension optimizes its workload by skipping the calculation and memory allocation for the ignored columns.
 
 ```sql
+-- The coordinate columns (time, lat, lon) are completely ignored.
+-- The extension will only yield the 'value' column.
 SELECT SUM(value) FROM read_zarr('s3://bucket/data.zarr');
 ```
+This saves significant CPU overhead and memory bandwidth during massive table scans.
 
-The extension will **skip** calculating and allocating the coordinate vectors (like `lat` and `lon`), saving significant CPU overhead and memory bandwidth.
+## Missing Data and SQL NULLs
+
+In Zarr, missing data is often represented by a `fill_value` metadata field (e.g., `-9999.0`). The extension reads this metadata and natively maps matching values to true SQL `NULL`s using DuckDB's `ValidityMask`. 
+
+This guarantees that standard SQL aggregations work correctly out of the box:
+```sql
+-- NULLs (fill values) are correctly ignored in the average calculation
+SELECT AVG(value) FROM read_zarr('s3://bucket/data.zarr');
+```
