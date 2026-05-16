@@ -33,7 +33,8 @@ macro_rules! dispatch_yield_loop {
 
         let rank = $bind_data.shape.len();
         let mut value_vector = $output.flat_vector(rank);
-        let value_slice = value_vector.as_mut_slice::<$rust_type>();
+
+        let fill_bytes_slice = $bind_data.fill_value_bytes.as_slice();
 
         let mut valid_rows = 0;
 
@@ -78,7 +79,16 @@ macro_rules! dispatch_yield_loop {
 
             // Write value
             if $state.projected_columns.contains(&rank) {
-                value_slice[valid_rows] = buffer[local_idx];
+                let val = buffer[local_idx];
+                let val_bytes = val.to_ne_bytes();
+                let is_fill = val_bytes.as_ref() == fill_bytes_slice;
+
+                if is_fill {
+                    // Set NULL
+                    value_vector.set_null(valid_rows);
+                } else {
+                    value_vector.as_mut_slice::<$rust_type>()[valid_rows] = val;
+                }
             }
 
             valid_rows += 1;
@@ -123,6 +133,7 @@ pub struct ReadZarrBindData {
     pub coords: HashMap<String, Vec<f64>>,
     pub bounds_min: Vec<u64>,
     pub bounds_max: Vec<u64>,
+    pub fill_value_bytes: Vec<u8>,
 }
 
 pub enum ChunkBuffer {
@@ -303,6 +314,8 @@ impl VTab for ReadZarrVTab {
             }
         }
 
+        let fill_value_bytes = array.fill_value().as_ne_bytes().to_vec();
+
         Ok(ReadZarrBindData {
             path,
             shape,
@@ -312,6 +325,7 @@ impl VTab for ReadZarrVTab {
             coords,
             bounds_min,
             bounds_max,
+            fill_value_bytes, // ADD THIS
         })
     }
 

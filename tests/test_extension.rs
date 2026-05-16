@@ -152,6 +152,17 @@ fn test_read_zarr_schema() -> Result<()> {
     println!("Total sum: {}", sum_val);
     assert_eq!(sum_val, 19900.0); // sum(0..=199)
 
+    // Test SQL NULL Mapping
+    // The very first element inserted was 0.0, which matches the FillValue.
+    // Therefore, count(value) should be 199 (since NULLs are not counted).
+    let query_null = format!(
+        "SELECT count(value) FROM read_zarr('{}')",
+        store_path.display()
+    );
+    let mut stmt_null = conn.prepare(&query_null)?;
+    let non_null_count: i64 = stmt_null.query_row([], |row| row.get(0))?;
+    assert_eq!(non_null_count, 199);
+
     // Test Projection Pushdown: Aggregation without value column
     let query_coord_proj = format!("SELECT SUM(lat) FROM read_zarr('{}')", store_path.display());
     let mut stmt_coord_proj = conn.prepare(&query_coord_proj)?;
