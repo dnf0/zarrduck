@@ -135,10 +135,11 @@ fn test_read_zarr_schema() -> Result<()> {
     // lat goes from 45.0 to 64.0 (20 elements).
     // 50.0 to 55.0 covers indices 5 through 10.
     // Chunk shape is 5. So it fetches chunks 1 and 2.
-    // Chunks 1 and 2 cover indices 5 through 14 (10 elements total).
+    // Chunks 1 and 2 cover indices 5 through 14.
+    // The table function now prunes rows exceeding bounds_max (index 10), so it yields 6 elements (5 through 10).
     // The other dimension (time) is length 10.
-    // Total expected rows yielded before DuckDB applies a WHERE filter: 10 * 10 = 100.
-    assert_eq!(count_params, 100);
+    // Total expected rows yielded: 10 * 6 = 60.
+    assert_eq!(count_params, 60);
 
     // Test Projection Pushdown: Aggregation without coordinate columns
     let query_proj = format!(
