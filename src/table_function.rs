@@ -7,6 +7,25 @@ use std::sync::{Arc, Mutex};
 use zarrs::array::{Array, ArrayMetadata, DataType};
 use zarrs::storage::store::FilesystemStore;
 
+trait FillValueCmp {
+    fn is_fill_value(&self, fill_bytes: &[u8]) -> bool;
+}
+
+macro_rules! impl_fill_value_cmp {
+    ($t:ty) => {
+        impl FillValueCmp for $t {
+            fn is_fill_value(&self, fill_bytes: &[u8]) -> bool {
+                self.to_ne_bytes().as_ref() == fill_bytes
+            }
+        }
+    };
+}
+
+impl_fill_value_cmp!(f32);
+impl_fill_value_cmp!(f64);
+impl_fill_value_cmp!(i32);
+impl_fill_value_cmp!(i64);
+
 macro_rules! dispatch_yield_loop {
     ($rust_type:ty, $enum_variant:path, $output:expr, $state:expr, $bind_data:expr) => {{
         let rank = $bind_data.shape.len();
@@ -81,16 +100,16 @@ macro_rules! dispatch_yield_loop {
 
             // Write value
             if $state.projected_columns.contains(&rank) {
+                {
+                    let value_slice = value_vector.as_mut_slice::<$rust_type>();
+                    for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
+                        value_slice[valid_rows + idx] = buffer[*local_idx];
+                    }
+                }
                 for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
                     let val = buffer[*local_idx];
-                    let val_bytes = val.to_ne_bytes();
-                    let is_fill = val_bytes.as_ref() == fill_bytes_slice;
-
-                    if is_fill {
-                        // Set NULL
+                    if val.is_fill_value(fill_bytes_slice) {
                         value_vector.set_null(valid_rows + idx);
-                    } else {
-                        value_vector.as_mut_slice::<$rust_type>()[valid_rows + idx] = val;
                     }
                 }
             }
