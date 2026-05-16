@@ -4,8 +4,35 @@ use duckdb::Result;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use zarrs::array::{Array, ArrayMetadata, DataType};
-use zarrs::storage::store::FilesystemStore;
+use zarrs::array::{ArrayMetadata, DataType};
+use zarrs::storage::ReadableStorageTraits;
+
+fn resolve_store(path: &str) -> std::result::Result<Arc<dyn ReadableStorageTraits>, Box<dyn std::error::Error>> {
+    if path.starts_with("s3://") {
+        let bucket_and_path = path.strip_prefix("s3://").unwrap();
+        let bucket = bucket_and_path.split('/').next().unwrap_or(bucket_and_path);
+        let root = bucket_and_path.strip_prefix(bucket).unwrap_or("/");
+        
+        // Uses standard AWS environment variables automatically
+        let builder = opendal::services::S3::default()
+            .bucket(bucket)
+            .root(root);
+        
+        let operator = opendal::Operator::new(builder)?.finish();
+        let store = zarrs::storage::store::OpendalStore::new(operator.blocking());
+        Ok(Arc::new(store))
+    } else if path.starts_with("http://") || path.starts_with("https://") {
+        let builder = opendal::services::Http::default()
+            .endpoint(path);
+        
+        let operator = opendal::Operator::new(builder)?.finish();
+        let store = zarrs::storage::store::OpendalStore::new(operator.blocking());
+        Ok(Arc::new(store))
+    } else {
+        let store = zarrs::storage::store::FilesystemStore::new(path)?;
+        Ok(Arc::new(store))
+    }
+}
 
 trait FillValueCmp {
     fn is_fill_value(&self, fill_bytes: &[u8]) -> bool;
@@ -218,9 +245,8 @@ impl VTab for ReadZarrVTab {
 
         let path = bind.get_parameter(0).to_string();
 
-        let store = FilesystemStore::new(&path).map_err(|e| format!("zarrs error: {}", e))?;
-        let store_arc = Arc::new(store);
-        let array = Array::open(Arc::clone(&store_arc), "/")
+        let store_arc = resolve_store(&path)?;
+        let array = zarrs::array::Array::open(Arc::clone(&store_arc), "/")
             .map_err(|e| format!("zarrs error (array): {}", e))?;
 
         let shape = array.shape();
@@ -232,7 +258,7 @@ impl VTab for ReadZarrVTab {
         let mut coords = std::collections::HashMap::new();
         // Eagerly load 1D coordinate arrays if they exist
         for (dim_index, name) in dim_names.iter().enumerate() {
-            if let Ok(coord_array) = Array::open(Arc::clone(&store_arc), &format!("/{}", name)) {
+            if let Ok(coord_array) = zarrs::array::Array::open(Arc::clone(&store_arc), &format!("/{}", name)) {
                 // Ensure it's a 1D array and small enough to avoid OOM
                 if coord_array.shape().len() == 1 && coord_array.shape()[0] < 1_000_000 {
                     let subset = zarrs::array_subset::ArraySubset::new_with_shape(
