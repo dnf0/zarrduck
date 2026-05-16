@@ -159,5 +159,20 @@ fn test_read_zarr_schema() -> Result<()> {
     // Since there are 10 time intervals, the total sum is 1090 * 10 = 10900.
     assert_eq!(sum_lat, 10900.0);
 
+    // Test Corrupted Chunk Bytes Error Handling
+    // We truncate chunk [0, 0] so it's too small for the expected data type
+    let chunk_path = store_path.join("c").join("0").join("0");
+    std::fs::write(&chunk_path, vec![0u8; 1]).unwrap(); // Write a 1-byte chunk file
+    let query_corrupt = format!(
+        "SELECT SUM(value) FROM read_zarr('{}')",
+        store_path.display()
+    );
+    let mut stmt_corrupt = conn.prepare(&query_corrupt)?;
+    let result = stmt_corrupt.query_row([], |row| row.get::<_, f64>(0));
+    assert!(result.is_err());
+    let err_str = result.unwrap_err().to_string();
+    println!("Corrupted chunk error: {}", err_str);
+    assert!(err_str.contains("zarrs read error"));
+
     Ok(())
 }
