@@ -207,34 +207,27 @@ impl VTab for ReadZarrVTab {
                     let subset = zarrs::array_subset::ArraySubset::new_with_shape(
                         coord_array.shape().to_vec(),
                     );
-                    let vals: Vec<f64> = match coord_array.data_type() {
-                        zarrs::array::DataType::Float64 => coord_array
-                            .retrieve_array_subset_elements::<f64>(&subset)
-                            .unwrap_or_default(),
+                    let vals_result: Result<Vec<f64>, _> = match coord_array.data_type() {
+                        zarrs::array::DataType::Float64 => {
+                            coord_array.retrieve_array_subset_elements::<f64>(&subset)
+                        }
                         zarrs::array::DataType::Float32 => coord_array
                             .retrieve_array_subset_elements::<f32>(&subset)
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(|v| v as f64)
-                            .collect(),
+                            .map(|v| v.into_iter().map(|x| x as f64).collect()),
                         zarrs::array::DataType::Int64 => coord_array
                             .retrieve_array_subset_elements::<i64>(&subset)
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(|v| v as f64)
-                            .collect(),
+                            .map(|v| v.into_iter().map(|x| x as f64).collect()),
                         zarrs::array::DataType::Int32 => coord_array
                             .retrieve_array_subset_elements::<i32>(&subset)
-                            .unwrap_or_default()
-                            .into_iter()
-                            .map(|v| v as f64)
-                            .collect(),
+                            .map(|v| v.into_iter().map(|x| x as f64).collect()),
                         _ => continue,
                     };
 
                     // Validate that the loaded chunk covers the entire dimension length
-                    if vals.len() as u64 == shape[dim_index] {
-                        coords.insert(name.clone(), vals);
+                    if let Ok(vals) = vals_result {
+                        if vals.len() as u64 == shape[dim_index] {
+                            coords.insert(name.clone(), vals);
+                        }
                     }
                 }
             }
