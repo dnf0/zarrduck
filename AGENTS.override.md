@@ -1,4 +1,4 @@
-<!-- agent-rules@0_42_0 objective=general language=python strictness=balanced repo_name=duckdb_geozarr -->
+<!-- agent-rules@0_42_0 objective=general language=rust strictness=balanced repo_name=duckdb_geozarr -->
 
 # duckdb_geozarr Codex Guidance
 
