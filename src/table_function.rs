@@ -332,12 +332,14 @@ impl VTab for ReadZarrVTab {
             chunk_bounds_max[i] = bind_data.bounds_max[i] / bind_data.chunk_shape[i];
         }
 
+        let exhausted = bind_data.shape.contains(&0);
+
         Ok(ReadZarrInitData {
             state: Mutex::new(IterationState {
                 current_chunk_grid: chunk_bounds_min.clone(),
                 local_chunk_cursor: 0,
                 current_chunk_buffer: None,
-                exhausted: false,
+                exhausted,
                 bounds_min: bind_data.bounds_min.clone(),
                 bounds_max: bind_data.bounds_max.clone(),
                 chunk_bounds_min,
@@ -358,7 +360,10 @@ impl VTab for ReadZarrVTab {
         let bind_data = func.get_bind_data();
         let init_data = func.get_init_data();
 
-        let mut state = init_data.state.lock().unwrap();
+        let mut state = init_data
+            .state
+            .lock()
+            .map_err(|e| format!("Mutex poisoned: {}", e))?;
 
         if state.exhausted {
             output.set_len(0);
