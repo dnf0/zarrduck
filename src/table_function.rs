@@ -122,10 +122,17 @@ pub struct ReadZarrBindData {
     pub bounds_max: Vec<u64>,
 }
 
+pub enum ChunkBuffer {
+    Float32(Vec<f32>),
+    Float64(Vec<f64>),
+    Int32(Vec<i32>),
+    Int64(Vec<i64>),
+}
+
 pub struct IterationState {
     pub current_chunk_grid: Vec<u64>,
     pub local_chunk_cursor: usize,
-    pub current_chunk_buffer: Option<Vec<u8>>,
+    pub current_chunk_buffer: Option<ChunkBuffer>,
     pub exhausted: bool,
     pub bounds_min: Vec<u64>,
     pub bounds_max: Vec<u64>,
@@ -354,41 +361,19 @@ impl VTab for ReadZarrVTab {
             state.current_chunk_grid = vec![0; bind_data.shape.len()];
         }
 
-        // If buffer is empty, fetch the next chunk
-        if state.current_chunk_buffer.is_none() {
-            let store =
-                FilesystemStore::new(&bind_data.path).map_err(|e| format!("zarrs error: {}", e))?;
-            let array =
-                Array::open(Arc::new(store), "/").map_err(|e| format!("zarrs error: {}", e))?;
-
-            // zarrs uses `retrieve_chunk`
-            let chunk_bytes = array
-                .retrieve_chunk(&state.current_chunk_grid)
-                .map_err(|e| format!("zarrs read error: {}", e))?;
-
-            // Extract the raw bytes from the ArrayBytes enum.
-            let bytes = chunk_bytes
-                .into_fixed()
-                .map_err(|_| "zarrs error: variable length chunks not supported".to_string())?
-                .into_owned();
-            state.current_chunk_buffer = Some(bytes);
-        }
-
-        let buffer = state.current_chunk_buffer.as_ref().unwrap();
-
         // Dispatch based on data type
         match bind_data.data_type {
             zarrs::array::DataType::Float32 => {
-                dispatch_yield_loop!(f32, buffer, output, state, bind_data)
+                dispatch_yield_loop!(f32, ChunkBuffer::Float32, output, state, bind_data)
             }
             zarrs::array::DataType::Float64 => {
-                dispatch_yield_loop!(f64, buffer, output, state, bind_data)
+                dispatch_yield_loop!(f64, ChunkBuffer::Float64, output, state, bind_data)
             }
             zarrs::array::DataType::Int32 => {
-                dispatch_yield_loop!(i32, buffer, output, state, bind_data)
+                dispatch_yield_loop!(i32, ChunkBuffer::Int32, output, state, bind_data)
             }
             zarrs::array::DataType::Int64 => {
-                dispatch_yield_loop!(i64, buffer, output, state, bind_data)
+                dispatch_yield_loop!(i64, ChunkBuffer::Int64, output, state, bind_data)
             }
             _ => return Err(format!("Unsupported data type: {:?}", bind_data.data_type).into()),
         }
