@@ -3,3 +3,5 @@
 graphify-out/
 __pycache__/
 *.pyc
+e2e_benchmark.md
+target_docker/
