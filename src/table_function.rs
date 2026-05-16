@@ -626,6 +626,27 @@ impl VTab for ReadZarrVTab {
 
                 output.set_len(valid_rows);
             }
+            zarrs::array::DataType::Bool => {
+                dispatch_yield_loop!(bool, ChunkBuffer::Bool, output, local_state, &init_data.global_state, bind_data)
+            }
+            zarrs::array::DataType::Int8 => {
+                dispatch_yield_loop!(i8, ChunkBuffer::Int8, output, local_state, &init_data.global_state, bind_data)
+            }
+            zarrs::array::DataType::Int16 => {
+                dispatch_yield_loop!(i16, ChunkBuffer::Int16, output, local_state, &init_data.global_state, bind_data)
+            }
+            zarrs::array::DataType::UInt8 => {
+                dispatch_yield_loop!(u8, ChunkBuffer::UInt8, output, local_state, &init_data.global_state, bind_data)
+            }
+            zarrs::array::DataType::UInt16 => {
+                dispatch_yield_loop!(u16, ChunkBuffer::UInt16, output, local_state, &init_data.global_state, bind_data)
+            }
+            zarrs::array::DataType::UInt32 => {
+                dispatch_yield_loop!(u32, ChunkBuffer::UInt32, output, local_state, &init_data.global_state, bind_data)
+            }
+            zarrs::array::DataType::UInt64 => {
+                dispatch_yield_loop!(u64, ChunkBuffer::UInt64, output, local_state, &init_data.global_state, bind_data)
+            }
             _ => return Err(format!("Unsupported data type: {:?}", bind_data.data_type).into()),
         }
 
