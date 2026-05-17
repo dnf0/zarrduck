@@ -457,9 +457,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     zarrs::array::DataType::String => {
                         let value: Option<String> = row.get(val_col_idx)?;
                         let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                            let mut b = Vec::with_capacity(chunk_len);
-                            b.resize(chunk_len, String::new());
-                            ChunkData::String(b)
+                            ChunkData::String(vec![String::new(); chunk_len])
                         });
                         if let Some(v) = value {
                             if let ChunkData::String(b) = buffer { b[flat_idx as usize] = v; }
