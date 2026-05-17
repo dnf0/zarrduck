@@ -147,6 +147,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Chunk parsing not fully implemented, using auto-chunking: {:?}", chunk_shape);
             }
 
+            if chunk_shape.iter().any(|&dim| dim == 0) {
+                return Err("Chunk dimension size cannot be 0".into());
+            }
+
             let array_builder = zarrs::array::ArrayBuilder::new(
                 shape.clone(),
                 zarrs::array::DataType::Float32,
@@ -181,12 +185,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // 5. Stream data from DuckDB
             let order_by = coord_columns
                 .iter()
-                .map(|c| format!("\"{}\"", c))
+                .map(|c| format!("\"{}\"", c.replace("\"", "\"\"")))
                 .collect::<Vec<_>>()
                 .join(", ");
             let coords_str = coord_columns
                 .iter()
-                .map(|c| format!("\"{}\"", c))
+                .map(|c| format!("\"{}\"", c.replace("\"", "\"\"")))
                 .collect::<Vec<_>>()
                 .join(", ");
             let stream_query = format!(
@@ -225,6 +229,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tx.send((grid_coord, full_chunk))
                         .await
                         .map_err(|_| "Upload worker failed or disconnected")?;
+                }
+
+                // Eviction check for sparse chunks
+                if active_chunks.len() >= 1000 {
+                    // Find the key with the smallest buffer
+                    let mut smallest_key = None;
+                    let mut smallest_len = usize::MAX;
+                    for (k, v) in active_chunks.iter() {
+                        if v.len() < smallest_len {
+                            smallest_len = v.len();
+                            smallest_key = Some(k.clone());
+                        }
+                    }
+                    if let Some(key) = smallest_key {
+                        let mut evicted_buffer = active_chunks.remove(&key).unwrap();
+                        while evicted_buffer.len() < chunk_len {
+                            evicted_buffer.push(f32::NAN);
+                        }
+                        tx.send((key, evicted_buffer)).await.map_err(|_| "Upload worker failed or disconnected")?;
+                    }
                 }
 
                 row_count += 1;
