@@ -533,12 +533,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })();
 
             // 6. Flush remaining edge chunks (runs even if stream_result is an Error!)
-            for (grid_coord, buffer) in active_chunks.into_iter() {
-                let tx_clone = tx.clone();
-                let _ = tokio::task::block_in_place(move || {
-                    tx_clone.blocking_send((grid_coord, buffer))
-                });
-            }
+            tokio::task::block_in_place(move || {
+                for (grid_coord, buffer) in active_chunks.into_iter() {
+                    let _ = tx.blocking_send((grid_coord, buffer));
+                }
+            });
 
             // 7. Drop sender and wait for uploads to finish
             drop(tx);
