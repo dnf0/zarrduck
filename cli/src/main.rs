@@ -10,8 +10,18 @@ struct Cli {
 }
 
 enum ChunkData {
-    F32(Vec<f32>),
-    F64(Vec<f64>),
+    Bool(Vec<bool>),
+    Int8(Vec<i8>),
+    Int16(Vec<i16>),
+    Int32(Vec<i32>),
+    Int64(Vec<i64>),
+    UInt8(Vec<u8>),
+    UInt16(Vec<u16>),
+    UInt32(Vec<u32>),
+    UInt64(Vec<u64>),
+    Float32(Vec<f32>),
+    Float64(Vec<f64>),
+    String(Vec<String>),
 }
 
 #[derive(Subcommand)]
@@ -170,18 +180,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            let is_double_type = value_type_str == "DOUBLE" || value_type_str == "FLOAT8" || value_type_str == "DECIMAL" || value_type_str == "NUMERIC";
-
-            let data_type = if is_double_type {
-                zarrs::array::DataType::Float64
-            } else {
-                zarrs::array::DataType::Float32
+            let data_type = match value_type_str.as_str() {
+                "BOOLEAN" => zarrs::array::DataType::Bool,
+                "TINYINT" => zarrs::array::DataType::Int8,
+                "SMALLINT" => zarrs::array::DataType::Int16,
+                "INTEGER" => zarrs::array::DataType::Int32,
+                "BIGINT" => zarrs::array::DataType::Int64,
+                "UTINYINT" => zarrs::array::DataType::UInt8,
+                "USMALLINT" => zarrs::array::DataType::UInt16,
+                "UINTEGER" => zarrs::array::DataType::UInt32,
+                "UBIGINT" => zarrs::array::DataType::UInt64,
+                "FLOAT" | "REAL" => zarrs::array::DataType::Float32,
+                "DOUBLE" | "FLOAT8" | "DECIMAL" | "NUMERIC" => zarrs::array::DataType::Float64,
+                "VARCHAR" => zarrs::array::DataType::String,
+                _ => return Err(format!("Unsupported DuckDB type: {}", value_type_str).into()),
             };
 
-            let fill_value = if is_double_type {
-                zarrs::array::FillValue::from(f64::NAN)
-            } else {
-                zarrs::array::FillValue::from(f32::NAN)
+            let fill_value = match data_type {
+                zarrs::array::DataType::Bool => zarrs::array::FillValue::from(false),
+                zarrs::array::DataType::Int8 => zarrs::array::FillValue::from(0i8),
+                zarrs::array::DataType::Int16 => zarrs::array::FillValue::from(0i16),
+                zarrs::array::DataType::Int32 => zarrs::array::FillValue::from(0i32),
+                zarrs::array::DataType::Int64 => zarrs::array::FillValue::from(0i64),
+                zarrs::array::DataType::UInt8 => zarrs::array::FillValue::from(0u8),
+                zarrs::array::DataType::UInt16 => zarrs::array::FillValue::from(0u16),
+                zarrs::array::DataType::UInt32 => zarrs::array::FillValue::from(0u32),
+                zarrs::array::DataType::UInt64 => zarrs::array::FillValue::from(0u64),
+                zarrs::array::DataType::Float32 => zarrs::array::FillValue::from(f32::NAN),
+                zarrs::array::DataType::Float64 => zarrs::array::FillValue::from(f64::NAN),
+                zarrs::array::DataType::String => zarrs::array::FillValue::from(""),
+                _ => return Err("Unsupported DataType for FillValue".into()),
             };
 
             let array_builder = zarrs::array::ArrayBuilder::new(
@@ -205,16 +233,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let upload_task = tokio::spawn(async move {
                 while let Some((chunk_grid, chunk_data)) = rx.recv().await {
                     let res = match chunk_data {
-                        ChunkData::F32(data) => {
-                            array_clone
-                                .async_store_chunk_elements(&chunk_grid, &data)
-                                .await
-                        }
-                        ChunkData::F64(data) => {
-                            array_clone
-                                .async_store_chunk_elements(&chunk_grid, &data)
-                                .await
-                        }
+                        ChunkData::Bool(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::Int8(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::Int16(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::Int32(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::Int64(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::UInt8(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::UInt16(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::UInt32(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::UInt64(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::Float32(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::Float64(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::String(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
                     };
                     if let Err(e) = res {
                         eprintln!("Failed to upload chunk: {}", e);
@@ -230,10 +260,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .try_fold(1u64, |acc, &x| acc.checked_mul(x))
                 .ok_or("Chunk volume overflow")? as usize;
 
-            let bytes_per_element = if data_type == zarrs::array::DataType::Float64 {
-                8
-            } else {
-                4
+            let bytes_per_element = match data_type {
+                zarrs::array::DataType::Float64 | zarrs::array::DataType::Int64 | zarrs::array::DataType::UInt64 => 8,
+                zarrs::array::DataType::Float32 | zarrs::array::DataType::Int32 | zarrs::array::DataType::UInt32 => 4,
+                zarrs::array::DataType::Int16 | zarrs::array::DataType::UInt16 => 2,
+                _ => 1,
             };
             let chunk_byte_size = chunk_len
                 .checked_mul(bytes_per_element)
@@ -285,18 +316,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     local_coords.push(local_c);
                 }
 
-                let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                    if is_double_type {
-                        let mut b = Vec::with_capacity(chunk_len);
-                        b.resize(chunk_len, f64::NAN);
-                        ChunkData::F64(b)
-                    } else {
-                        let mut b = Vec::with_capacity(chunk_len);
-                        b.resize(chunk_len, f32::NAN);
-                        ChunkData::F32(b)
-                    }
-                });
-
                 // Calculate local coordinates and flat C-contiguous index
 
                 let mut flat_idx = 0;
@@ -306,15 +325,117 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     stride *= chunk_shape[i];
                 }
 
-                match buffer {
-                    ChunkData::F32(b) => {
-                        let value: f32 = row.get(coord_columns.len())?;
-                        b[flat_idx as usize] = value;
+                let val_col_idx = coord_columns.len();
+                match data_type {
+                    zarrs::array::DataType::Bool => {
+                        let value: bool = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, false);
+                            ChunkData::Bool(b)
+                        });
+                        if let ChunkData::Bool(b) = buffer { b[flat_idx as usize] = value; }
                     }
-                    ChunkData::F64(b) => {
-                        let value: f64 = row.get(coord_columns.len())?;
-                        b[flat_idx as usize] = value;
+                    zarrs::array::DataType::Int8 => {
+                        let value: i8 = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, 0);
+                            ChunkData::Int8(b)
+                        });
+                        if let ChunkData::Int8(b) = buffer { b[flat_idx as usize] = value; }
                     }
+                    zarrs::array::DataType::Int16 => {
+                        let value: i16 = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, 0);
+                            ChunkData::Int16(b)
+                        });
+                        if let ChunkData::Int16(b) = buffer { b[flat_idx as usize] = value; }
+                    }
+                    zarrs::array::DataType::Int32 => {
+                        let value: i32 = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, 0);
+                            ChunkData::Int32(b)
+                        });
+                        if let ChunkData::Int32(b) = buffer { b[flat_idx as usize] = value; }
+                    }
+                    zarrs::array::DataType::Int64 => {
+                        let value: i64 = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, 0);
+                            ChunkData::Int64(b)
+                        });
+                        if let ChunkData::Int64(b) = buffer { b[flat_idx as usize] = value; }
+                    }
+                    zarrs::array::DataType::UInt8 => {
+                        let value: u8 = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, 0);
+                            ChunkData::UInt8(b)
+                        });
+                        if let ChunkData::UInt8(b) = buffer { b[flat_idx as usize] = value; }
+                    }
+                    zarrs::array::DataType::UInt16 => {
+                        let value: u16 = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, 0);
+                            ChunkData::UInt16(b)
+                        });
+                        if let ChunkData::UInt16(b) = buffer { b[flat_idx as usize] = value; }
+                    }
+                    zarrs::array::DataType::UInt32 => {
+                        let value: u32 = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, 0);
+                            ChunkData::UInt32(b)
+                        });
+                        if let ChunkData::UInt32(b) = buffer { b[flat_idx as usize] = value; }
+                    }
+                    zarrs::array::DataType::UInt64 => {
+                        let value: u64 = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, 0);
+                            ChunkData::UInt64(b)
+                        });
+                        if let ChunkData::UInt64(b) = buffer { b[flat_idx as usize] = value; }
+                    }
+                    zarrs::array::DataType::Float32 => {
+                        let value: f32 = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, f32::NAN);
+                            ChunkData::Float32(b)
+                        });
+                        if let ChunkData::Float32(b) = buffer { b[flat_idx as usize] = value; }
+                    }
+                    zarrs::array::DataType::Float64 => {
+                        let value: f64 = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, f64::NAN);
+                            ChunkData::Float64(b)
+                        });
+                        if let ChunkData::Float64(b) = buffer { b[flat_idx as usize] = value; }
+                    }
+                    zarrs::array::DataType::String => {
+                        let value: String = row.get(val_col_idx)?;
+                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                            let mut b = Vec::with_capacity(chunk_len);
+                            b.resize(chunk_len, String::new());
+                            ChunkData::String(b)
+                        });
+                        if let ChunkData::String(b) = buffer { b[flat_idx as usize] = value; }
+                    }
+                    _ => return Err("Unsupported DataType".into()),
                 }
 
                 // Note: Eviction will handle flushing. For MVP, we don't attempt to track "fullness"
