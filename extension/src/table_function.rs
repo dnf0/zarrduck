@@ -178,10 +178,16 @@ macro_rules! dispatch_yield_loop {
                 {
                     let value_slice = value_vector.as_mut_slice::<$rust_type>();
                     for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
+                        if *local_idx >= buffer.len() {
+                            return Err("Malformed Zarr chunk: unexpected buffer size".into());
+                        }
                         value_slice[valid_rows + idx] = buffer[*local_idx];
                     }
                 }
                 for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
+                    if *local_idx >= buffer.len() {
+                        return Err("Malformed Zarr chunk: unexpected buffer size".into());
+                    }
                     let val = buffer[*local_idx];
                     if val.is_fill_value(fill_bytes_slice) {
                         value_vector.set_null(valid_rows + idx);

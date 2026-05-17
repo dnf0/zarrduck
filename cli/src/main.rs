@@ -144,7 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             if let Some(_c) = chunks {
                 // Simplified chunk parsing fallback
-                println!("Chunk parsing not fully implemented, using defaults [100, ...]");
+                println!("Chunk parsing not fully implemented, using auto-chunking: {:?}", chunk_shape);
             }
 
             let array_builder = zarrs::array::ArrayBuilder::new(
