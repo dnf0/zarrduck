@@ -37,7 +37,9 @@ jobs:
 
       - name: Rename Artifact
         shell: bash
-        run: mv target/release/duckdb_geozarr.duckdb_extension target/release/${{ matrix.artifact_name }}
+        run: |
+          ls -la target/release/ || true
+          mv target/release/*.duckdb_extension target/release/${{ matrix.artifact_name }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
