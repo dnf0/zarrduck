@@ -866,38 +866,90 @@ fn translate_filter(
         return (current_min, current_max);
     }
 
-    // Determine if array is ascending or descending
-    let _ascending = coords.first().unwrap_or(&0.0) <= coords.last().unwrap_or(&0.0);
+    let is_ascending = coords.first().unwrap() <= coords.last().unwrap();
+    let len = coords.len() as u64;
 
-    // A simple linear scan for MVP. Binary search can be added later for huge arrays.
-    let mut matched_min = u64::MAX;
-    let mut matched_max = u64::MIN;
-
-    for (i, &coord) in coords.iter().enumerate() {
-        let i = i as u64;
-        let matches = match operator {
-            "=" => (coord - value).abs() < 1e-8,
-            "<" => coord < value,
-            "<=" => coord <= value,
-            ">" => coord > value,
-            ">=" => coord >= value,
-            _ => true,
-        };
-        if matches {
-            matched_min = std::cmp::min(matched_min, i);
-            matched_max = std::cmp::max(matched_max, i);
+    let (matched_min, matched_max) = match operator {
+        ">" | ">=" => {
+            let idx = if is_ascending {
+                if operator == ">" {
+                    coords.partition_point(|&x| x <= value) as u64
+                } else {
+                    coords.partition_point(|&x| x < value) as u64
+                }
+            } else {
+                if operator == ">" {
+                    coords.partition_point(|&x| x > value) as u64
+                } else {
+                    coords.partition_point(|&x| x >= value) as u64
+                }
+            };
+            if is_ascending {
+                if idx < len {
+                    (idx, len - 1)
+                } else {
+                    return (1, 0); // No matches
+                }
+            } else {
+                if idx > 0 {
+                    (0, idx - 1)
+                } else {
+                    return (1, 0); // No matches
+                }
+            }
         }
-    }
+        "<" | "<=" => {
+            let idx = if is_ascending {
+                if operator == "<" {
+                    coords.partition_point(|&x| x < value) as u64
+                } else {
+                    coords.partition_point(|&x| x <= value) as u64
+                }
+            } else {
+                if operator == "<" {
+                    coords.partition_point(|&x| x >= value) as u64
+                } else {
+                    coords.partition_point(|&x| x > value) as u64
+                }
+            };
+            if is_ascending {
+                if idx > 0 {
+                    (0, idx - 1)
+                } else {
+                    return (1, 0); // No matches
+                }
+            } else {
+                if idx < len {
+                    (idx, len - 1)
+                } else {
+                    return (1, 0); // No matches
+                }
+            }
+        }
+        "=" => {
+            let start = if is_ascending {
+                coords.partition_point(|&x| x < value - 1e-8) as u64
+            } else {
+                coords.partition_point(|&x| x > value + 1e-8) as u64
+            };
+            let end = if is_ascending {
+                coords.partition_point(|&x| x <= value + 1e-8) as u64
+            } else {
+                coords.partition_point(|&x| x >= value - 1e-8) as u64
+            };
+            if start < end {
+                (start, end - 1)
+            } else {
+                return (1, 0); // No matches
+            }
+        }
+        _ => return (current_min, current_max),
+    };
 
-    if matched_min <= matched_max {
-        (
-            std::cmp::max(current_min, matched_min),
-            std::cmp::min(current_max, matched_max),
-        )
-    } else {
-        // No matches found, return empty bounds
-        (1, 0)
-    }
+    (
+        std::cmp::max(current_min, matched_min),
+        std::cmp::min(current_max, matched_max),
+    )
 }
 
 fn resolve_dimension_names(metadata: &ArrayMetadata, rank: usize) -> Vec<String> {
@@ -1085,7 +1137,7 @@ mod tests {
 
     #[test]
     fn test_translate_filter() {
-        // Array: [0.0, 10.0, 20.0, 30.0, 40.0, 50.0]
+        // Array: [0.0, 10.0, 20.0, 30.0, 40.0, 50.0] (Ascending)
         let coords = vec![0.0, 10.0, 20.0, 30.0, 40.0, 50.0];
 
         // lat = 20.0  => min_idx: 2, max_idx: 2
@@ -1099,5 +1151,28 @@ mod tests {
         // lat >= 30.0 => min_idx: 3, max_idx: 5
         let (min, max) = translate_filter(&coords, ">=", 30.0, 0, 5);
         assert_eq!((min, max), (3, 5));
+
+        // Array: [50.0, 40.0, 30.0, 20.0, 10.0, 0.0] (Descending)
+        let coords_desc = vec![50.0, 40.0, 30.0, 20.0, 10.0, 0.0];
+
+        // lat = 20.0 => min_idx: 3, max_idx: 3
+        let (min, max) = translate_filter(&coords_desc, "=", 20.0, 0, 5);
+        assert_eq!((min, max), (3, 3));
+
+        // lat < 25.0 => min_idx: 3, max_idx: 5
+        let (min, max) = translate_filter(&coords_desc, "<", 25.0, 0, 5);
+        assert_eq!((min, max), (3, 5));
+
+        // lat >= 30.0 => min_idx: 0, max_idx: 2
+        let (min, max) = translate_filter(&coords_desc, ">=", 30.0, 0, 5);
+        assert_eq!((min, max), (0, 2));
+
+        // lat > 45.0 => min_idx: 0, max_idx: 0
+        let (min, max) = translate_filter(&coords_desc, ">", 45.0, 0, 5);
+        assert_eq!((min, max), (0, 0));
+
+        // lat <= 10.0 => min_idx: 4, max_idx: 5
+        let (min, max) = translate_filter(&coords_desc, "<=", 10.0, 0, 5);
+        assert_eq!((min, max), (4, 5));
     }
 }
