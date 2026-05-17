@@ -316,6 +316,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 | zarrs::array::DataType::Int32
                 | zarrs::array::DataType::UInt32 => 4,
                 zarrs::array::DataType::Int16 | zarrs::array::DataType::UInt16 => 2,
+                zarrs::array::DataType::String => 64, // 24 byte struct + estimated heap allocation
                 _ => 1,
             };
             let chunk_byte_size = chunk_len
