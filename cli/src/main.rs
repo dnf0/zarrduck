@@ -155,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<(Vec<u64>, Vec<f32>)>(16);
             let array_clone = array.clone();
 
-            let _upload_task = tokio::spawn(async move {
+            let upload_task = tokio::spawn(async move {
                 while let Some((chunk_grid, chunk_data)) = rx.recv().await {
                     array_clone
                         .async_store_chunk_elements(&chunk_grid, &chunk_data)
@@ -222,6 +222,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Streamed {} rows...", row_count);
                 }
             }
+
+            // 6. Flush remaining edge chunks
+            for (grid_coord, mut buffer) in active_chunks.into_iter() {
+                // Pad with fill_value
+                while buffer.len() < chunk_len {
+                    buffer.push(f32::NAN);
+                }
+                tx.send((grid_coord, buffer))
+                    .await
+                    .map_err(|_| "Upload worker failed or disconnected")?;
+            }
+
+            // 7. Drop sender and wait for uploads to finish
+            drop(tx);
+            upload_task
+                .await
+                .map_err(|e| format!("Upload task panicked: {}", e))?;
+
+            println!("Finished streaming {} rows.", row_count);
 
             println!("Export successful!");
         }
