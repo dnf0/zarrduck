@@ -311,8 +311,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Since we ORDER BY coordinates, we stream data lexicographically.
                 // The smallest key in the BTreeMap is the oldest chunk we have completely finished.
                 if active_chunks.len() >= 1000 {
-                    let oldest_key = active_chunks.keys().next().unwrap().clone();
-                    let evicted_buffer = active_chunks.remove(&oldest_key).unwrap();
+                    let (oldest_key, evicted_buffer) = active_chunks.pop_first().unwrap();
                     tx.send((oldest_key, evicted_buffer))
                         .await
                         .map_err(|_| "Upload worker failed or disconnected")?;
