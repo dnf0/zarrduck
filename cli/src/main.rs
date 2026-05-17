@@ -217,19 +217,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Get the value (assuming f32 for this MVP)
                 let value: f32 = row.get(coord_columns.len())?;
 
-                if !active_chunks.contains_key(&grid_coord) {
-                    active_chunks.insert(grid_coord.clone(), Vec::with_capacity(chunk_len));
-                }
-                let buffer = active_chunks.get_mut(&grid_coord).unwrap();
-                buffer.push(value);
+                let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
+                    let mut b = Vec::with_capacity(chunk_len);
+                    b.resize(chunk_len, f32::NAN);
+                    b
+                });
 
-                // Flush if full
-                if buffer.len() == chunk_len {
-                    let full_chunk = active_chunks.remove(&grid_coord).unwrap();
-                    tx.send((grid_coord, full_chunk))
-                        .await
-                        .map_err(|_| "Upload worker failed or disconnected")?;
+                // Calculate local coordinates and flat C-contiguous index
+                let mut local_coords = Vec::new();
+                for i in 0..coord_columns.len() {
+                    let val: i64 = row.get(i)?; // val has already been validated >= 0 above
+                    let local_c = (val as u64) % chunk_shape[i];
+                    local_coords.push(local_c);
                 }
+
+                let mut flat_idx = 0;
+                let mut stride = 1;
+                for i in (0..coord_columns.len()).rev() {
+                    flat_idx += local_coords[i] * stride;
+                    stride *= chunk_shape[i];
+                }
+                
+                buffer[flat_idx as usize] = value;
+                
+                // Note: Eviction will handle flushing. For MVP, we don't attempt to track "fullness" 
+                // perfectly since sparse arrays won't fill up linearly.
+                // The eviction logic below will flush chunks when the active map gets too large.
 
                 // Eviction check for sparse chunks
                 if active_chunks.len() >= 1000 {
@@ -243,10 +256,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     if let Some(key) = smallest_key {
-                        let mut evicted_buffer = active_chunks.remove(&key).unwrap();
-                        while evicted_buffer.len() < chunk_len {
-                            evicted_buffer.push(f32::NAN);
-                        }
+                        let evicted_buffer = active_chunks.remove(&key).unwrap();
                         tx.send((key, evicted_buffer)).await.map_err(|_| "Upload worker failed or disconnected")?;
                     }
                 }
@@ -258,11 +268,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // 6. Flush remaining edge chunks
-            for (grid_coord, mut buffer) in active_chunks.into_iter() {
-                // Pad with fill_value
-                while buffer.len() < chunk_len {
-                    buffer.push(f32::NAN);
-                }
+            for (grid_coord, buffer) in active_chunks.into_iter() {
                 tx.send((grid_coord, buffer))
                     .await
                     .map_err(|_| "Upload worker failed or disconnected")?;
