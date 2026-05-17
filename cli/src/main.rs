@@ -170,13 +170,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            let data_type = if value_type_str == "DOUBLE" {
+            let data_type = if value_type_str == "DOUBLE" || value_type_str == "FLOAT8" || value_type_str == "DECIMAL" || value_type_str == "NUMERIC" {
                 zarrs::array::DataType::Float64
             } else {
                 zarrs::array::DataType::Float32
             };
 
-            let fill_value = if value_type_str == "DOUBLE" {
+            let fill_value = if value_type_str == "DOUBLE" || value_type_str == "FLOAT8" || value_type_str == "DECIMAL" || value_type_str == "NUMERIC" {
                 zarrs::array::FillValue::from(f64::NAN)
             } else {
                 zarrs::array::FillValue::from(f32::NAN)
@@ -283,7 +283,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     local_coords.push(local_c);
                 }
 
-                let is_double = value_type_str == "DOUBLE";
+                let is_double = value_type_str == "DOUBLE" || value_type_str == "FLOAT8" || value_type_str == "DECIMAL" || value_type_str == "NUMERIC";
 
                 let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
                     if is_double {
@@ -333,31 +333,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 row_count += 1;
                 if row_count % 100_000 == 0 {
                     println!("Streamed {} rows...", row_count);
-                }
-            }
-
-            // 6. Flush remaining edge chunks
-            for (grid_coord, buffer) in active_chunks.into_iter() {
-                tx.send((grid_coord, buffer))
-                    .await
-                    .map_err(|_| "Upload worker failed or disconnected")?;
-            }
-
-            // 7. Drop sender and wait for uploads to finish
-            drop(tx);
-            upload_task
-                .await
-                .map_err(|e| format!("Upload task panicked: {}", e))?;
-
-            println!("Finished streaming {} rows.", row_count);
-
-            println!("Export successful!");
-        }
-    }
-
-    Ok(())
-}
-..", row_count);
                 }
             }
 
