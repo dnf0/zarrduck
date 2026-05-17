@@ -151,9 +151,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err("Chunk dimension size cannot be 0".into());
             }
 
+            // Infer type from DuckDB schema
+            let mut type_stmt = _conn.prepare(&query_info)?;
+            let mut t_rows = type_stmt.query([])?;
+            let mut value_type_str = "FLOAT".to_string();
+            while let Some(row) = t_rows.next()? {
+                let col_name: String = row.get(0)?;
+                if col_name == value_column {
+                    value_type_str = row.get(1)?;
+                }
+            }
+
+            let data_type = if value_type_str == "DOUBLE" {
+                zarrs::array::DataType::Float64
+            } else {
+                zarrs::array::DataType::Float32
+            };
+
             let array_builder = zarrs::array::ArrayBuilder::new(
                 shape.clone(),
-                zarrs::array::DataType::Float32,
+                data_type,
                 chunk_shape.clone().try_into().unwrap(),
                 zarrs::array::FillValue::from(f32::NAN),
             );

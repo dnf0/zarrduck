@@ -29,15 +29,14 @@ fn resolve_store(
         Ok(Arc::new(store))
     } else {
         let canonical_path = std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {}", e))?;
-        let allowed_dir = std::env::var("GEOZARR_ALLOW_PATH").unwrap_or_else(|_| {
-            std::env::current_dir().unwrap_or_default().to_string_lossy().to_string()
-        });
-        
+        let allowed_dir = std::env::var("GEOZARR_ALLOW_PATH")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+
         let allowed_canon = std::fs::canonicalize(&allowed_dir).map_err(|e| format!("Invalid GEOZARR_ALLOW_PATH: {}", e))?;
         if !canonical_path.starts_with(allowed_canon) {
-            return Err(format!("Access denied. Path is not within the allowed sandbox directory (GEOZARR_ALLOW_PATH or CWD).").into());
-        }
-        let store = zarrs::storage::store::FilesystemStore::new(path)?;
+            return Err("Access denied. Path is not within the allowed sandbox directory (GEOZARR_ALLOW_PATH or CWD).".into());
+        }        let store = zarrs::storage::store::FilesystemStore::new(path)?;
         Ok(Arc::new(store))
     }
 }
