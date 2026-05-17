@@ -176,7 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut active_chunks: std::collections::HashMap<Vec<u64>, Vec<f32>> =
                 std::collections::HashMap::new();
-            let chunk_len = chunk_shape.iter().product::<u64>() as usize;
+            let chunk_len = chunk_shape.iter().try_fold(1u64, |acc, &x| acc.checked_mul(x)).expect("Chunk volume overflow") as usize;
 
             // 5. Stream data from DuckDB
             let order_by = coord_columns
