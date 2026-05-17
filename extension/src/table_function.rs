@@ -370,7 +370,7 @@ impl VTab for ReadZarrVTab {
         bind.add_result_column("value", value_type.into());
 
         let shape = array.shape().to_vec();
-        let chunk_shape = array
+        let chunk_shape: Vec<u64> = array
             .chunk_grid()
             .chunk_shape(&vec![0; rank], &shape)
             .map_err(|_| "zarrs error: array bounds are out of grid".to_string())?
@@ -379,6 +379,18 @@ impl VTab for ReadZarrVTab {
             .map(|n| n.get())
             .collect();
         let data_type = array.data_type().clone();
+
+        let chunk_volume = chunk_shape.iter().try_fold(1u64, |acc, &x| acc.checked_mul(x)).ok_or("Chunk volume overflow")? as usize;
+        let bytes_per_element = match data_type {
+            zarrs::array::DataType::Float64 | zarrs::array::DataType::Int64 | zarrs::array::DataType::UInt64 => 8,
+            zarrs::array::DataType::Float32 | zarrs::array::DataType::Int32 | zarrs::array::DataType::UInt32 => 4,
+            zarrs::array::DataType::Int16 | zarrs::array::DataType::UInt16 => 2,
+            _ => 1,
+        };
+        let chunk_bytes = chunk_volume.checked_mul(bytes_per_element).ok_or("Chunk byte volume overflow")?;
+        if chunk_bytes > 256 * 1024 * 1024 {
+            return Err(format!("Chunk size {} bytes exceeds maximum allowed volume of 256MB", chunk_bytes).into());
+        }
 
         let mut bounds_min = vec![0; rank];
         let mut bounds_max = vec![0; rank];
