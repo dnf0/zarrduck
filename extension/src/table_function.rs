@@ -371,6 +371,10 @@ impl VTab for ReadZarrVTab {
         bind.add_result_column("value", value_type.into());
 
         let shape = array.shape().to_vec();
+        let rank = shape.len();
+        if rank > 16 {
+            return Err(format!("Zarr array rank {} exceeds maximum supported dimensions (16)", rank).into());
+        }
         let chunk_shape: Vec<u64> = array
             .chunk_grid()
             .chunk_shape(&vec![0; rank], &shape)
