@@ -30,7 +30,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-duckdb-ext
-        run: cargo install duckdb-ext
+        run: cargo install cargo-duckdb-ext-tools
 
       - name: Build Extension
         run: cargo duckdb-ext build --release
