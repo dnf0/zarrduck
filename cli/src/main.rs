@@ -131,7 +131,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             // Write metadata (assuming Float32 for simplicity in this MVP)
-            let chunk_shape = vec![100; shape.len()];
+            let mut chunk_shape = Vec::new();
+            let mut current_volume = 1u64;
+            for &dim in &shape {
+                let chunk_dim = if current_volume.saturating_mul(dim) <= 10_000_000 {
+                    dim
+                } else {
+                    std::cmp::max(1, 10_000_000 / current_volume)
+                };
+                chunk_shape.push(chunk_dim);
+                current_volume = current_volume.saturating_mul(chunk_dim);
+            }
             if let Some(_c) = chunks {
                 // Simplified chunk parsing fallback
                 println!("Chunk parsing not fully implemented, using defaults [100, ...]");
