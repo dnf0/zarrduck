@@ -227,6 +227,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .map_err(|_| "Upload worker failed or disconnected")?;
                 }
 
+                // Eviction check for sparse chunks
+                if active_chunks.len() >= 1000 {
+                    // Find the key with the smallest buffer
+                    let mut smallest_key = None;
+                    let mut smallest_len = usize::MAX;
+                    for (k, v) in active_chunks.iter() {
+                        if v.len() < smallest_len {
+                            smallest_len = v.len();
+                            smallest_key = Some(k.clone());
+                        }
+                    }
+                    if let Some(key) = smallest_key {
+                        let mut evicted_buffer = active_chunks.remove(&key).unwrap();
+                        while evicted_buffer.len() < chunk_len {
+                            evicted_buffer.push(f32::NAN);
+                        }
+                        tx.send((key, evicted_buffer)).await.map_err(|_| "Upload worker failed or disconnected")?;
+                    }
+                }
+
                 row_count += 1;
                 if row_count % 100_000 == 0 {
                     println!("Streamed {} rows...", row_count);
