@@ -78,7 +78,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             if !all_columns.contains(&value_column) {
-                return Err(format!("Value column '{}' not found in query results", value_column).into());
+                return Err(
+                    format!("Value column '{}' not found in query results", value_column).into(),
+                );
             }
 
             // 2. Pass 1: Infer Shape
@@ -88,12 +90,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !coord_columns.is_empty() {
                 let mut agg_selects = Vec::new();
                 for coord in &coord_columns {
-                    agg_selects.push(format!("COUNT(DISTINCT \"{}\")", coord.replace("\"", "\"\"")));
+                    agg_selects.push(format!(
+                        "COUNT(DISTINCT \"{}\")",
+                        coord.replace("\"", "\"\"")
+                    ));
                 }
-                
-                let inference_query = format!("SELECT {} FROM ({}) AS _geozarr_subq", agg_selects.join(", "), query);
+
+                let inference_query = format!(
+                    "SELECT {} FROM ({}) AS _geozarr_subq",
+                    agg_selects.join(", "),
+                    query
+                );
                 let mut inf_stmt = _conn.prepare(&inference_query)?;
-                
+
                 inf_stmt.query_row([], |row| {
                     for i in 0..coord_columns.len() {
                         let count: u64 = row.get(i)?;
@@ -110,15 +119,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let bucket_and_path = output.strip_prefix("s3://").unwrap();
                 let bucket = bucket_and_path.split('/').next().unwrap_or(bucket_and_path);
                 let root = bucket_and_path.strip_prefix(bucket).unwrap_or("/");
-                let builder = opendal::services::S3::default()
-                    .bucket(bucket)
-                    .root(root);
+                let builder = opendal::services::S3::default().bucket(bucket).root(root);
                 let operator = opendal::Operator::new(builder)?.finish();
-                std::sync::Arc::new(zarrs::storage::store::AsyncOpendalStore::new(operator)) as std::sync::Arc<dyn zarrs::storage::AsyncWritableStorageTraits>
+                std::sync::Arc::new(zarrs::storage::store::AsyncOpendalStore::new(operator))
+                    as std::sync::Arc<dyn zarrs::storage::AsyncWritableStorageTraits>
             } else {
                 let builder = opendal::services::Fs::default().root(&output);
                 let operator = opendal::Operator::new(builder)?.finish();
-                std::sync::Arc::new(zarrs::storage::store::AsyncOpendalStore::new(operator)) as std::sync::Arc<dyn zarrs::storage::AsyncWritableStorageTraits>
+                std::sync::Arc::new(zarrs::storage::store::AsyncOpendalStore::new(operator))
+                    as std::sync::Arc<dyn zarrs::storage::AsyncWritableStorageTraits>
             };
 
             // Write metadata (assuming Float32 for simplicity in this MVP)
@@ -127,14 +136,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Simplified chunk parsing fallback
                 println!("Chunk parsing not fully implemented, using defaults [100, ...]");
             }
-            
+
             let array_builder = zarrs::array::ArrayBuilder::new(
                 shape.clone(),
                 zarrs::array::DataType::Float32,
                 chunk_shape.clone().try_into().unwrap(),
                 zarrs::array::FillValue::from(f32::NAN),
             );
-            
+
             let array = array_builder.build(store.clone(), "/").unwrap();
             array.async_store_metadata().await?;
             println!("Initialized Zarr Array.");
@@ -145,17 +154,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Pass 2: Streaming data...");
             let (tx, mut rx) = tokio::sync::mpsc::channel::<(Vec<u64>, Vec<f32>)>(16);
             let array_clone = array.clone();
-            
+
             let upload_task = tokio::spawn(async move {
                 while let Some((chunk_grid, chunk_data)) = rx.recv().await {
-                    array_clone.async_store_chunk_elements(&chunk_grid, &chunk_data).await.expect("Failed to upload chunk");
+                    array_clone
+                        .async_store_chunk_elements(&chunk_grid, &chunk_data)
+                        .await
+                        .expect("Failed to upload chunk");
                 }
             });
-            
-            let mut active_chunks: std::collections::HashMap<Vec<u64>, Vec<f32>> = std::collections::HashMap::new();
+
+            let mut active_chunks: std::collections::HashMap<Vec<u64>, Vec<f32>> =
+                std::collections::HashMap::new();
             let chunk_len = chunk_shape.iter().product::<u64>() as usize;
 
-            // Two-pass inference and data writing will go here
+            // 5. Stream data from DuckDB
+            let order_by = coord_columns
+                .iter()
+                .map(|c| format!("\"{}\"", c))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let stream_query = format!("SELECT * FROM ({}) ORDER BY {}", query, order_by);
+            let mut stream_stmt = _conn.prepare(&stream_query)?;
+
+            let mut rows = stream_stmt.query([])?;
+            let mut row_count = 0;
+
+            while let Some(row) = rows.next()? {
+                // Map the flat row to a chunk grid coordinate
+                let mut grid_coord = Vec::new();
+                for i in 0..coord_columns.len() {
+                    let val: f64 = row.get(i)?; // Assuming coords are float for now
+                                                // Simple grid mapping: index = floor(val)
+                    let grid_idx = (val as u64) / chunk_shape[i];
+                    grid_coord.push(grid_idx);
+                }
+
+                // Get the value (assuming f32 for this MVP)
+                let value: f32 = row.get(coord_columns.len())?;
+
+                let buffer = active_chunks
+                    .entry(grid_coord.clone())
+                    .or_insert_with(|| Vec::with_capacity(chunk_len));
+                buffer.push(value);
+
+                // Flush if full
+                if buffer.len() == chunk_len {
+                    let full_chunk = active_chunks.remove(&grid_coord).unwrap();
+                    tx.send((grid_coord, full_chunk)).await.unwrap();
+                }
+
+                row_count += 1;
+                if row_count % 100_000 == 0 {
+                    println!("Streamed {} rows...", row_count);
+                }
+            }
+
             println!("Export successful!");
         }
     }
