@@ -64,7 +64,7 @@ fn test_new_data_types() -> Result<()> {
 
 #[test]
 fn test_read_zarr_function_compiles() {
-    let ext_path = "target/debug/duckdb_geozarr.duckdb_extension";
+    let ext_path = "../target/debug/duckdb_geozarr.duckdb_extension";
 
     // We just verify the extension file was successfully packaged by `cargo duckdb-ext build`.
     // Loading it dynamically into the host duckdb CLI is not tested here because
