@@ -259,6 +259,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if val < 0 {
                         return Err("Coordinates must be positive 0-based integer indices".into());
                     }
+                    if (val as u64) >= shape[i] {
+                        return Err(format!("Coordinate index {} exceeds maximum bound of dimension {}", val, shape[i]).into());
+                    }
                     let grid_idx = (val as u64) / chunk_dim;
                     grid_coord.push(grid_idx);
                 }
