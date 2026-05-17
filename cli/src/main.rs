@@ -83,22 +83,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // 2. Pass 1: Infer Shape
             println!("Pass 1: Inferring shape...");
-            let mut agg_selects = Vec::new();
-            for coord in &coord_columns {
-                agg_selects.push(format!("COUNT(DISTINCT \"{}\")", coord));
-            }
-            
-            let inference_query = format!("SELECT {} FROM ({})", agg_selects.join(", "), query);
-            let mut inf_stmt = _conn.prepare(&inference_query)?;
-            
             let mut shape = Vec::new();
-            inf_stmt.query_row([], |row| {
-                for i in 0..coord_columns.len() {
-                    let count: u64 = row.get(i)?;
-                    shape.push(count);
+
+            if !coord_columns.is_empty() {
+                let mut agg_selects = Vec::new();
+                for coord in &coord_columns {
+                    agg_selects.push(format!("COUNT(DISTINCT \"{}\")", coord.replace("\"", "\"\"")));
                 }
-                Ok(())
-            })?;
+                
+                let inference_query = format!("SELECT {} FROM ({}) AS _geozarr_subq", agg_selects.join(", "), query);
+                let mut inf_stmt = _conn.prepare(&inference_query)?;
+                
+                inf_stmt.query_row([], |row| {
+                    for i in 0..coord_columns.len() {
+                        let count: u64 = row.get(i)?;
+                        shape.push(count);
+                    }
+                    Ok(())
+                })?;
+            }
 
             println!("Inferred Shape: {:?}", shape);
 
