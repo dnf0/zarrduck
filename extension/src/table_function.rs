@@ -528,8 +528,13 @@ impl VTab for ReadZarrVTab {
                 .lock()
                 .map_err(|e| format!("Mutex poisoned: {}", e))?;
 
-            local_states.remove(&thread_id).unwrap_or_else(|| {
-                let mut g_state = init_data.global_state.lock().unwrap();
+            if let Some(state) = local_states.remove(&thread_id) {
+                state
+            } else {
+                let mut g_state = init_data
+                    .global_state
+                    .lock()
+                    .map_err(|e| format!("Mutex poisoned: {}", e))?;
 
                 // Initialize current_chunk_grid properly on first run
                 if g_state.current_chunk_grid.len() != bind_data.shape.len() {
@@ -542,7 +547,7 @@ impl VTab for ReadZarrVTab {
                     current_chunk_buffer: None,
                     projected_columns: init_data.projected_columns.clone(),
                 }
-            })
+            }
         };
 
         // Dispatch based on data type
