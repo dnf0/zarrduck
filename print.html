@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-bdfa6500.js";
+            window.path_to_searchindex_js = "searchindex-e649eaab.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-0a204464.js"></script>
+        <script src="toc-d1d613aa.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -211,21 +211,25 @@ ORDER BY time;
 <li><strong>Spatial Pruning</strong>: Network I/O is the slowest part of cloud analytics. Use named parameters (like <code>lat_min</code>, <code>lon_max</code>) to filter data at the chunk-level. The extension strictly prunes out-of-bounds chunks before they are ever requested over the network.</li>
 <li><strong>Universal Types</strong>: Supports all common Zarr primitives (<code>f32</code>, <code>f64</code>, <code>i8</code>, <code>i16</code>, <code>i32</code>, <code>i64</code>, <code>u8</code>, <code>u16</code>, <code>u32</code>, <code>u64</code>, <code>bool</code>, and <code>String</code>) seamlessly.</li>
 <li><strong>Missing Data Awareness</strong>: Missing data tokens (Zarr <code>fill_value</code>s like <code>-9999.0</code> or <code>NaN</code>) are mapped perfectly to true SQL <code>NULL</code>s via DuckDB’s ValidityMask, ensuring aggregations like <code>SUM()</code> and <code>AVG()</code> are mathematically correct.</li>
+<li><strong>Companion Export CLI</strong>: Includes the <code>geozarr-cli</code> tool, allowing you to run SQL queries and export the results back into N-dimensional Zarr arrays on S3 using async, lock-free streaming.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
-<p>DuckDB extensions are dynamically loaded libraries (<code>.duckdb_extension</code> files).</p>
+<p>DuckDB GeoZarr is a Cargo Workspace that produces two artifacts: a dynamically loaded DuckDB extension (<code>.duckdb_extension</code>) for high-performance reading, and a standalone binary (<code>geozarr-cli</code>) for writing data back to Zarr.</p>
 <h2 id="local-development"><a class="header" href="#local-development">Local Development</a></h2>
-<p>If you are developing or building the extension from source, you can build it using the standard <code>cargo</code> pipeline with DuckDB extensions:</p>
+<p>If you are developing or building from source, you can build both tools using the standard <code>cargo</code> pipeline:</p>
 <pre><code class="language-bash"># Clone the repository
 git clone https://github.com/dnf0/duckdb_geozarr.git
 cd duckdb_geozarr
 
-# Build the extension for your current architecture
+# Build the extension and CLI
 cargo build --release
 
 # The extension will be located at:
 # target/release/libduckdb_geozarr.so (or .dylib / .dll)
+
+# The CLI binary will be located at:
+# target/release/geozarr-cli
 </code></pre>
 <h2 id="loading-in-duckdb"><a class="header" href="#loading-in-duckdb">Loading in DuckDB</a></h2>
 <p>Once you have the extension binary, you can load it in DuckDB.</p>
@@ -303,6 +307,33 @@ SELECT SUM(value) FROM read_zarr('s3://bucket/data.zarr');
 <pre><code class="language-sql">-- NULLs (fill values) are correctly ignored in the average calculation
 SELECT AVG(value) FROM read_zarr('s3://bucket/data.zarr');
 </code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="exporting-to-zarr-geozarr-cli"><a class="header" href="#exporting-to-zarr-geozarr-cli">Exporting to Zarr (geozarr-cli)</a></h1>
+<p>While the DuckDB GeoZarr extension is designed for high-performance <strong>reads</strong> directly within the database engine, exporting relational data back out into N-dimensional Zarr arrays requires a different approach.</p>
+<p>Due to the architectural limitations of DuckDB extensions (which cannot safely inspect <code>ClientContext</code> to orchestrate multi-pass analytical scans), we have built a <strong>Companion CLI Tool</strong> called <code>geozarr-cli</code>.</p>
+<h2 id="the-geozarr-cli-tool"><a class="header" href="#the-geozarr-cli-tool">The <code>geozarr-cli</code> Tool</a></h2>
+<p><code>geozarr-cli</code> is a standalone Rust binary that natively embeds DuckDB. It allows you to run complex SQL queries against your data and stream the results directly to cloud storage as a fully compliant Zarr array.</p>
+<h3 id="key-features-1"><a class="header" href="#key-features-1">Key Features</a></h3>
+<ul>
+<li><strong>Two-Pass Auto-Inference</strong>: You don’t need to manually calculate the shape of your N-dimensional data. The CLI automatically runs a hidden aggregation pass over your DuckDB query to infer the exact shape and bounding box of your Zarr array.</li>
+<li><strong>Lock-Free Async Uploads</strong>: The CLI batches rows into Zarr chunks in-memory, and uses a bounded Tokio channel to upload full chunks to S3 asynchronously. This ensures your network bandwidth is saturated without risking Out-Of-Memory (OOM) crashes.</li>
+<li><strong>Cloud Native</strong>: Like the read extension, the CLI uses Apache OpenDAL to natively stream chunks to <code>s3://</code> or the local filesystem using standard AWS credentials.</li>
+</ul>
+<h2 id="usage"><a class="header" href="#usage">Usage</a></h2>
+<pre><code class="language-bash">geozarr-cli export \
+  --db "my_database.duckdb" \
+  --query "SELECT time, lat, lon, temperature FROM climate_model WHERE time &gt; 2020" \
+  --output "s3://my-bucket/climate_export.zarr" \
+  --value-column "temperature"
+</code></pre>
+<h3 id="arguments"><a class="header" href="#arguments">Arguments</a></h3>
+<ul>
+<li><code>--db &lt;PATH&gt;</code>: (Optional) The path to your DuckDB database file. If omitted, the CLI spins up an in-memory database.</li>
+<li><code>--query &lt;SQL&gt;</code>: The SQL query to execute. The query can be as complex as you like (aggregations, joins, window functions).</li>
+<li><code>--value-column &lt;COL&gt;</code>: <strong>Required</strong>. Zarr arrays hold a single N-dimensional grid of values. You must specify which column in your <code>SELECT</code> statement contains the actual data (e.g., <code>temperature</code>). <strong>All other columns will be treated as coordinate axes</strong> (e.g., <code>time</code>, <code>lat</code>, <code>lon</code>).</li>
+<li><code>--output &lt;URI&gt;</code>: The destination path. Supports local paths or <code>s3://</code> URIs.</li>
+<li><code>--chunks &lt;JSON&gt;</code>: (Optional) A JSON map defining the chunk shape for each dimension (e.g., <code>'{"time": 10, "lat": 100, "lon": 100}'</code>). If omitted, the CLI defaults to chunks of 100 per dimension.</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="how-to-guides"><a class="header" href="#how-to-guides">How-To Guides</a></h1>
 <p>This section provides practical, step-by-step examples for common data science and engineering workflows using the DuckDB GeoZarr extension.</p>

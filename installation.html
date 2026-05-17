@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-bdfa6500.js";
+            window.path_to_searchindex_js = "searchindex-e649eaab.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-0a204464.js"></script>
+        <script src="toc-d1d613aa.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -181,18 +181,21 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
-<p>DuckDB extensions are dynamically loaded libraries (<code>.duckdb_extension</code> files).</p>
+<p>DuckDB GeoZarr is a Cargo Workspace that produces two artifacts: a dynamically loaded DuckDB extension (<code>.duckdb_extension</code>) for high-performance reading, and a standalone binary (<code>geozarr-cli</code>) for writing data back to Zarr.</p>
 <h2 id="local-development"><a class="header" href="#local-development">Local Development</a></h2>
-<p>If you are developing or building the extension from source, you can build it using the standard <code>cargo</code> pipeline with DuckDB extensions:</p>
+<p>If you are developing or building from source, you can build both tools using the standard <code>cargo</code> pipeline:</p>
 <pre><code class="language-bash"># Clone the repository
 git clone https://github.com/dnf0/duckdb_geozarr.git
 cd duckdb_geozarr
 
-# Build the extension for your current architecture
+# Build the extension and CLI
 cargo build --release
 
 # The extension will be located at:
 # target/release/libduckdb_geozarr.so (or .dylib / .dll)
+
+# The CLI binary will be located at:
+# target/release/geozarr-cli
 </code></pre>
 <h2 id="loading-in-duckdb"><a class="header" href="#loading-in-duckdb">Loading in DuckDB</a></h2>
 <p>Once you have the extension binary, you can load it in DuckDB.</p>
