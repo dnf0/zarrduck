@@ -210,12 +210,12 @@ SELECT AVG(value) FROM read_zarr('https://public-data.com/dataset.zarr');
 <p>Due to limitations in current DuckDB extension bindings, standard <code>WHERE</code> clauses (e.g., <code>WHERE lat &gt; 45.0</code>) cannot be “pushed down” to the network layer. If you use a <code>WHERE</code> clause, DuckDB will download the <em>entire</em> Zarr array from S3 and filter the rows in memory—which is disastrous for performance.</p>
 <p>To solve this, use <strong>Named Parameters</strong>.</p>
 <p>You can pass <code>_min</code> and <code>_max</code> parameters for any coordinate dimension. The extension will perform a binary search on the cached coordinate arrays and <strong>strictly prune out-of-bounds chunks before performing network I/O</strong>.</p>
-<pre><code class="language-sql">SELECT 
-    time, 
+<pre><code class="language-sql">SELECT
+    time,
     AVG(value) as regional_average
 FROM read_zarr(
-    's3://my-bucket/climate.zarr', 
-    lat_min := 45.0, 
+    's3://my-bucket/climate.zarr',
+    lat_min := 45.0,
     lat_max := 55.0,
     lon_min := -10.0,
     lon_max := 5.0,

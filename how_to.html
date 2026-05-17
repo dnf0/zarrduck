@@ -185,7 +185,7 @@
 <h2 id="how-to-extract-a-specific-geographic-region-bounding-box"><a class="header" href="#how-to-extract-a-specific-geographic-region-bounding-box">How to extract a specific geographic region (Bounding Box)</a></h2>
 <p>Often, climate datasets cover the entire globe, but your analysis is restricted to a specific country or region. Downloading the global dataset is incredibly wasteful.</p>
 <p>By passing named parameters for coordinate limits, the extension will <em>only</em> download the Zarr chunks that intersect your bounding box.</p>
-<pre><code class="language-sql">SELECT 
+<pre><code class="language-sql">SELECT
     time,
     lat,
     lon,
@@ -203,7 +203,7 @@ WHERE time &gt;= 1609459200; -- Further filter by time (e.g., year 2021)
 <p><em>Note: Because DuckDB cannot push standard <code>WHERE</code> clauses down into table functions yet, the coordinate pruning MUST be done using the <code>:=</code> named parameters to achieve network savings.</em></p>
 <h2 id="how-to-aggregate-data-over-time-eg-monthly-averages"><a class="header" href="#how-to-aggregate-data-over-time-eg-monthly-averages">How to aggregate data over time (e.g., Monthly Averages)</a></h2>
 <p>If you are calculating time-series aggregations, DuckDB is incredibly fast. To maximize performance, ensure you only select the columns you need.</p>
-<pre><code class="language-sql">SELECT 
+<pre><code class="language-sql">SELECT
     time,
     AVG(value) as monthly_average
 FROM read_zarr('s3://climate-data/precipitation.zarr')
@@ -213,7 +213,7 @@ ORDER BY time;
 <p>Because the <code>lat</code> and <code>lon</code> columns are completely absent from this query (Projection Pushdown), the extension skips calculating them and skips allocating memory for them, leading to a massive speedup.</p>
 <h2 id="how-to-handle-categorical-data-stringsvarchar"><a class="header" href="#how-to-handle-categorical-data-stringsvarchar">How to handle categorical data (Strings/Varchar)</a></h2>
 <p>Geospatial data isn’t just numbers. Land cover datasets, for example, often use strings to denote classifications. The extension natively supports Zarr string arrays and automatically bridges them to DuckDB <code>VARCHAR</code> columns.</p>
-<pre><code class="language-sql">SELECT 
+<pre><code class="language-sql">SELECT
     value as land_cover_type,
     count(*) as pixel_count
 FROM read_zarr('s3://climate-data/land_cover.zarr')

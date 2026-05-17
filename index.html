@@ -198,8 +198,8 @@
 <h2 id="the-solution-native-streaming"><a class="header" href="#the-solution-native-streaming">The Solution: Native Streaming</a></h2>
 <p>The <strong>DuckDB GeoZarr</strong> extension bridges this gap natively. It allows DuckDB to treat a remote Zarr array on S3 exactly like a local Parquet file or CSV.</p>
 <p>Instead of pre-processing the data in Python, you simply write SQL:</p>
-<pre><code class="language-sql">SELECT 
-    time, 
+<pre><code class="language-sql">SELECT
+    time,
     AVG(value) as mean_temp
 FROM read_zarr('s3://climate-data/temperature_2026.zarr', lat_min := 45.0, lat_max := 55.0)
 GROUP BY time
