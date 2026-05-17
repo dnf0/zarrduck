@@ -139,6 +139,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             array.async_store_metadata().await?;
             println!("Initialized Zarr Array.");
 
+            let array = std::sync::Arc::new(array);
+
+            // 4. Setup Async Upload Workers
+            println!("Pass 2: Streaming data...");
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<(Vec<u64>, Vec<f32>)>(16);
+            let array_clone = array.clone();
+            
+            let upload_task = tokio::spawn(async move {
+                while let Some((chunk_grid, chunk_data)) = rx.recv().await {
+                    array_clone.async_store_chunk_elements(&chunk_grid, &chunk_data).await.expect("Failed to upload chunk");
+                }
+            });
+            
+            let mut active_chunks: std::collections::HashMap<Vec<u64>, Vec<f32>> = std::collections::HashMap::new();
+            let chunk_len = chunk_shape.iter().product::<u64>() as usize;
+
             // Two-pass inference and data writing will go here
             println!("Export successful!");
         }
