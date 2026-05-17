@@ -105,6 +105,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("Inferred Shape: {:?}", shape);
 
+            // 3. Initialize Zarr Store
+            let store = if output.starts_with("s3://") {
+                let bucket_and_path = output.strip_prefix("s3://").unwrap();
+                let bucket = bucket_and_path.split('/').next().unwrap_or(bucket_and_path);
+                let root = bucket_and_path.strip_prefix(bucket).unwrap_or("/");
+                let builder = opendal::services::S3::default()
+                    .bucket(bucket)
+                    .root(root);
+                let operator = opendal::Operator::new(builder)?.finish();
+                std::sync::Arc::new(zarrs::storage::store::AsyncOpendalStore::new(operator)) as std::sync::Arc<dyn zarrs::storage::AsyncWritableStorageTraits>
+            } else {
+                let builder = opendal::services::Fs::default().root(&output);
+                let operator = opendal::Operator::new(builder)?.finish();
+                std::sync::Arc::new(zarrs::storage::store::AsyncOpendalStore::new(operator)) as std::sync::Arc<dyn zarrs::storage::AsyncWritableStorageTraits>
+            };
+
+            // Write metadata (assuming Float32 for simplicity in this MVP)
+            let chunk_shape = vec![100; shape.len()];
+            if let Some(_c) = chunks {
+                // Simplified chunk parsing fallback
+                println!("Chunk parsing not fully implemented, using defaults [100, ...]");
+            }
+            
+            let array_builder = zarrs::array::ArrayBuilder::new(
+                shape.clone(),
+                zarrs::array::DataType::Float32,
+                chunk_shape.clone().try_into().unwrap(),
+                zarrs::array::FillValue::from(f32::NAN),
+            );
+            
+            let array = array_builder.build(store.clone(), "/").unwrap();
+            array.async_store_metadata().await?;
+            println!("Initialized Zarr Array.");
+
             // Two-pass inference and data writing will go here
             println!("Export successful!");
         }
