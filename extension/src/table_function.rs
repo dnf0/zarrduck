@@ -7,24 +7,23 @@ use std::sync::{Arc, Mutex};
 use zarrs::array::{ArrayMetadata, DataType};
 use zarrs::storage::ReadableStorageTraits;
 
-fn resolve_store(path: &str) -> std::result::Result<Arc<dyn ReadableStorageTraits>, Box<dyn std::error::Error>> {
+fn resolve_store(
+    path: &str,
+) -> std::result::Result<Arc<dyn ReadableStorageTraits>, Box<dyn std::error::Error>> {
     if path.starts_with("s3://") {
         let bucket_and_path = path.strip_prefix("s3://").unwrap();
         let bucket = bucket_and_path.split('/').next().unwrap_or(bucket_and_path);
         let root = bucket_and_path.strip_prefix(bucket).unwrap_or("/");
-        
+
         // Uses standard AWS environment variables automatically
-        let builder = opendal::services::S3::default()
-            .bucket(bucket)
-            .root(root);
-        
+        let builder = opendal::services::S3::default().bucket(bucket).root(root);
+
         let operator = opendal::Operator::new(builder)?.finish();
         let store = zarrs::storage::store::OpendalStore::new(operator.blocking());
         Ok(Arc::new(store))
     } else if path.starts_with("http://") || path.starts_with("https://") {
-        let builder = opendal::services::Http::default()
-            .endpoint(path);
-        
+        let builder = opendal::services::Http::default().endpoint(path);
+
         let operator = opendal::Operator::new(builder)?.finish();
         let store = zarrs::storage::store::OpendalStore::new(operator.blocking());
         Ok(Arc::new(store))
@@ -70,7 +69,7 @@ macro_rules! dispatch_yield_loop {
     ($rust_type:ty, $enum_variant:path, $output:expr, $local_state:expr, $global_state:expr, $bind_data:expr) => {{
         let rank = $bind_data.shape.len();
         let mut value_vector = $output.flat_vector(rank);
-        
+
         let fill_bytes_slice = $bind_data.fill_value_bytes.as_deref().unwrap_or_default();
 
         let mut valid_rows = 0;
@@ -78,7 +77,9 @@ macro_rules! dispatch_yield_loop {
         loop {
             // If buffer is empty, lock global state to get a new chunk grid, then fetch
             if $local_state.current_chunk_buffer.is_none() {
-                let mut g_state = $global_state.lock().map_err(|e| format!("Mutex poisoned: {}", e))?;
+                let mut g_state = $global_state
+                    .lock()
+                    .map_err(|e| format!("Mutex poisoned: {}", e))?;
                 if g_state.exhausted {
                     break;
                 }
@@ -91,7 +92,8 @@ macro_rules! dispatch_yield_loop {
                 let mut chunk_bounds_min = vec![0; rank];
                 let mut chunk_bounds_max = vec![0; rank];
                 for i in 0..rank {
-                    grid_shape[i] = ($bind_data.shape[i] as f64 / $bind_data.chunk_shape[i] as f64).ceil() as u64;
+                    grid_shape[i] = ($bind_data.shape[i] as f64 / $bind_data.chunk_shape[i] as f64)
+                        .ceil() as u64;
                     chunk_bounds_min[i] = $bind_data.bounds_min[i] / $bind_data.chunk_shape[i];
                     chunk_bounds_max[i] = $bind_data.bounds_max[i] / $bind_data.chunk_shape[i];
                 }
@@ -286,7 +288,9 @@ impl VTab for ReadZarrVTab {
         let mut coords = std::collections::HashMap::new();
         // Eagerly load 1D coordinate arrays if they exist
         for (dim_index, name) in dim_names.iter().enumerate() {
-            if let Ok(coord_array) = zarrs::array::Array::open(Arc::clone(&store_arc), &format!("/{}", name)) {
+            if let Ok(coord_array) =
+                zarrs::array::Array::open(Arc::clone(&store_arc), &format!("/{}", name))
+            {
                 // Ensure it's a 1D array and small enough to avoid OOM
                 if coord_array.shape().len() == 1 && coord_array.shape()[0] < 1_000_000 {
                     let subset = zarrs::array_subset::ArraySubset::new_with_shape(
@@ -487,16 +491,44 @@ impl VTab for ReadZarrVTab {
         // Dispatch based on data type
         match bind_data.data_type {
             zarrs::array::DataType::Float32 => {
-                dispatch_yield_loop!(f32, ChunkBuffer::Float32, output, local_state, &init_data.global_state, bind_data)
+                dispatch_yield_loop!(
+                    f32,
+                    ChunkBuffer::Float32,
+                    output,
+                    local_state,
+                    &init_data.global_state,
+                    bind_data
+                )
             }
             zarrs::array::DataType::Float64 => {
-                dispatch_yield_loop!(f64, ChunkBuffer::Float64, output, local_state, &init_data.global_state, bind_data)
+                dispatch_yield_loop!(
+                    f64,
+                    ChunkBuffer::Float64,
+                    output,
+                    local_state,
+                    &init_data.global_state,
+                    bind_data
+                )
             }
             zarrs::array::DataType::Int32 => {
-                dispatch_yield_loop!(i32, ChunkBuffer::Int32, output, local_state, &init_data.global_state, bind_data)
+                dispatch_yield_loop!(
+                    i32,
+                    ChunkBuffer::Int32,
+                    output,
+                    local_state,
+                    &init_data.global_state,
+                    bind_data
+                )
             }
             zarrs::array::DataType::Int64 => {
-                dispatch_yield_loop!(i64, ChunkBuffer::Int64, output, local_state, &init_data.global_state, bind_data)
+                dispatch_yield_loop!(
+                    i64,
+                    ChunkBuffer::Int64,
+                    output,
+                    local_state,
+                    &init_data.global_state,
+                    bind_data
+                )
             }
             zarrs::array::DataType::String => {
                 // Strings must be handled explicitly since DuckDB Varchar FlatVectors don't use as_mut_slice
@@ -525,8 +557,10 @@ impl VTab for ReadZarrVTab {
                             grid_shape[i] = (bind_data.shape[i] as f64
                                 / bind_data.chunk_shape[i] as f64)
                                 .ceil() as u64;
-                            chunk_bounds_min[i] = bind_data.bounds_min[i] / bind_data.chunk_shape[i];
-                            chunk_bounds_max[i] = bind_data.bounds_max[i] / bind_data.chunk_shape[i];
+                            chunk_bounds_min[i] =
+                                bind_data.bounds_min[i] / bind_data.chunk_shape[i];
+                            chunk_bounds_max[i] =
+                                bind_data.bounds_max[i] / bind_data.chunk_shape[i];
                         }
 
                         if !crate::table_function::increment_chunk_grid(
@@ -627,25 +661,74 @@ impl VTab for ReadZarrVTab {
                 output.set_len(valid_rows);
             }
             zarrs::array::DataType::Bool => {
-                dispatch_yield_loop!(bool, ChunkBuffer::Bool, output, local_state, &init_data.global_state, bind_data)
+                dispatch_yield_loop!(
+                    bool,
+                    ChunkBuffer::Bool,
+                    output,
+                    local_state,
+                    &init_data.global_state,
+                    bind_data
+                )
             }
             zarrs::array::DataType::Int8 => {
-                dispatch_yield_loop!(i8, ChunkBuffer::Int8, output, local_state, &init_data.global_state, bind_data)
+                dispatch_yield_loop!(
+                    i8,
+                    ChunkBuffer::Int8,
+                    output,
+                    local_state,
+                    &init_data.global_state,
+                    bind_data
+                )
             }
             zarrs::array::DataType::Int16 => {
-                dispatch_yield_loop!(i16, ChunkBuffer::Int16, output, local_state, &init_data.global_state, bind_data)
+                dispatch_yield_loop!(
+                    i16,
+                    ChunkBuffer::Int16,
+                    output,
+                    local_state,
+                    &init_data.global_state,
+                    bind_data
+                )
             }
             zarrs::array::DataType::UInt8 => {
-                dispatch_yield_loop!(u8, ChunkBuffer::UInt8, output, local_state, &init_data.global_state, bind_data)
+                dispatch_yield_loop!(
+                    u8,
+                    ChunkBuffer::UInt8,
+                    output,
+                    local_state,
+                    &init_data.global_state,
+                    bind_data
+                )
             }
             zarrs::array::DataType::UInt16 => {
-                dispatch_yield_loop!(u16, ChunkBuffer::UInt16, output, local_state, &init_data.global_state, bind_data)
+                dispatch_yield_loop!(
+                    u16,
+                    ChunkBuffer::UInt16,
+                    output,
+                    local_state,
+                    &init_data.global_state,
+                    bind_data
+                )
             }
             zarrs::array::DataType::UInt32 => {
-                dispatch_yield_loop!(u32, ChunkBuffer::UInt32, output, local_state, &init_data.global_state, bind_data)
+                dispatch_yield_loop!(
+                    u32,
+                    ChunkBuffer::UInt32,
+                    output,
+                    local_state,
+                    &init_data.global_state,
+                    bind_data
+                )
             }
             zarrs::array::DataType::UInt64 => {
-                dispatch_yield_loop!(u64, ChunkBuffer::UInt64, output, local_state, &init_data.global_state, bind_data)
+                dispatch_yield_loop!(
+                    u64,
+                    ChunkBuffer::UInt64,
+                    output,
+                    local_state,
+                    &init_data.global_state,
+                    bind_data
+                )
             }
             _ => return Err(format!("Unsupported data type: {:?}", bind_data.data_type).into()),
         }

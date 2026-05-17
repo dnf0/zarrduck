@@ -14,7 +14,7 @@ fn test_new_data_types() -> Result<()> {
     use zarrs::storage::store::FilesystemStore;
 
     let store = Arc::new(FilesystemStore::new(&store_path).unwrap());
-    
+
     // Test Boolean
     let bool_builder = ArrayBuilder::new(
         vec![5],
@@ -30,12 +30,15 @@ fn test_new_data_types() -> Result<()> {
     let query_bool = format!("SELECT * FROM read_zarr('{}/bool')", store_path.display());
     let mut stmt_bool = conn.prepare(&query_bool)?;
     let mut rows_bool = stmt_bool.query([])?;
-    
+
     let mut bool_results = Vec::new();
     while let Some(row) = rows_bool.next()? {
         bool_results.push(row.get::<_, Option<bool>>(1)?);
     }
-    assert_eq!(bool_results, vec![Some(true), None, Some(true), Some(true), None]);
+    assert_eq!(
+        bool_results,
+        vec![Some(true), None, Some(true), Some(true), None]
+    );
 
     // Test Int8
     let i8_builder = ArrayBuilder::new(
@@ -52,7 +55,7 @@ fn test_new_data_types() -> Result<()> {
     let query_i8 = format!("SELECT * FROM read_zarr('{}/i8')", store_path.display());
     let mut stmt_i8 = conn.prepare(&query_i8)?;
     let mut rows_i8 = stmt_i8.query([])?;
-    
+
     let mut i8_results = Vec::new();
     while let Some(row) = rows_i8.next()? {
         i8_results.push(row.get::<_, i8>(1)?);
