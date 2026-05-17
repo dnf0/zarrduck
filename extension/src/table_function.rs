@@ -380,7 +380,7 @@ impl VTab for ReadZarrVTab {
             .collect();
         let data_type = array.data_type().clone();
 
-        let chunk_volume = chunk_shape.iter().try_fold(1u64, |acc, &x| acc.checked_mul(x)).ok_or("Chunk volume overflow")? as usize;
+        let chunk_volume = chunk_shape.iter().try_fold(1u64, |acc, &x| acc.checked_mul(x)).ok_or("Chunk volume overflow")?;
         let bytes_per_element = match data_type {
             zarrs::array::DataType::Float64 | zarrs::array::DataType::Int64 | zarrs::array::DataType::UInt64 => 8,
             zarrs::array::DataType::Float32 | zarrs::array::DataType::Int32 | zarrs::array::DataType::UInt32 => 4,
@@ -390,6 +390,12 @@ impl VTab for ReadZarrVTab {
         let chunk_bytes = chunk_volume.checked_mul(bytes_per_element).ok_or("Chunk byte volume overflow")?;
         if chunk_bytes > 256 * 1024 * 1024 {
             return Err(format!("Chunk size {} bytes exceeds maximum allowed volume of 256MB", chunk_bytes).into());
+        }
+
+        for &dim in &chunk_shape {
+            if dim == 0 {
+                return Err("Chunk dimension size cannot be 0".into());
+            }
         }
 
         let mut bounds_min = vec![0; rank];

@@ -181,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // 5. Stream data from DuckDB
             let order_by = coord_columns
                 .iter()
-                .map(|c| format!("\"{}\"", c))
+                .map(|c| format!("\"{}\"", c.replace("\"", "\"\"")))
                 .collect::<Vec<_>>()
                 .join(", ");
             let coords_str = coord_columns
