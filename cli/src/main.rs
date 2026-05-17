@@ -147,6 +147,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Chunk parsing not fully implemented, using auto-chunking: {:?}", chunk_shape);
             }
 
+            if chunk_shape.iter().any(|&dim| dim == 0) {
+                return Err("Chunk dimension size cannot be 0".into());
+            }
+
             let array_builder = zarrs::array::ArrayBuilder::new(
                 shape.clone(),
                 zarrs::array::DataType::Float32,
@@ -186,7 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .join(", ");
             let coords_str = coord_columns
                 .iter()
-                .map(|c| format!("\"{}\"", c))
+                .map(|c| format!("\"{}\"", c.replace("\"", "\"\"")))
                 .collect::<Vec<_>>()
                 .join(", ");
             let stream_query = format!(
