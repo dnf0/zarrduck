@@ -170,13 +170,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            let data_type = if value_type_str == "DOUBLE" || value_type_str == "FLOAT8" || value_type_str == "DECIMAL" || value_type_str == "NUMERIC" {
+            let is_double_type = value_type_str == "DOUBLE" || value_type_str == "FLOAT8" || value_type_str == "DECIMAL" || value_type_str == "NUMERIC";
+
+            let data_type = if is_double_type {
                 zarrs::array::DataType::Float64
             } else {
                 zarrs::array::DataType::Float32
             };
 
-            let fill_value = if value_type_str == "DOUBLE" || value_type_str == "FLOAT8" || value_type_str == "DECIMAL" || value_type_str == "NUMERIC" {
+            let fill_value = if is_double_type {
                 zarrs::array::FillValue::from(f64::NAN)
             } else {
                 zarrs::array::FillValue::from(f32::NAN)
@@ -283,10 +285,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     local_coords.push(local_c);
                 }
 
-                let is_double = value_type_str == "DOUBLE" || value_type_str == "FLOAT8" || value_type_str == "DECIMAL" || value_type_str == "NUMERIC";
-
                 let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                    if is_double {
+                    if is_double_type {
                         let mut b = Vec::with_capacity(chunk_len);
                         b.resize(chunk_len, f64::NAN);
                         ChunkData::F64(b)
