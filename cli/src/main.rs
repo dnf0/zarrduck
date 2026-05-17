@@ -155,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (tx, mut rx) = tokio::sync::mpsc::channel::<(Vec<u64>, Vec<f32>)>(16);
             let array_clone = array.clone();
 
-            let upload_task = tokio::spawn(async move {
+            let _upload_task = tokio::spawn(async move {
                 while let Some((chunk_grid, chunk_data)) = rx.recv().await {
                     array_clone
                         .async_store_chunk_elements(&chunk_grid, &chunk_data)
@@ -174,7 +174,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|c| format!("\"{}\"", c))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let stream_query = format!("SELECT * FROM ({}) ORDER BY {}", query, order_by);
+            let coords_str = coord_columns
+                .iter()
+                .map(|c| format!("\"{}\"", c))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let stream_query = format!(
+                "SELECT {}, \"{}\" FROM ({}) ORDER BY {}",
+                coords_str, value_column, query, order_by
+            );
             let mut stream_stmt = _conn.prepare(&stream_query)?;
 
             let mut rows = stream_stmt.query([])?;
@@ -184,8 +192,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Map the flat row to a chunk grid coordinate
                 let mut grid_coord = Vec::new();
                 for i in 0..coord_columns.len() {
-                    let val: f64 = row.get(i)?; // Assuming coords are float for now
-                                                // Simple grid mapping: index = floor(val)
+                    let val: i64 = row.get(i)?;
+                    if val < 0 {
+                        return Err("Coordinates must be positive 0-based integer indices".into());
+                    }
                     let grid_idx = (val as u64) / chunk_shape[i];
                     grid_coord.push(grid_idx);
                 }
@@ -193,15 +203,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Get the value (assuming f32 for this MVP)
                 let value: f32 = row.get(coord_columns.len())?;
 
-                let buffer = active_chunks
-                    .entry(grid_coord.clone())
-                    .or_insert_with(|| Vec::with_capacity(chunk_len));
+                if !active_chunks.contains_key(&grid_coord) {
+                    active_chunks.insert(grid_coord.clone(), Vec::with_capacity(chunk_len));
+                }
+                let buffer = active_chunks.get_mut(&grid_coord).unwrap();
                 buffer.push(value);
 
                 // Flush if full
                 if buffer.len() == chunk_len {
                     let full_chunk = active_chunks.remove(&grid_coord).unwrap();
-                    tx.send((grid_coord, full_chunk)).await.unwrap();
+                    tx.send((grid_coord, full_chunk))
+                        .await
+                        .map_err(|_| "Upload worker failed or disconnected")?;
                 }
 
                 row_count += 1;
