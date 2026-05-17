@@ -646,6 +646,9 @@ impl VTab for ReadZarrVTab {
 
                     if local_state.projected_columns.contains(&rank) {
                         for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
+                            if *local_idx >= buffer.len() {
+                                return Err("Malformed Zarr chunk: unexpected buffer size".into());
+                            }
                             let val = &buffer[*local_idx];
                             if Some(val.as_bytes()) == bind_data.fill_value_bytes.as_deref() {
                                 value_vector.set_null(valid_rows + idx);
