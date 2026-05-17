@@ -29,22 +29,13 @@ fn resolve_store(
         Ok(Arc::new(store))
     } else {
         let canonical_path = std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {}", e))?;
-        // Check if an allowed base directory is configured
-        if let Ok(allowed_dir) = std::env::var("GEOZARR_ALLOW_PATH") {
-            let allowed_canon = std::fs::canonicalize(&allowed_dir).map_err(|e| format!("Invalid GEOZARR_ALLOW_PATH: {}", e))?;
-            if !canonical_path.starts_with(allowed_canon) {
-                return Err("Access denied. Path is not within GEOZARR_ALLOW_PATH".into());
-            }
-        } else {
-            // Strict denylist by path component to prevent bypasses
-            for component in canonical_path.components() {
-                if let std::path::Component::Normal(name) = component {
-                    let name_str = name.to_string_lossy();
-                    if name_str == "etc" || name_str == "var" || name_str == "dev" || name_str == ".ssh" || name_str == ".aws" {
-                        return Err("Access to sensitive system directories is forbidden".into());
-                    }
-                }
-            }
+        let allowed_dir = std::env::var("GEOZARR_ALLOW_PATH").unwrap_or_else(|_| {
+            std::env::current_dir().unwrap_or_default().to_string_lossy().to_string()
+        });
+        
+        let allowed_canon = std::fs::canonicalize(&allowed_dir).map_err(|e| format!("Invalid GEOZARR_ALLOW_PATH: {}", e))?;
+        if !canonical_path.starts_with(allowed_canon) {
+            return Err(format!("Access denied. Path is not within the allowed sandbox directory (GEOZARR_ALLOW_PATH or CWD).").into());
         }
         let store = zarrs::storage::store::FilesystemStore::new(path)?;
         Ok(Arc::new(store))
