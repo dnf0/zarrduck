@@ -24,18 +24,37 @@ enum Commands {
         /// The destination path for the Zarr array (e.g., s3://bucket/output.zarr)
         #[arg(long)]
         output: String,
+
+        /// The column containing the actual values (all others are coordinates)
+        #[arg(long)]
+        value_column: String,
+
+        /// Optional JSON mapping of dimension name to chunk size (e.g. '{"time": 10}')
+        #[arg(long)]
+        chunks: Option<String>,
     },
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    match &cli.command {
-        Commands::Export { db, query, output } => {
+    match cli.command {
+        Commands::Export {
+            db,
+            query,
+            output,
+            value_column,
+            chunks,
+        } => {
             println!("Exporting to Zarr...");
             println!("Database: {:?}", db);
             println!("Query: {}", query);
             println!("Output: {}", output);
+            println!("Value Column: {}", value_column);
+            if let Some(c) = &chunks {
+                println!("Chunks: {}", c);
+            }
 
             let _conn = match db {
                 Some(path) => Connection::open(path)?,
