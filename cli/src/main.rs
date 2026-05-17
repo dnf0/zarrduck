@@ -24,23 +24,120 @@ enum Commands {
         /// The destination path for the Zarr array (e.g., s3://bucket/output.zarr)
         #[arg(long)]
         output: String,
+
+        /// The column containing the actual values (all others are coordinates)
+        #[arg(long)]
+        value_column: String,
+
+        /// Optional JSON mapping of dimension name to chunk size (e.g. '{"time": 10}')
+        #[arg(long)]
+        chunks: Option<String>,
     },
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    match &cli.command {
-        Commands::Export { db, query, output } => {
+    match cli.command {
+        Commands::Export {
+            db,
+            query,
+            output,
+            value_column,
+            chunks,
+        } => {
             println!("Exporting to Zarr...");
             println!("Database: {:?}", db);
             println!("Query: {}", query);
             println!("Output: {}", output);
+            println!("Value Column: {}", value_column);
+            if let Some(c) = &chunks {
+                println!("Chunks: {}", c);
+            }
 
             let _conn = match db {
                 Some(path) => Connection::open(path)?,
                 None => Connection::open_in_memory()?,
             };
+
+            // 1. Get the columns from the query
+            let query_info = format!("DESCRIBE {}", query);
+            let mut info_stmt = _conn.prepare(&query_info)?;
+            let mut rows = info_stmt.query([])?;
+
+            let mut all_columns = Vec::new();
+            let mut coord_columns = Vec::new();
+
+            while let Some(row) = rows.next()? {
+                let col_name: String = row.get(0)?;
+                all_columns.push(col_name.clone());
+                if col_name != value_column {
+                    coord_columns.push(col_name);
+                }
+            }
+
+            if !all_columns.contains(&value_column) {
+                return Err(format!("Value column '{}' not found in query results", value_column).into());
+            }
+
+            // 2. Pass 1: Infer Shape
+            println!("Pass 1: Inferring shape...");
+            let mut shape = Vec::new();
+
+            if !coord_columns.is_empty() {
+                let mut agg_selects = Vec::new();
+                for coord in &coord_columns {
+                    agg_selects.push(format!("COUNT(DISTINCT \"{}\")", coord.replace("\"", "\"\"")));
+                }
+                
+                let inference_query = format!("SELECT {} FROM ({}) AS _geozarr_subq", agg_selects.join(", "), query);
+                let mut inf_stmt = _conn.prepare(&inference_query)?;
+                
+                inf_stmt.query_row([], |row| {
+                    for i in 0..coord_columns.len() {
+                        let count: u64 = row.get(i)?;
+                        shape.push(count);
+                    }
+                    Ok(())
+                })?;
+            }
+
+            println!("Inferred Shape: {:?}", shape);
+
+            // 3. Initialize Zarr Store
+            let store = if output.starts_with("s3://") {
+                let bucket_and_path = output.strip_prefix("s3://").unwrap();
+                let bucket = bucket_and_path.split('/').next().unwrap_or(bucket_and_path);
+                let root = bucket_and_path.strip_prefix(bucket).unwrap_or("/");
+                let builder = opendal::services::S3::default()
+                    .bucket(bucket)
+                    .root(root);
+                let operator = opendal::Operator::new(builder)?.finish();
+                std::sync::Arc::new(zarrs::storage::store::AsyncOpendalStore::new(operator)) as std::sync::Arc<dyn zarrs::storage::AsyncWritableStorageTraits>
+            } else {
+                let builder = opendal::services::Fs::default().root(&output);
+                let operator = opendal::Operator::new(builder)?.finish();
+                std::sync::Arc::new(zarrs::storage::store::AsyncOpendalStore::new(operator)) as std::sync::Arc<dyn zarrs::storage::AsyncWritableStorageTraits>
+            };
+
+            // Write metadata (assuming Float32 for simplicity in this MVP)
+            let chunk_shape = vec![100; shape.len()];
+            if let Some(_c) = chunks {
+                // Simplified chunk parsing fallback
+                println!("Chunk parsing not fully implemented, using defaults [100, ...]");
+            }
+            
+            let array_builder = zarrs::array::ArrayBuilder::new(
+                shape.clone(),
+                zarrs::array::DataType::Float32,
+                chunk_shape.clone().try_into().unwrap(),
+                zarrs::array::FillValue::from(f32::NAN),
+            );
+            
+            let array = array_builder.build(store.clone(), "/").unwrap();
+            array.async_store_metadata().await?;
+            println!("Initialized Zarr Array.");
 
             // Two-pass inference and data writing will go here
             println!("Export successful!");
