@@ -28,6 +28,11 @@ fn resolve_store(
         let store = zarrs::storage::store::OpendalStore::new(operator.blocking());
         Ok(Arc::new(store))
     } else {
+        let canonical_path = std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {}", e))?;
+        let path_str = canonical_path.to_string_lossy();
+        if path_str.starts_with("/etc/") || path_str.starts_with("/var/") || path_str.starts_with("/dev/") || path_str.starts_with("/.ssh/") {
+            return Err("Access to sensitive system directories is forbidden".into());
+        }
         let store = zarrs::storage::store::FilesystemStore::new(path)?;
         Ok(Arc::new(store))
     }
@@ -122,7 +127,7 @@ macro_rules! dispatch_yield_loop {
                 _ => return Err("Chunk buffer type mismatch".into()),
             };
 
-            let chunk_len = $bind_data.chunk_shape.iter().product::<u64>() as usize;
+            let chunk_len = $bind_data.chunk_shape.iter().try_fold(1u64, |acc, &x| acc.checked_mul(x)).ok_or("Chunk volume overflow")? as usize;
             let elements_remaining = chunk_len - $local_state.local_chunk_cursor;
             let batch_size = std::cmp::min(2048, elements_remaining);
 
@@ -173,11 +178,13 @@ macro_rules! dispatch_yield_loop {
                 {
                     let value_slice = value_vector.as_mut_slice::<$rust_type>();
                     for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
-                        value_slice[valid_rows + idx] = buffer[*local_idx];
+                        let val = buffer.get(*local_idx).ok_or_else(|| "Malformed Zarr chunk: unexpected buffer size")?;
+                        value_slice[valid_rows + idx] = *val;
                     }
                 }
                 for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
-                    let val = buffer[*local_idx];
+                    let val = buffer.get(*local_idx).ok_or_else(|| "Malformed Zarr chunk: unexpected buffer size")?;
+                    let val = *val;
                     if val.is_fill_value(fill_bytes_slice) {
                         value_vector.set_null(valid_rows + idx);
                     }
@@ -585,7 +592,7 @@ impl VTab for ReadZarrVTab {
                         _ => return Err("Chunk buffer type mismatch".into()),
                     };
 
-                    let chunk_len = bind_data.chunk_shape.iter().product::<u64>() as usize;
+                    let chunk_len = bind_data.chunk_shape.iter().try_fold(1u64, |acc, &x| acc.checked_mul(x)).ok_or("Chunk volume overflow")? as usize;
                     let elements_remaining = chunk_len - local_state.local_chunk_cursor;
                     let batch_size = std::cmp::min(2048, elements_remaining);
 
@@ -635,7 +642,7 @@ impl VTab for ReadZarrVTab {
 
                     if local_state.projected_columns.contains(&rank) {
                         for (idx, (local_idx, _)) in valid_coords.iter().enumerate() {
-                            let val = &buffer[*local_idx];
+                            let val = buffer.get(*local_idx).ok_or_else(|| "Malformed Zarr chunk: unexpected buffer size")?;
                             if Some(val.as_bytes()) == bind_data.fill_value_bytes.as_deref() {
                                 value_vector.set_null(valid_rows + idx);
                             } else {

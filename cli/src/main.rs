@@ -131,10 +131,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             // Write metadata (assuming Float32 for simplicity in this MVP)
-            let chunk_shape = vec![100; shape.len()];
+            let mut chunk_shape = Vec::new();
+            let mut current_volume = 1u64;
+            for &dim in &shape {
+                let chunk_dim = if current_volume.saturating_mul(dim) <= 10_000_000 {
+                    dim
+                } else {
+                    std::cmp::max(1, 10_000_000 / current_volume)
+                };
+                chunk_shape.push(chunk_dim);
+                current_volume = current_volume.saturating_mul(chunk_dim);
+            }
             if let Some(_c) = chunks {
                 // Simplified chunk parsing fallback
-                println!("Chunk parsing not fully implemented, using defaults [100, ...]");
+                println!("Chunk parsing not fully implemented, using auto-chunking: {:?}", chunk_shape);
             }
 
             let array_builder = zarrs::array::ArrayBuilder::new(
@@ -157,16 +167,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let upload_task = tokio::spawn(async move {
                 while let Some((chunk_grid, chunk_data)) = rx.recv().await {
-                    array_clone
-                        .async_store_chunk_elements(&chunk_grid, &chunk_data)
-                        .await
-                        .expect("Failed to upload chunk");
+                    if let Err(e) = array_clone.async_store_chunk_elements(&chunk_grid, &chunk_data).await {
+                        eprintln!("Failed to upload chunk: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             });
 
             let mut active_chunks: std::collections::HashMap<Vec<u64>, Vec<f32>> =
                 std::collections::HashMap::new();
-            let chunk_len = chunk_shape.iter().product::<u64>() as usize;
+            let chunk_len = chunk_shape.iter().try_fold(1u64, |acc, &x| acc.checked_mul(x)).ok_or("Chunk volume overflow")? as usize;
 
             // 5. Stream data from DuckDB
             let order_by = coord_columns
@@ -181,7 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .join(", ");
             let stream_query = format!(
                 "SELECT {}, \"{}\" FROM ({}) ORDER BY {}",
-                coords_str, value_column, query, order_by
+                coords_str, value_column.replace("\"", "\"\""), query, order_by
             );
             let mut stream_stmt = _conn.prepare(&stream_query)?;
 
