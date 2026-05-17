@@ -272,11 +272,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let max_memory_bytes = 512 * 1024 * 1024; // 512 MB
 
             // 5. Stream data from DuckDB
-            let order_by = coord_columns
-                .iter()
-                .map(|c| format!("\"{}\"", c.replace("\"", "\"\"")))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let mut order_by_parts = Vec::new();
+            // First, group by the chunk grid coordinate (integer division)
+            for (i, c) in coord_columns.iter().enumerate() {
+                let chunk_dim = chunk_shape.get(i).unwrap_or(&1);
+                order_by_parts.push(format!("CAST(\"{}\" AS UBIGINT) / {}", c.replace("\"", "\"\""), chunk_dim));
+            }
+            // Second, order by the raw coordinates to maintain internal chunk sequence
+            for c in coord_columns.iter() {
+                order_by_parts.push(format!("\"{}\"", c.replace("\"", "\"\"")));
+            }
+            let order_by = order_by_parts.join(", ");
             let coords_str = coord_columns
                 .iter()
                 .map(|c| format!("\"{}\"", c.replace("\"", "\"\"")))
