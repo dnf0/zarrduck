@@ -539,8 +539,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             });
 
-            // 7. Drop sender and wait for uploads to finish
-            drop(tx);
+            // 7. Wait for uploads to finish
             upload_task
                 .await
                 .map_err(|e| format!("Upload task panicked: {}", e))?;
