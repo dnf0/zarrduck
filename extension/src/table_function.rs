@@ -302,6 +302,9 @@ impl VTab for ReadZarrVTab {
 
         let shape = array.shape();
         let rank = shape.len();
+        if rank > 16 {
+            return Err(format!("Zarr array rank {} exceeds maximum supported dimensions (16)", rank).into());
+        }
         let metadata = array.metadata();
 
         let dim_names = resolve_dimension_names(metadata, rank);
@@ -372,9 +375,6 @@ impl VTab for ReadZarrVTab {
 
         let shape = array.shape().to_vec();
         let rank = shape.len();
-        if rank > 16 {
-            return Err(format!("Zarr array rank {} exceeds maximum supported dimensions (16)", rank).into());
-        }
         let chunk_shape: Vec<u64> = array
             .chunk_grid()
             .chunk_shape(&vec![0; rank], &shape)
@@ -836,7 +836,7 @@ fn calculate_global_indices(
     // Add global chunk offset
     let mut global_coords = vec![0; rank];
     for i in 0..rank {
-        global_coords[i] = (chunk_grid[i] * chunk_shape[i]) + local_coords[i];
+        global_coords[i] = chunk_grid[i].saturating_mul(chunk_shape[i]).saturating_add(local_coords[i]);
     }
 
     global_coords
