@@ -184,7 +184,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let array_builder = zarrs::array::ArrayBuilder::new(
                 shape.clone(),
-                data_type,
+                data_type.clone(),
                 chunk_shape.clone().try_into().unwrap(),
                 fill_value,
             );
@@ -228,6 +228,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .try_fold(1u64, |acc, &x| acc.checked_mul(x))
                 .ok_or("Chunk volume overflow")? as usize;
 
+            let bytes_per_element = if data_type == zarrs::array::DataType::Float64 {
+                8
+            } else {
+                4
+            };
+            let chunk_byte_size = chunk_len
+                .checked_mul(bytes_per_element)
+                .ok_or("Chunk byte size overflow")?;
+            let max_memory_bytes = 512 * 1024 * 1024; // 512 MB
+
             // 5. Stream data from DuckDB
             let order_by = coord_columns
                 .iter()
@@ -254,16 +264,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             while let Some(row) = rows.next()? {
                 // Map the flat row to a chunk grid coordinate
                 let mut grid_coord = Vec::new();
+                let mut local_coords = Vec::new();
                 for (i, &chunk_dim) in chunk_shape.iter().enumerate().take(coord_columns.len()) {
                     let val: i64 = row.get(i)?;
                     if val < 0 {
                         return Err("Coordinates must be positive 0-based integer indices".into());
                     }
                     if (val as u64) >= shape[i] {
-                        return Err(format!("Coordinate index {} exceeds maximum bound of dimension {}", val, shape[i]).into());
+                        return Err(format!(
+                            "Coordinate index {} exceeds maximum bound of dimension {}",
+                            val, shape[i]
+                        )
+                        .into());
                     }
                     let grid_idx = (val as u64) / chunk_dim;
+                    let local_c = (val as u64) % chunk_dim;
                     grid_coord.push(grid_idx);
+                    local_coords.push(local_c);
                 }
 
                 let is_double = value_type_str == "DOUBLE";
@@ -281,12 +298,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 });
 
                 // Calculate local coordinates and flat C-contiguous index
-                let mut local_coords = Vec::new();
-                for (i, &chunk_dim) in chunk_shape.iter().enumerate().take(coord_columns.len()) {
-                    let val: i64 = row.get(i)?; // val has already been validated >= 0 above
-                    let local_c = (val as u64) % chunk_dim;
-                    local_coords.push(local_c);
-                }
 
                 let mut flat_idx = 0;
                 let mut stride = 1;
@@ -311,10 +322,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // The eviction logic below will flush chunks when the active map gets too large.
 
                 // Eviction check for sparse chunks
-                // Since we ORDER BY coordinates, we stream data lexicographically.
-                // The smallest key in the BTreeMap is the oldest chunk we have completely finished.
-                if active_chunks.len() >= 1000 {
-                    let (oldest_key, evicted_buffer) = active_chunks.pop_first().unwrap();
+                // Evict chunks until our estimated memory usage is below the 512MB threshold.
+                while active_chunks.len().saturating_mul(chunk_byte_size) >= max_memory_bytes {
+                    let oldest_key = active_chunks.keys().next().unwrap().clone();
+                    let evicted_buffer = active_chunks.remove(&oldest_key).unwrap();
                     tx.send((oldest_key, evicted_buffer))
                         .await
                         .map_err(|_| "Upload worker failed or disconnected")?;
