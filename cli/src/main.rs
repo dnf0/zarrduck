@@ -61,6 +61,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None => Connection::open_in_memory()?,
             };
 
+            // 1. Get the columns from the query
+            let query_info = format!("DESCRIBE {}", query);
+            let mut info_stmt = _conn.prepare(&query_info)?;
+            let mut rows = info_stmt.query([])?;
+
+            let mut all_columns = Vec::new();
+            let mut coord_columns = Vec::new();
+
+            while let Some(row) = rows.next()? {
+                let col_name: String = row.get(0)?;
+                all_columns.push(col_name.clone());
+                if col_name != value_column {
+                    coord_columns.push(col_name);
+                }
+            }
+
+            if !all_columns.contains(&value_column) {
+                return Err(format!("Value column '{}' not found in query results", value_column).into());
+            }
+
+            // 2. Pass 1: Infer Shape
+            println!("Pass 1: Inferring shape...");
+            let mut agg_selects = Vec::new();
+            for coord in &coord_columns {
+                agg_selects.push(format!("COUNT(DISTINCT \"{}\")", coord));
+            }
+            
+            let inference_query = format!("SELECT {} FROM ({})", agg_selects.join(", "), query);
+            let mut inf_stmt = _conn.prepare(&inference_query)?;
+            
+            let mut shape = Vec::new();
+            inf_stmt.query_row([], |row| {
+                for i in 0..coord_columns.len() {
+                    let count: u64 = row.get(i)?;
+                    shape.push(count);
+                }
+                Ok(())
+            })?;
+
+            println!("Inferred Shape: {:?}", shape);
+
             // Two-pass inference and data writing will go here
             println!("Export successful!");
         }
