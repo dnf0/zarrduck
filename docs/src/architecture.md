@@ -15,10 +15,10 @@ time | lat | lon | value
  100 | 46. | -10 | 22.8
 ```
 
-Each discrete "cell" in the Zarr array becomes a single row in DuckDB. 
+Each discrete "cell" in the Zarr array becomes a single row in DuckDB.
 
 ### Eager Coordinate Loading
-To populate the coordinate columns efficiently, the extension inspects the `_ARRAY_DIMENSIONS` metadata. It then looks for 1D arrays matching those names in the same Zarr store (e.g., `/lat`). 
+To populate the coordinate columns efficiently, the extension inspects the `_ARRAY_DIMENSIONS` metadata. It then looks for 1D arrays matching those names in the same Zarr store (e.g., `/lat`).
 
 During the `bind` phase (before the query execution begins), these 1D coordinate arrays are eagerly loaded into memory in their entirety. During the execution phase, as the extension yields data chunks, it calculates the global N-dimensional index of each value, and uses that integer index to perform an O(1) lookup into the cached coordinate arrays.
 
@@ -30,14 +30,14 @@ To achieve maximum throughput, the extension implements a **simulated Thread-Loc
 
 1. **Global Dispatcher:** A lightweight, Mutex-protected `GlobalState` tracks the progression through the Zarr chunk grid. It acts purely as an atomic counter to dictate *which* chunk needs to be fetched next.
 2. **Local Processing:** The global query initialization data holds a thread-safe `HashMap` mapping DuckDB's native `std::thread::ThreadId` to a `LocalState` buffer.
-3. **Lock-Free Fetching:** When a DuckDB worker thread needs a new chunk, it locks the `GlobalState` for mere nanoseconds to claim its target chunk coordinates. It then **drops all locks** and uses OpenDAL to download its chunk over the network. 
+3. **Lock-Free Fetching:** When a DuckDB worker thread needs a new chunk, it locks the `GlobalState` for mere nanoseconds to claim its target chunk coordinates. It then **drops all locks** and uses OpenDAL to download its chunk over the network.
 
 Because the heavy lifting (`retrieve_chunk_elements`) occurs outside of any Mutex, this architecture allows DuckDB to saturate the host's network bandwidth by downloading up to 16 chunks simultaneously on a standard 16-core machine.
 
 ## Edge Case Handling
 
 ### Ghost Row Pruning
-Zarr chunks are fixed-size. This means the boundaries of an array are often padded with dummy data if the array dimensions are not perfectly divisible by the chunk size (e.g., an array of length 105 chunked by 10 will have a final chunk extending to 110). 
+Zarr chunks are fixed-size. This means the boundaries of an array are often padded with dummy data if the array dimensions are not perfectly divisible by the chunk size (e.g., an array of length 105 chunked by 10 will have a final chunk extending to 110).
 The extension mathematically detects these boundary violations within the tight yielding loop and strictly prunes these "ghost rows", ensuring no padding artifacts leak into analytical aggregates.
 
 ### Endianness & Type Safety

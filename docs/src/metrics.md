@@ -1,10 +1,10 @@
 # Performance Metrics
 
-The DuckDB GeoZarr extension is engineered specifically to eliminate the traditional bottlenecks associated with querying N-dimensional arrays over the network. 
+The DuckDB GeoZarr extension is engineered specifically to eliminate the traditional bottlenecks associated with querying N-dimensional arrays over the network.
 
 ## Architectural Advantages
 
-Traditional Python workflows (e.g., using `xarray` and `dask` to convert Zarr to Parquet before loading into DuckDB) suffer from severe IPC (Inter-Process Communication) overhead and memory duplication. 
+Traditional Python workflows (e.g., using `xarray` and `dask` to convert Zarr to Parquet before loading into DuckDB) suffer from severe IPC (Inter-Process Communication) overhead and memory duplication.
 
 Our extension achieves **Zero-Copy Streaming**: Zarr chunks are fetched directly from S3, decompressed natively in Rust, and yielded directly into DuckDB's internal `DataChunk` vectors using a lock-free multi-threaded architecture.
 

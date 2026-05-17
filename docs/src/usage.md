@@ -10,7 +10,7 @@ To read a Zarr array from a local file path:
 SELECT * FROM read_zarr('/path/to/my_data.zarr');
 ```
 
-The extension automatically inspects the Zarr `_ARRAY_DIMENSIONS` metadata to determine the schema. For an array with dimensions `[time, lat, lon]`, it will automatically look for corresponding 1D coordinate arrays (`/time`, `/lat`, `/lon`) in the same store and yield four columns: 
+The extension automatically inspects the Zarr `_ARRAY_DIMENSIONS` metadata to determine the schema. For an array with dimensions `[time, lat, lon]`, it will automatically look for corresponding 1D coordinate arrays (`/time`, `/lat`, `/lon`) in the same store and yield four columns:
 `time`, `lat`, `lon`, and `value`.
 
 If a coordinate array does not exist, the extension gracefully falls back to yielding the raw integer index for that dimension (e.g., `0, 1, 2...`).
@@ -40,17 +40,17 @@ When querying `s3://` URIs, the extension automatically looks for standard AWS e
 
 Due to limitations in current DuckDB extension bindings, standard `WHERE` clauses (e.g., `WHERE lat > 45.0`) cannot be "pushed down" to the network layer. If you use a `WHERE` clause, DuckDB will download the *entire* Zarr array from S3 and filter the rows in memory—which is disastrous for performance.
 
-To solve this, use **Named Parameters**. 
+To solve this, use **Named Parameters**.
 
 You can pass `_min` and `_max` parameters for any coordinate dimension. The extension will perform a binary search on the cached coordinate arrays and **strictly prune out-of-bounds chunks before performing network I/O**.
 
 ```sql
-SELECT 
-    time, 
+SELECT
+    time,
     AVG(value) as regional_average
 FROM read_zarr(
-    's3://my-bucket/climate.zarr', 
-    lat_min := 45.0, 
+    's3://my-bucket/climate.zarr',
+    lat_min := 45.0,
     lat_max := 55.0,
     lon_min := -10.0,
     lon_max := 5.0,
@@ -73,7 +73,7 @@ This saves significant CPU overhead and memory bandwidth during massive table sc
 
 ## Missing Data and SQL NULLs
 
-In Zarr, missing data is often represented by a `fill_value` metadata field (e.g., `-9999.0`). The extension reads this metadata and natively maps matching values to true SQL `NULL`s using DuckDB's `ValidityMask`. 
+In Zarr, missing data is often represented by a `fill_value` metadata field (e.g., `-9999.0`). The extension reads this metadata and natively maps matching values to true SQL `NULL`s using DuckDB's `ValidityMask`.
 
 This guarantees that standard SQL aggregations work correctly out of the box:
 ```sql

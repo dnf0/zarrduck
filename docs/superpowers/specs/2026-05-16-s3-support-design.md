@@ -19,7 +19,7 @@ The `ReadZarrVTab::bind` function receives the target `path` as a string. We wil
 - **Default:** Fallback to the existing `zarrs::storage::store::FilesystemStore`.
 
 ### 2.3 Type Erasure
-Because our core structs (`ReadZarrBindData`, `ReadZarrInitData`) currently hold an `Arc<FilesystemStore>`, we will type-erase the store by using the `zarrs::storage::ReadableStorageTraits` trait object. This allows the `bind` and `func` logic to remain agnostic to whether the chunks are coming from disk or the network. 
+Because our core structs (`ReadZarrBindData`, `ReadZarrInitData`) currently hold an `Arc<FilesystemStore>`, we will type-erase the store by using the `zarrs::storage::ReadableStorageTraits` trait object. This allows the `bind` and `func` logic to remain agnostic to whether the chunks are coming from disk or the network.
 
 ## 3. Security
 By using `opendal`, the extension will rely on standard AWS environment variables for S3 credentials. We will document that users need to set these before starting DuckDB.

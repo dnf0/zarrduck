@@ -9,7 +9,7 @@ Often, climate datasets cover the entire globe, but your analysis is restricted 
 By passing named parameters for coordinate limits, the extension will *only* download the Zarr chunks that intersect your bounding box.
 
 ```sql
-SELECT 
+SELECT
     time,
     lat,
     lon,
@@ -31,7 +31,7 @@ WHERE time >= 1609459200; -- Further filter by time (e.g., year 2021)
 If you are calculating time-series aggregations, DuckDB is incredibly fast. To maximize performance, ensure you only select the columns you need.
 
 ```sql
-SELECT 
+SELECT
     time,
     AVG(value) as monthly_average
 FROM read_zarr('s3://climate-data/precipitation.zarr')
@@ -45,7 +45,7 @@ Because the `lat` and `lon` columns are completely absent from this query (Proje
 Geospatial data isn't just numbers. Land cover datasets, for example, often use strings to denote classifications. The extension natively supports Zarr string arrays and automatically bridges them to DuckDB `VARCHAR` columns.
 
 ```sql
-SELECT 
+SELECT
     value as land_cover_type,
     count(*) as pixel_count
 FROM read_zarr('s3://climate-data/land_cover.zarr')

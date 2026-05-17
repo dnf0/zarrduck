@@ -66,7 +66,7 @@ At the top of `cli/src/main.rs` before `5. Stream data from DuckDB`:
                 .iter()
                 .try_fold(1u64, |acc, &x| acc.checked_mul(x))
                 .ok_or("Chunk volume overflow")? as usize;
-            
+
             let bytes_per_element = if data_type == zarrs::array::DataType::Float64 { 8 } else { 4 };
             let chunk_byte_size = chunk_len.checked_mul(bytes_per_element).ok_or("Chunk byte size overflow")?;
             let max_memory_bytes = 512 * 1024 * 1024; // 512 MB
@@ -163,7 +163,7 @@ In `cli/src/main.rs`, update the exact string match for `DOUBLE` to include comm
 Locate:
 ```rust
             let is_double = value_type_str == "DOUBLE";
-            
+
             let data_type = if is_double {
                 zarrs::array::DataType::Float64
             } else {

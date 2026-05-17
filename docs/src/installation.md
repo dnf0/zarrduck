@@ -23,7 +23,7 @@ cargo build --release
 
 ## Loading in DuckDB
 
-Once you have the extension binary, you can load it in DuckDB. 
+Once you have the extension binary, you can load it in DuckDB.
 
 *Note: Because this is an unsigned community extension, you must explicitly allow unsigned extensions in DuckDB.*
 

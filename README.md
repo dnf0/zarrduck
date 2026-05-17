@@ -34,12 +34,12 @@ SET allow_unsigned_extensions = true;
 LOAD '/path/to/duckdb_geozarr.duckdb_extension';
 
 -- Query a remote Zarr array, aggregating over a specific spatial bounding box
-SELECT 
-    time, 
+SELECT
+    time,
     AVG(value) as mean_temp
 FROM read_zarr(
-    's3://climate-data/temperature.zarr', 
-    lat_min := 45.0, 
+    's3://climate-data/temperature.zarr',
+    lat_min := 45.0,
     lat_max := 55.0
 )
 GROUP BY time;

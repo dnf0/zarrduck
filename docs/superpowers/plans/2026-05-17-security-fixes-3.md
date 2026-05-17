@@ -54,10 +54,10 @@ With:
                     flat_idx += local_coords[i] * stride;
                     stride *= chunk_shape[i];
                 }
-                
+
                 buffer[flat_idx as usize] = value;
-                
-                // Note: Eviction will handle flushing. For MVP, we don't attempt to track "fullness" 
+
+                // Note: Eviction will handle flushing. For MVP, we don't attempt to track "fullness"
                 // perfectly since sparse arrays won't fill up linearly.
                 // The eviction logic below will flush chunks when the active map gets too large.
 ```
@@ -109,7 +109,7 @@ With:
         let allowed_dir = std::env::var("GEOZARR_ALLOW_PATH").unwrap_or_else(|_| {
             std::env::current_dir().unwrap_or_default().to_string_lossy().to_string()
         });
-        
+
         let allowed_canon = std::fs::canonicalize(&allowed_dir).map_err(|e| format!("Invalid GEOZARR_ALLOW_PATH: {}", e))?;
         if !canonical_path.starts_with(allowed_canon) {
             return Err(format!("Access denied. Path is not within the allowed sandbox directory (GEOZARR_ALLOW_PATH or CWD).").into());
@@ -159,7 +159,7 @@ Replace with:
                     value_type_str = row.get(1)?;
                 }
             }
-            
+
             let data_type = if value_type_str == "DOUBLE" {
                 zarrs::array::DataType::Float64
             } else {

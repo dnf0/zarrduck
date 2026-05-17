@@ -233,18 +233,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let upload_task = tokio::spawn(async move {
                 while let Some((chunk_grid, chunk_data)) = rx.recv().await {
                     let res = match chunk_data {
-                        ChunkData::Bool(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
-                        ChunkData::Int8(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
-                        ChunkData::Int16(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
-                        ChunkData::Int32(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
-                        ChunkData::Int64(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
-                        ChunkData::UInt8(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
-                        ChunkData::UInt16(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
-                        ChunkData::UInt32(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
-                        ChunkData::UInt64(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
-                        ChunkData::Float32(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
-                        ChunkData::Float64(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
-                        ChunkData::String(data) => array_clone.async_store_chunk_elements(&chunk_grid, &data).await,
+                        ChunkData::Bool(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
+                        ChunkData::Int8(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
+                        ChunkData::Int16(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
+                        ChunkData::Int32(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
+                        ChunkData::Int64(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
+                        ChunkData::UInt8(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
+                        ChunkData::UInt16(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
+                        ChunkData::UInt32(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
+                        ChunkData::UInt64(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
+                        ChunkData::Float32(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
+                        ChunkData::Float64(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
+                        ChunkData::String(data) => {
+                            array_clone
+                                .async_store_chunk_elements(&chunk_grid, &data)
+                                .await
+                        }
                     };
                     if let Err(e) = res {
                         eprintln!("Failed to upload chunk: {}", e);
@@ -261,8 +309,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .ok_or("Chunk volume overflow")? as usize;
 
             let bytes_per_element = match data_type {
-                zarrs::array::DataType::Float64 | zarrs::array::DataType::Int64 | zarrs::array::DataType::UInt64 => 8,
-                zarrs::array::DataType::Float32 | zarrs::array::DataType::Int32 | zarrs::array::DataType::UInt32 => 4,
+                zarrs::array::DataType::Float64
+                | zarrs::array::DataType::Int64
+                | zarrs::array::DataType::UInt64 => 8,
+                zarrs::array::DataType::Float32
+                | zarrs::array::DataType::Int32
+                | zarrs::array::DataType::UInt32 => 4,
                 zarrs::array::DataType::Int16 | zarrs::array::DataType::UInt16 => 2,
                 _ => 1,
             };
@@ -276,7 +328,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // First, group by the chunk grid coordinate (integer division)
             for (i, c) in coord_columns.iter().enumerate() {
                 let chunk_dim = chunk_shape.get(i).unwrap_or(&1);
-                order_by_parts.push(format!("CAST(\"{}\" AS UBIGINT) / {}", c.replace("\"", "\"\""), chunk_dim));
+                order_by_parts.push(format!(
+                    "CAST(\"{}\" AS UBIGINT) / {}",
+                    c.replace("\"", "\"\""),
+                    chunk_dim
+                ));
             }
             // Second, order by the raw coordinates to maintain internal chunk sequence
             for c in coord_columns.iter() {
@@ -341,95 +397,105 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ChunkData::Bool(b)
                         });
                         if let Some(v) = value {
-                            if let ChunkData::Bool(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::Bool(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     zarrs::array::DataType::Int8 => {
                         let value: Option<i8> = row.get(val_col_idx)?;
                         let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                            let mut b = Vec::with_capacity(chunk_len);
-                            b.resize(chunk_len, 0);
+                            let b = vec![0; chunk_len];
                             ChunkData::Int8(b)
                         });
                         if let Some(v) = value {
-                            if let ChunkData::Int8(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::Int8(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     zarrs::array::DataType::Int16 => {
                         let value: Option<i16> = row.get(val_col_idx)?;
                         let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                            let mut b = Vec::with_capacity(chunk_len);
-                            b.resize(chunk_len, 0);
+                            let b = vec![0; chunk_len];
                             ChunkData::Int16(b)
                         });
                         if let Some(v) = value {
-                            if let ChunkData::Int16(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::Int16(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     zarrs::array::DataType::Int32 => {
                         let value: Option<i32> = row.get(val_col_idx)?;
                         let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                            let mut b = Vec::with_capacity(chunk_len);
-                            b.resize(chunk_len, 0);
+                            let b = vec![0; chunk_len];
                             ChunkData::Int32(b)
                         });
                         if let Some(v) = value {
-                            if let ChunkData::Int32(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::Int32(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     zarrs::array::DataType::Int64 => {
                         let value: Option<i64> = row.get(val_col_idx)?;
                         let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                            let mut b = Vec::with_capacity(chunk_len);
-                            b.resize(chunk_len, 0);
+                            let b = vec![0; chunk_len];
                             ChunkData::Int64(b)
                         });
                         if let Some(v) = value {
-                            if let ChunkData::Int64(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::Int64(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     zarrs::array::DataType::UInt8 => {
                         let value: Option<u8> = row.get(val_col_idx)?;
                         let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                            let mut b = Vec::with_capacity(chunk_len);
-                            b.resize(chunk_len, 0);
+                            let b = vec![0; chunk_len];
                             ChunkData::UInt8(b)
                         });
                         if let Some(v) = value {
-                            if let ChunkData::UInt8(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::UInt8(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     zarrs::array::DataType::UInt16 => {
                         let value: Option<u16> = row.get(val_col_idx)?;
                         let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                            let mut b = Vec::with_capacity(chunk_len);
-                            b.resize(chunk_len, 0);
+                            let b = vec![0; chunk_len];
                             ChunkData::UInt16(b)
                         });
                         if let Some(v) = value {
-                            if let ChunkData::UInt16(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::UInt16(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     zarrs::array::DataType::UInt32 => {
                         let value: Option<u32> = row.get(val_col_idx)?;
                         let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                            let mut b = Vec::with_capacity(chunk_len);
-                            b.resize(chunk_len, 0);
+                            let b = vec![0; chunk_len];
                             ChunkData::UInt32(b)
                         });
                         if let Some(v) = value {
-                            if let ChunkData::UInt32(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::UInt32(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     zarrs::array::DataType::UInt64 => {
                         let value: Option<u64> = row.get(val_col_idx)?;
                         let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                            let mut b = Vec::with_capacity(chunk_len);
-                            b.resize(chunk_len, 0);
+                            let b = vec![0; chunk_len];
                             ChunkData::UInt64(b)
                         });
                         if let Some(v) = value {
-                            if let ChunkData::UInt64(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::UInt64(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     zarrs::array::DataType::Float32 => {
@@ -440,7 +506,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ChunkData::Float32(b)
                         });
                         if let Some(v) = value {
-                            if let ChunkData::Float32(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::Float32(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     zarrs::array::DataType::Float64 => {
@@ -451,16 +519,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ChunkData::Float64(b)
                         });
                         if let Some(v) = value {
-                            if let ChunkData::Float64(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::Float64(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     zarrs::array::DataType::String => {
                         let value: Option<String> = row.get(val_col_idx)?;
-                        let buffer = active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                            ChunkData::String(vec![String::new(); chunk_len])
-                        });
+                        let buffer = active_chunks
+                            .entry(grid_coord.clone())
+                            .or_insert_with(|| ChunkData::String(vec![String::new(); chunk_len]));
                         if let Some(v) = value {
-                            if let ChunkData::String(b) = buffer { b[flat_idx as usize] = v; }
+                            if let ChunkData::String(b) = buffer {
+                                b[flat_idx as usize] = v;
+                            }
                         }
                     }
                     _ => return Err("Unsupported DataType".into()),
