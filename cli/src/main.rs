@@ -221,8 +221,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             });
 
-            let mut active_chunks: std::collections::HashMap<Vec<u64>, ChunkData> =
-                std::collections::HashMap::new();
+            let mut active_chunks: std::collections::BTreeMap<Vec<u64>, ChunkData> =
+                std::collections::BTreeMap::new();
             let chunk_len = chunk_shape
                 .iter()
                 .try_fold(1u64, |acc, &x| acc.checked_mul(x))
@@ -308,26 +308,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // The eviction logic below will flush chunks when the active map gets too large.
 
                 // Eviction check for sparse chunks
+                // Since we ORDER BY coordinates, we stream data lexicographically.
+                // The smallest key in the BTreeMap is the oldest chunk we have completely finished.
                 if active_chunks.len() >= 1000 {
-                    // Find the key with the smallest buffer
-                    let mut smallest_key = None;
-                    let mut smallest_len = usize::MAX;
-                    for (k, v) in active_chunks.iter() {
-                        let len = match v {
-                            ChunkData::F32(b) => b.len(),
-                            ChunkData::F64(b) => b.len(),
-                        };
-                        if len < smallest_len {
-                            smallest_len = len;
-                            smallest_key = Some(k.clone());
-                        }
-                    }
-                    if let Some(key) = smallest_key {
-                        let evicted_buffer = active_chunks.remove(&key).unwrap();
-                        tx.send((key, evicted_buffer))
-                            .await
-                            .map_err(|_| "Upload worker failed or disconnected")?;
-                    }
+                    let oldest_key = active_chunks.keys().next().unwrap().clone();
+                    let evicted_buffer = active_chunks.remove(&oldest_key).unwrap();
+                    tx.send((oldest_key, evicted_buffer))
+                        .await
+                        .map_err(|_| "Upload worker failed or disconnected")?;
                 }
 
                 row_count += 1;
