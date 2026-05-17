@@ -167,16 +167,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let upload_task = tokio::spawn(async move {
                 while let Some((chunk_grid, chunk_data)) = rx.recv().await {
-                    array_clone
-                        .async_store_chunk_elements(&chunk_grid, &chunk_data)
-                        .await
-                        .expect("Failed to upload chunk");
+                    if let Err(e) = array_clone.async_store_chunk_elements(&chunk_grid, &chunk_data).await {
+                        eprintln!("Failed to upload chunk: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             });
 
             let mut active_chunks: std::collections::HashMap<Vec<u64>, Vec<f32>> =
                 std::collections::HashMap::new();
-            let chunk_len = chunk_shape.iter().try_fold(1u64, |acc, &x| acc.checked_mul(x)).expect("Chunk volume overflow") as usize;
+            let chunk_len = chunk_shape.iter().try_fold(1u64, |acc, &x| acc.checked_mul(x)).ok_or("Chunk volume overflow")? as usize;
 
             // 5. Stream data from DuckDB
             let order_by = coord_columns
