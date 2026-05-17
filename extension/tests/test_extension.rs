@@ -6,7 +6,13 @@ fn test_new_data_types() -> Result<()> {
     let conn = Connection::open_in_memory()?;
     conn.register_table_function::<geozarr::ReadZarrVTab>("read_zarr")?;
 
-    let temp_dir = tempfile::tempdir().unwrap();
+    // We don't set GEOZARR_ALLOW_PATH dynamically to avoid race conditions in parallel tests.
+    // Instead, the tests will be run with GEOZARR_ALLOW_PATH set for the whole test process
+    // via a global setup, or we just rely on the component scanner allowing /tmp.
+    // Wait, let's just create the temp directory inside the project target directory!
+    let target_dir = std::env::current_dir().unwrap().join("../target/test_data");
+    std::fs::create_dir_all(&target_dir).unwrap();
+    let temp_dir = tempfile::tempdir_in(&target_dir).unwrap();
     let store_path = temp_dir.path().join("test_types.zarr");
 
     use std::sync::Arc;
@@ -84,8 +90,10 @@ fn test_read_zarr_schema() -> Result<()> {
     let conn = Connection::open_in_memory()?;
     conn.register_table_function::<geozarr::ReadZarrVTab>("read_zarr")?;
 
-    // Create a temporary zarr store
-    let temp_dir = tempfile::tempdir().unwrap();
+    // Create a temporary zarr store inside target to avoid VFS bypass checks on /var
+    let target_dir = std::env::current_dir().unwrap().join("../target/test_data");
+    std::fs::create_dir_all(&target_dir).unwrap();
+    let temp_dir = tempfile::tempdir_in(&target_dir).unwrap();
     let store_path = temp_dir.path().join("test.zarr");
 
     use std::sync::Arc;
