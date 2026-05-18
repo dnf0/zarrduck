@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-e649eaab.js";
+            window.path_to_searchindex_js = "searchindex-39ca1696.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-d1d613aa.js"></script>
@@ -182,6 +182,35 @@
                     <main>
                         <h1 id="architecture-deep-dive"><a class="header" href="#architecture-deep-dive">Architecture Deep Dive</a></h1>
 <p>The DuckDB GeoZarr extension is designed with a heavy focus on network I/O optimization, memory safety, and lock-free concurrency. It relies on the <a href="https://crates.io/crates/zarrs">zarrs</a> crate for core Zarr decoding and the <a href="https://crates.io/crates/opendal">opendal</a> crate for cloud storage abstraction.</p>
+<h2 id="conceptual-model-from-zarr-to-duckdb"><a class="header" href="#conceptual-model-from-zarr-to-duckdb">Conceptual Model: From Zarr to DuckDB</a></h2>
+<p>The fundamental challenge in bridging cloud-native spatial data with relational engines is the impedance mismatch between N-Dimensional Arrays (Zarr) and Flat Tabular Rows (DuckDB).</p>
+<h3 id="how-the-transformation-works"><a class="header" href="#how-the-transformation-works">How the Transformation Works</a></h3>
+<pre><code class="language-mermaid">graph TD
+    subgraph Zarr Cloud Storage
+        Z[N-Dimensional Array&lt;br&gt;time, y, x]
+        M[Metadata&lt;br&gt;.zattrs / zarr.json]
+    end
+
+    subgraph DuckDB GeoZarr Extension
+        M -.-&gt; |Parse Spatial/CRS| T[Coordinate Transformer&lt;br&gt;Scale &amp; Translation]
+        Z --&gt; |Stream Compressed Chunks| D[Decompressor &amp; Chunk Buffer]
+        D --&gt; |Iterate Elements| E[Row Generator]
+        T -.-&gt; |Apply Math| E
+    end
+
+    subgraph DuckDB Execution Engine
+        E --&gt; |Yield DataChunks| R[(Flat Relational Table)]
+    end
+
+    R --&gt; |time, lat, lon, value| SQL[SQL Queries&lt;br&gt;SELECT, GROUP BY, WHERE]
+</code></pre>
+<h3 id="why-is-this-useful"><a class="header" href="#why-is-this-useful">Why is this useful?</a></h3>
+<ol>
+<li><strong>Standardization:</strong> Traditional N-dimensional tools require learning specific Python APIs (<code>xarray</code>, <code>dask</code>). By projecting the data into a flat table, anyone (and any LLM Agent) who knows SQL can immediately analyze massive datasets.</li>
+<li><strong>Ecosystem Integration:</strong> Flattened relational data seamlessly integrates with business intelligence tools, web dashboards, and standard spatial analysis workflows (like joining climate data against a flat table of customer locations).</li>
+<li><strong>On-the-Fly Projection:</strong> Because the extension parses the GeoZarr spatial metadata and projects indices into true <code>lat</code>/<code>lon</code> geographic coordinates automatically, users never have to manually reconstruct the spatial grid or apply coordinate math.</li>
+<li><strong>Network Optimization:</strong> By keeping data compressed on S3 in chunked Zarr arrays and using spatial pruning parameters (e.g., <code>lat_min</code>), we dramatically reduce network latency by bypassing S3 requests for data outside the region of interest.</li>
+</ol>
 <h2 id="flattened-relational-mapping"><a class="header" href="#flattened-relational-mapping">Flattened Relational Mapping</a></h2>
 <p>DuckDB operates on flat, relational tables, whereas Zarr arrays are N-dimensional. The extension bridges this gap by “flattening” the N-dimensional array into a Cartesian table.</p>
 <p>For a 3D Zarr array with dimensions <code>[time, lat, lon]</code>, the extension yields four columns:</p>

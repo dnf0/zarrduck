@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-e649eaab.js";
+            window.path_to_searchindex_js = "searchindex-39ca1696.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-d1d613aa.js"></script>
@@ -189,6 +189,16 @@
 <p>The extension automatically inspects the Zarr <code>_ARRAY_DIMENSIONS</code> metadata to determine the schema. For an array with dimensions <code>[time, lat, lon]</code>, it will automatically look for corresponding 1D coordinate arrays (<code>/time</code>, <code>/lat</code>, <code>/lon</code>) in the same store and yield four columns:
 <code>time</code>, <code>lat</code>, <code>lon</code>, and <code>value</code>.</p>
 <p>If a coordinate array does not exist, the extension gracefully falls back to yielding the raw integer index for that dimension (e.g., <code>0, 1, 2...</code>).</p>
+<h2 id="geozarr-metadata--spatial-projections"><a class="header" href="#geozarr-metadata--spatial-projections">GeoZarr Metadata &amp; Spatial Projections</a></h2>
+<p>DuckDB GeoZarr aligns with the official GeoZarr specification.</p>
+<h3 id="global-metadata"><a class="header" href="#global-metadata">Global Metadata</a></h3>
+<p>You can query dataset-level properties such as the coordinate reference system (CRS), array shape, and data types using the <code>read_zarr_metadata</code> function:</p>
+<pre><code class="language-sql">SELECT * FROM read_zarr_metadata('s3://my-bucket/climate.zarr');
+</code></pre>
+<p>This returns a single row containing columns like <code>array_shape</code>, <code>chunk_shape</code>, <code>data_type</code>, and <code>crs</code>.</p>
+<h3 id="spatial-affine-transforms"><a class="header" href="#spatial-affine-transforms">Spatial Affine Transforms</a></h3>
+<p>When scanning a table, the extension parses GeoZarr <code>spatial</code> metadata (affine transformations). For dimensions mapped to a spatial transform, the extension automatically performs the math (<code>translation + index * scale</code>) on the fly.</p>
+<p>This means you can query <code>lon</code> and <code>lat</code> directly as projected geographic coordinates rather than dealing with raw integer grid indices.</p>
 <h2 id="cloud-storage-s3--http"><a class="header" href="#cloud-storage-s3--http">Cloud Storage (S3 / HTTP)</a></h2>
 <p>You can read directly from AWS S3 or public HTTP endpoints. The extension dynamically resolves the backend using Apache OpenDAL.</p>
 <pre><code class="language-sql">-- Read from an S3 bucket
