@@ -406,7 +406,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let value: Option<i8> = row.get(val_col_idx)?;
                             let buffer =
                                 active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                                    let mut b = vec![0; chunk_len];
+                                    let b = vec![0; chunk_len];
                                     ChunkData::Int8(b)
                                 });
                             if let Some(v) = value {
@@ -419,7 +419,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let value: Option<i16> = row.get(val_col_idx)?;
                             let buffer =
                                 active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                                    let mut b = vec![0; chunk_len];
+                                    let b = vec![0; chunk_len];
                                     ChunkData::Int16(b)
                                 });
                             if let Some(v) = value {
@@ -432,7 +432,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let value: Option<i32> = row.get(val_col_idx)?;
                             let buffer =
                                 active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                                    let mut b = vec![0; chunk_len];
+                                    let b = vec![0; chunk_len];
                                     ChunkData::Int32(b)
                                 });
                             if let Some(v) = value {
@@ -445,7 +445,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let value: Option<i64> = row.get(val_col_idx)?;
                             let buffer =
                                 active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                                    let mut b = vec![0; chunk_len];
+                                    let b = vec![0; chunk_len];
                                     ChunkData::Int64(b)
                                 });
                             if let Some(v) = value {
@@ -458,7 +458,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let value: Option<u8> = row.get(val_col_idx)?;
                             let buffer =
                                 active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                                    let mut b = vec![0; chunk_len];
+                                    let b = vec![0; chunk_len];
                                     ChunkData::UInt8(b)
                                 });
                             if let Some(v) = value {
@@ -471,7 +471,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let value: Option<u16> = row.get(val_col_idx)?;
                             let buffer =
                                 active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                                    let mut b = vec![0; chunk_len];
+                                    let b = vec![0; chunk_len];
                                     ChunkData::UInt16(b)
                                 });
                             if let Some(v) = value {
@@ -484,7 +484,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let value: Option<u32> = row.get(val_col_idx)?;
                             let buffer =
                                 active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                                    let mut b = vec![0; chunk_len];
+                                    let b = vec![0; chunk_len];
                                     ChunkData::UInt32(b)
                                 });
                             if let Some(v) = value {
@@ -497,7 +497,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let value: Option<u64> = row.get(val_col_idx)?;
                             let buffer =
                                 active_chunks.entry(grid_coord.clone()).or_insert_with(|| {
-                                    let mut b = vec![0; chunk_len];
+                                    let b = vec![0; chunk_len];
                                     ChunkData::UInt64(b)
                                 });
                             if let Some(v) = value {
