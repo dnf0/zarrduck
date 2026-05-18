@@ -11,7 +11,12 @@ concurrency:
 jobs:
   ci-checks:
     name: CI Checks
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: windows-latest
     if: "!contains(github.event.head_commit.message, '[ci-skip]')"
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +46,7 @@ jobs:
         uses: actions/setup-python@v5
 
       - name: Run pre-commit
+        if: matrix.os == 'ubuntu-latest'
         uses: pre-commit/action@v3.0.1
         with:
           extra_args: --all-files
@@ -48,7 +54,21 @@ jobs:
       - name: Install duckdb-ext-tools
         run: cargo install cargo-duckdb-ext-tools --force
 
+      - name: Patch duckdb-rs for Windows
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          cargo fetch
+          FILE=$(find ~/.cargo/registry -path "*/duckdb-1.10502.0/src/core/logical_type.rs" | head -n 1)
+          if [ -n "$FILE" ]; then
+            python scripts/patch_duckdb_rs_windows.py "$FILE"
+          else
+            echo "logical_type.rs not found!"
+            exit 1
+          fi
+
       - name: Build extension and test
+        shell: bash
         run: |
           cargo duckdb-ext build
           cargo test --no-default-features
