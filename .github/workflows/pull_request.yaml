@@ -17,6 +17,7 @@ jobs:
         include:
           - os: ubuntu-latest
           - os: windows-latest
+          - os: macos-latest
     if: "!contains(github.event.head_commit.message, '[ci-skip]')"
     steps:
       - uses: actions/checkout@v4
@@ -72,3 +73,26 @@ jobs:
         run: |
           cargo duckdb-ext build
           cargo test --no-default-features
+
+  audit-and-coverage:
+    name: Security Audit & Coverage
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[ci-skip]')"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov,cargo-audit
+
+      - name: Run cargo audit
+        run: cargo audit
+
+      - name: Generate code coverage
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
