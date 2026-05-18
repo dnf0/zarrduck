@@ -150,11 +150,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             load_geozarr_extension(&conn)?;
             
             // Install and load official spatial extension
-            println!("Loading DuckDB spatial extension...");
+            if cli.output != OutputFormat::Json {
+                println!("Loading DuckDB spatial extension...");
+            }
             conn.execute("INSTALL spatial", [])?;
             conn.execute("LOAD spatial", [])?;
             
-            println!("Extracting data... This may take a while depending on the bounding box.");
+            if cli.output != OutputFormat::Json {
+                println!("Extracting data... This may take a while depending on the bounding box.");
+            }
             
             // The magic query: Create a table by joining the GeoZarr pixels that intersect the vector polygons
             let query = format!(
