@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use duckdb::{Connection, Result};
+use std::process::Command;
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum OutputFormat {
@@ -178,8 +179,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::Shell { db_path } => {
-            println!("Opening shell for {}", db_path);
-            // TODO in Task 4
+            let ext_path = if cfg!(target_os = "windows") {
+                "../target/debug/geozarr.duckdb_extension"
+            } else {
+                "../target/debug/libgeozarr.duckdb_extension"
+            };
+            
+            let init_commands = format!(
+                "SET allow_unsigned_extensions = true; LOAD '{}'; INSTALL spatial; LOAD spatial;", 
+                ext_path
+            );
+            
+            println!("Starting DuckDB shell...");
+            let status = Command::new("duckdb")
+                .arg(&db_path)
+                .arg("-cmd")
+                .arg(&init_commands)
+                .status();
+                
+            match status {
+                Ok(s) if s.success() => {},
+                Ok(s) => eprintln!("DuckDB shell exited with status: {}", s),
+                Err(e) => eprintln!("Failed to launch 'duckdb' CLI. Is it installed in your PATH? Error: {}", e),
+            }
         }
         Commands::Export {
             db,
