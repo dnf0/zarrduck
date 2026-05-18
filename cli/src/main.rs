@@ -1,12 +1,17 @@
 use clap::{Parser, Subcommand};
 use duckdb::{Connection, Result};
+use std::process::Command;
 
 #[derive(Parser)]
-#[command(name = "geozarr-cli")]
-#[command(about = "Companion CLI tool for exporting DuckDB tables to Zarr", long_about = None)]
+#[command(name = "zarrduck")]
+#[command(about = "Agentic Spatial Data Engine for GeoZarr and DuckDB", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    /// Output format (table or json)
+    #[arg(global = true, long, default_value = "table")]
+    output: String,
 }
 
 enum ChunkData {
@@ -26,25 +31,36 @@ enum ChunkData {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Export the results of a SQL query to a Zarr array
+    /// Discover dataset metadata
+    Info {
+        /// The Zarr array URI
+        uri: String,
+    },
+    /// Extract Zarr data intersecting with vector polygons
+    Extract {
+        /// The Zarr array URI
+        zarr_uri: String,
+        /// Path to the vector boundaries (GeoJSON, Shapefile)
+        vector_path: String,
+        /// Output DuckDB database file
+        #[arg(long)]
+        out: String,
+    },
+    /// Open an interactive DuckDB shell loaded with the data
+    Shell {
+        /// The DuckDB database file to open
+        db_path: String,
+    },
+    /// Export DuckDB query results to a Zarr array
     Export {
-        /// Path to the DuckDB database file (or leave empty for in-memory)
         #[arg(long)]
         db: Option<String>,
-
-        /// The SQL query to execute
         #[arg(long)]
         query: String,
-
-        /// The destination path for the Zarr array (e.g., s3://bucket/output.zarr)
         #[arg(long)]
         output: String,
-
-        /// The column containing the actual values (all others are coordinates)
         #[arg(long)]
         value_column: String,
-
-        /// Optional JSON mapping of dimension name to chunk size (e.g. '{"time": 10}')
         #[arg(long)]
         chunks: Option<String>,
     },
@@ -55,6 +71,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Info { uri } => {
+            println!("Info command for {}", uri);
+            // TODO in Task 2
+        }
+        Commands::Extract { zarr_uri, vector_path, out } => {
+            println!("Extracting {} using {} to {}", zarr_uri, vector_path, out);
+            // TODO in Task 3
+        }
+        Commands::Shell { db_path } => {
+            println!("Opening shell for {}", db_path);
+            // TODO in Task 4
+        }
         Commands::Export {
             db,
             query,
