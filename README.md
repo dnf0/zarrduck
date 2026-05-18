@@ -46,16 +46,19 @@ FROM read_zarr(
 GROUP BY time;
 ```
 
-## Quick Start (Writing)
+## Zarrduck CLI (Agentic Data Engine)
 
-Use the `geozarr-cli` tool to execute a DuckDB query and export the results into a new Zarr array.
+The companion `zarrduck` CLI allows you to perform complex spatial operations like Vector-Raster joins (Zonal Extraction) from the terminal. It is designed to be fully LLM-agent friendly via the `--output=json` flag.
 
 ```bash
-geozarr-cli export \
-  --db "my_database.duckdb" \
-  --query "SELECT time, lat, lon, temperature FROM climate_model" \
-  --output "s3://my-bucket/climate_export.zarr" \
-  --value-column "temperature"
+# 1. Discover the dataset metadata
+zarrduck info s3://my-bucket/climate.zarr --output=json
+
+# 2. Extract raster data strictly within your vector polygons
+zarrduck extract s3://my-bucket/climate.zarr ./my_region.geojson --out analysis.duckdb
+
+# 3. Open an interactive spatial SQL shell to analyze the extracted data
+zarrduck shell analysis.duckdb
 ```
 
 ## Development
