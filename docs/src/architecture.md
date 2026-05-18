@@ -2,6 +2,40 @@
 
 The DuckDB GeoZarr extension is designed with a heavy focus on network I/O optimization, memory safety, and lock-free concurrency. It relies on the [zarrs](https://crates.io/crates/zarrs) crate for core Zarr decoding and the [opendal](https://crates.io/crates/opendal) crate for cloud storage abstraction.
 
+## Conceptual Model: From Zarr to DuckDB
+
+The fundamental challenge in bridging cloud-native spatial data with relational engines is the impedance mismatch between N-Dimensional Arrays (Zarr) and Flat Tabular Rows (DuckDB).
+
+### How the Transformation Works
+
+```mermaid
+graph TD
+    subgraph Zarr Cloud Storage
+        Z[N-Dimensional Array<br>time, y, x]
+        M[Metadata<br>.zattrs / zarr.json]
+    end
+
+    subgraph DuckDB GeoZarr Extension
+        M -.-> |Parse Spatial/CRS| T[Coordinate Transformer<br>Scale & Translation]
+        Z --> |Stream Compressed Chunks| D[Decompressor & Chunk Buffer]
+        D --> |Iterate Elements| E[Row Generator]
+        T -.-> |Apply Math| E
+    end
+
+    subgraph DuckDB Execution Engine
+        E --> |Yield DataChunks| R[(Flat Relational Table)]
+    end
+
+    R --> |time, lat, lon, value| SQL[SQL Queries<br>SELECT, GROUP BY, WHERE]
+```
+
+### Why is this useful?
+
+1. **Standardization:** Traditional N-dimensional tools require learning specific Python APIs (`xarray`, `dask`). By projecting the data into a flat table, anyone (and any LLM Agent) who knows SQL can immediately analyze massive datasets.
+2. **Ecosystem Integration:** Flattened relational data seamlessly integrates with business intelligence tools, web dashboards, and standard spatial analysis workflows (like joining climate data against a flat table of customer locations).
+3. **On-the-Fly Projection:** Because the extension parses the GeoZarr spatial metadata and projects indices into true `lat`/`lon` geographic coordinates automatically, users never have to manually reconstruct the spatial grid or apply coordinate math.
+4. **Network Optimization:** By keeping data compressed on S3 in chunked Zarr arrays and using spatial pruning parameters (e.g., `lat_min`), we dramatically reduce network latency by bypassing S3 requests for data outside the region of interest.
+
 ## Flattened Relational Mapping
 
 DuckDB operates on flat, relational tables, whereas Zarr arrays are N-dimensional. The extension bridges this gap by "flattening" the N-dimensional array into a Cartesian table.
