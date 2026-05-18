@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>How-To Guides - DuckDB GeoZarr Documentation</title>
+        <title>Zarrduck CLI - DuckDB GeoZarr Documentation</title>
 
 
         <!-- Custom HTML head -->
@@ -146,7 +146,7 @@
                         <a href="https://github.com/dnf0/duckdb_geozarr" title="Git repository" aria-label="Git repository">
                             <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
                         </a>
-                        <a href="https://github.com/dnf0/duckdb_geozarr/edit/main/docs/src/src/how_to.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                        <a href="https://github.com/dnf0/duckdb_geozarr/edit/main/docs/src/src/cli.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
                             <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
                         </a>
 
@@ -180,68 +180,34 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="how-to-guides"><a class="header" href="#how-to-guides">How-To Guides</a></h1>
-<p>This section provides practical, step-by-step examples for common data science and engineering workflows using the DuckDB GeoZarr extension.</p>
-<h2 id="how-to-extract-a-specific-geographic-region-bounding-box"><a class="header" href="#how-to-extract-a-specific-geographic-region-bounding-box">How to extract a specific geographic region (Bounding Box)</a></h2>
-<p>Often, climate datasets cover the entire globe, but your analysis is restricted to a specific country or region. Downloading the global dataset is incredibly wasteful.</p>
-<p>By passing named parameters for coordinate limits, the extension will <em>only</em> download the Zarr chunks that intersect your bounding box.</p>
-<pre><code class="language-sql">SELECT
-    time,
-    lat,
-    lon,
-    value as temperature
-FROM read_zarr(
-    's3://climate-data/global_temperature.zarr',
-    -- Define the bounding box for Europe
-    lat_min := 35.0,
-    lat_max := 70.0,
-    lon_min := -10.0,
-    lon_max := 30.0
-)
-WHERE time &gt;= 1609459200; -- Further filter by time (e.g., year 2021)
+                        <h1 id="zarrduck-cli"><a class="header" href="#zarrduck-cli">Zarrduck CLI</a></h1>
+<p>The <code>zarrduck</code> CLI is an Agentic Spatial Data Engine. It allows users and LLM agents to easily discover, extract, and manipulate GeoZarr data directly from the terminal without writing complex spatial SQL.</p>
+<h2 id="commands"><a class="header" href="#commands">Commands</a></h2>
+<h3 id="discovery-info"><a class="header" href="#discovery-info">Discovery: <code>info</code></a></h3>
+<p>Quickly inspect the shape, chunking, and Coordinate Reference System (CRS) of a remote Zarr array.</p>
+<pre><code class="language-bash">zarrduck info s3://my-bucket/climate.zarr
 </code></pre>
-<p><em>Note: Because DuckDB cannot push standard <code>WHERE</code> clauses down into table functions yet, the coordinate pruning MUST be done using the <code>:=</code> named parameters to achieve network savings.</em></p>
-<h2 id="how-to-aggregate-data-over-time-eg-monthly-averages"><a class="header" href="#how-to-aggregate-data-over-time-eg-monthly-averages">How to aggregate data over time (e.g., Monthly Averages)</a></h2>
-<p>If you are calculating time-series aggregations, DuckDB is incredibly fast. To maximize performance, ensure you only select the columns you need.</p>
-<pre><code class="language-sql">SELECT
-    time,
-    AVG(value) as monthly_average
-FROM read_zarr('s3://climate-data/precipitation.zarr')
-GROUP BY time
-ORDER BY time;
+<p><strong>Agent Mode:</strong> Use <code>--output=json</code> to get a clean, parseable JSON response.</p>
+<pre><code class="language-bash">zarrduck info s3://my-bucket/climate.zarr --output=json
 </code></pre>
-<p>Because the <code>lat</code> and <code>lon</code> columns are completely absent from this query (Projection Pushdown), the extension skips calculating them and skips allocating memory for them, leading to a massive speedup.</p>
-<h2 id="how-to-handle-categorical-data-stringsvarchar"><a class="header" href="#how-to-handle-categorical-data-stringsvarchar">How to handle categorical data (Strings/Varchar)</a></h2>
-<p>Geospatial data isn’t just numbers. Land cover datasets, for example, often use strings to denote classifications. The extension natively supports Zarr string arrays and automatically bridges them to DuckDB <code>VARCHAR</code> columns.</p>
-<pre><code class="language-sql">SELECT
-    value as land_cover_type,
-    count(*) as pixel_count
-FROM read_zarr('s3://climate-data/land_cover.zarr')
-GROUP BY value
-ORDER BY pixel_count DESC;
+<h3 id="extraction-extract"><a class="header" href="#extraction-extract">Extraction: <code>extract</code></a></h3>
+<p>Perform a Vector-Raster join (zonal extraction). This command downloads only the Zarr chunks that intersect with your vector boundaries, masks the pixels exactly to the polygons, and saves the data to a local DuckDB file.</p>
+<pre><code class="language-bash">zarrduck extract s3://my-bucket/climate.zarr ./my_region.geojson --out analysis.duckdb
 </code></pre>
-<h2 id="how-to-connect-to-private-s3-buckets"><a class="header" href="#how-to-connect-to-private-s3-buckets">How to connect to private S3 buckets</a></h2>
-<p>The extension uses the standard AWS SDK credential chain. You do not configure secrets inside DuckDB’s SQL interface. Instead, export them in your terminal environment before launching your script or DuckDB CLI:</p>
-<pre><code class="language-bash">export AWS_ACCESS_KEY_ID="AKIAIOSFODNN7EXAMPLE"
-export AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-export AWS_REGION="us-east-1"
-
-# Launch DuckDB
-duckdb
-</code></pre>
-<p>Then simply query the bucket:</p>
-<pre><code class="language-sql">SELECT * FROM read_zarr('s3://my-private-bucket/data.zarr');
+<h3 id="analytics-shell"><a class="header" href="#analytics-shell">Analytics: <code>shell</code></a></h3>
+<p>Drop into an interactive DuckDB REPL pre-loaded with the <code>spatial</code> and <code>duckdb_geozarr</code> extensions.</p>
+<pre><code class="language-bash">zarrduck shell analysis.duckdb
 </code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="exporting.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="usage.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="metrics.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="exporting.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -251,11 +217,11 @@ duckdb
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="exporting.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="usage.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="metrics.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="exporting.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

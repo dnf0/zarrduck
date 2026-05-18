@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-39ca1696.js";
+            window.path_to_searchindex_js = "searchindex-4d33b73c.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-d1d613aa.js"></script>
+        <script src="toc-23aa1bb8.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -317,6 +317,25 @@ SELECT SUM(value) FROM read_zarr('s3://bucket/data.zarr');
 <p>This guarantees that standard SQL aggregations work correctly out of the box:</p>
 <pre><code class="language-sql">-- NULLs (fill values) are correctly ignored in the average calculation
 SELECT AVG(value) FROM read_zarr('s3://bucket/data.zarr');
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="zarrduck-cli"><a class="header" href="#zarrduck-cli">Zarrduck CLI</a></h1>
+<p>The <code>zarrduck</code> CLI is an Agentic Spatial Data Engine. It allows users and LLM agents to easily discover, extract, and manipulate GeoZarr data directly from the terminal without writing complex spatial SQL.</p>
+<h2 id="commands"><a class="header" href="#commands">Commands</a></h2>
+<h3 id="discovery-info"><a class="header" href="#discovery-info">Discovery: <code>info</code></a></h3>
+<p>Quickly inspect the shape, chunking, and Coordinate Reference System (CRS) of a remote Zarr array.</p>
+<pre><code class="language-bash">zarrduck info s3://my-bucket/climate.zarr
+</code></pre>
+<p><strong>Agent Mode:</strong> Use <code>--output=json</code> to get a clean, parseable JSON response.</p>
+<pre><code class="language-bash">zarrduck info s3://my-bucket/climate.zarr --output=json
+</code></pre>
+<h3 id="extraction-extract"><a class="header" href="#extraction-extract">Extraction: <code>extract</code></a></h3>
+<p>Perform a Vector-Raster join (zonal extraction). This command downloads only the Zarr chunks that intersect with your vector boundaries, masks the pixels exactly to the polygons, and saves the data to a local DuckDB file.</p>
+<pre><code class="language-bash">zarrduck extract s3://my-bucket/climate.zarr ./my_region.geojson --out analysis.duckdb
+</code></pre>
+<h3 id="analytics-shell"><a class="header" href="#analytics-shell">Analytics: <code>shell</code></a></h3>
+<p>Drop into an interactive DuckDB REPL pre-loaded with the <code>spatial</code> and <code>duckdb_geozarr</code> extensions.</p>
+<pre><code class="language-bash">zarrduck shell analysis.duckdb
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="exporting-to-zarr-geozarr-cli"><a class="header" href="#exporting-to-zarr-geozarr-cli">Exporting to Zarr (geozarr-cli)</a></h1>
