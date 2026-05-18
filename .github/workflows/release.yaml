@@ -32,6 +32,21 @@ jobs:
       - name: Install cargo-duckdb-ext
         run: cargo install cargo-duckdb-ext-tools
 
+      - name: Patch duckdb-rs for Windows
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          cargo fetch
+          FILE=$(find ~/.cargo/registry -path "*/duckdb-1.10502.0/src/core/logical_type.rs" | head -n 1)
+          if [ -n "$FILE" ]; then
+            sed -i 's/duckdb_create_logical_type(id as u32)/duckdb_create_logical_type((id as u32).try_into().unwrap())/g' "$FILE"
+            sed -i 's/duckdb_get_type_id(self.ptr)/duckdb_get_type_id(self.ptr).try_into().unwrap()/g' "$FILE"
+            echo "Patched $FILE"
+          else
+            echo "logical_type.rs not found!"
+            exit 1
+          fi
+
       - name: Build Extension
         shell: bash
         run: |
