@@ -1,6 +1,11 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use duckdb::{Connection, Result};
-use std::process::Command;
+
+#[derive(Clone, Debug, ValueEnum)]
+enum OutputFormat {
+    Table,
+    Json,
+}
 
 #[derive(Parser)]
 #[command(name = "zarrduck")]
@@ -11,7 +16,7 @@ struct Cli {
 
     /// Output format (table or json)
     #[arg(global = true, long, default_value = "table")]
-    output: String,
+    output: OutputFormat,
 }
 
 enum ChunkData {
@@ -53,14 +58,23 @@ enum Commands {
     },
     /// Export DuckDB query results to a Zarr array
     Export {
+        /// Path to the DuckDB database file (or leave empty for in-memory)
         #[arg(long)]
         db: Option<String>,
+
+        /// The SQL query to execute
         #[arg(long)]
         query: String,
+
+        /// The destination path for the Zarr array (e.g., s3://bucket/output.zarr)
         #[arg(long)]
         output: String,
+
+        /// The column containing the actual values (all others are coordinates)
         #[arg(long)]
         value_column: String,
+
+        /// Optional JSON mapping of dimension name to chunk size (e.g. '{"time": 10}')
         #[arg(long)]
         chunks: Option<String>,
     },
