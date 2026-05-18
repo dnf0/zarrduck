@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use duckdb::{Connection, Result};
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum OutputFormat {
     Table,
     Json,
@@ -80,14 +80,61 @@ enum Commands {
     },
 }
 
+fn setup_duckdb() -> Result<Connection, Box<dyn std::error::Error>> {
+    let config = duckdb::Config::default().allow_unsigned_extensions()?;
+    let conn = Connection::open_in_memory_with_flags(config)?;
+    
+    // We need to construct the path to our compiled extension
+    let ext_path = if cfg!(target_os = "windows") {
+        "../target/debug/geozarr.duckdb_extension"
+    } else {
+        "../target/debug/libgeozarr.duckdb_extension"
+    };
+    
+    conn.execute(&format!("LOAD '{}'", ext_path), [])?;
+    Ok(conn)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Info { uri } => {
-            println!("Info command for {}", uri);
-            // TODO in Task 2
+            let conn = setup_duckdb()?;
+            let query = format!("SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')", uri);
+            
+            let mut stmt = conn.prepare(&query)?;
+            let mut rows = stmt.query([])?;
+            
+            if let Some(row) = rows.next()? {
+                let array_shape: String = row.get(0)?;
+                let chunk_shape: String = row.get(1)?;
+                let data_type: String = row.get(2)?;
+                let crs: String = row.get(3)?;
+                
+                // NOTE: Use the OutputFormat enum you implemented in Task 1!
+                if cli.output == OutputFormat::Json {
+                    let json_out = serde_json::json!({
+                        "uri": uri,
+                        "array_shape": array_shape,
+                        "chunk_shape": chunk_shape,
+                        "data_type": data_type,
+                        "crs": crs
+                    });
+                    println!("{}", json_out.to_string());
+                } else {
+                    println!("GeoZarr Dataset Info:");
+                    println!("URI: {}", uri);
+                    println!("Shape: {}", array_shape);
+                    println!("Chunks: {}", chunk_shape);
+                    println!("Type: {}", data_type);
+                    println!("CRS: {}", crs);
+                }
+            } else {
+                eprintln!("Failed to read metadata for {}", uri);
+                std::process::exit(1);
+            }
         }
         Commands::Extract { zarr_uri, vector_path, out } => {
             println!("Extracting {} using {} to {}", zarr_uri, vector_path, out);
