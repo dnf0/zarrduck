@@ -15,6 +15,25 @@ The extension automatically inspects the Zarr `_ARRAY_DIMENSIONS` metadata to de
 
 If a coordinate array does not exist, the extension gracefully falls back to yielding the raw integer index for that dimension (e.g., `0, 1, 2...`).
 
+## GeoZarr Metadata & Spatial Projections
+
+DuckDB GeoZarr aligns with the official GeoZarr specification.
+
+### Global Metadata
+
+You can query dataset-level properties such as the coordinate reference system (CRS), array shape, and data types using the `read_zarr_metadata` function:
+
+```sql
+SELECT * FROM read_zarr_metadata('s3://my-bucket/climate.zarr');
+```
+This returns a single row containing columns like `array_shape`, `chunk_shape`, `data_type`, and `crs`.
+
+### Spatial Affine Transforms
+
+When scanning a table, the extension parses GeoZarr `spatial` metadata (affine transformations). For dimensions mapped to a spatial transform, the extension automatically performs the math (`translation + index * scale`) on the fly. 
+
+This means you can query `lon` and `lat` directly as projected geographic coordinates rather than dealing with raw integer grid indices.
+
 ## Cloud Storage (S3 / HTTP)
 
 You can read directly from AWS S3 or public HTTP endpoints. The extension dynamically resolves the backend using Apache OpenDAL.
