@@ -39,7 +39,7 @@ jobs:
             cargo build --package duckdb_geozarr --release
             cargo duckdb-ext package --library-path target/release/geozarr.dll --extension-path target/release/${{ matrix.artifact_name }} --extension-version v0.1.0 --duckdb-platform windows_amd64 --duckdb-version v1.10502.0
           else
-            cargo duckdb-ext build -- --package duckdb_geozarr --release
+            cargo duckdb-ext build -- --release
           fi
 
       - name: Rename Artifact
