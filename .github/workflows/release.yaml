@@ -33,7 +33,7 @@ jobs:
         run: cargo install cargo-duckdb-ext-tools
 
       - name: Build Extension
-        run: cargo duckdb-ext build --package duckdb_geozarr -- --release
+        run: cargo duckdb-ext build -- --package duckdb_geozarr --release
 
       - name: Rename Artifact
         shell: bash
