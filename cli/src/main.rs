@@ -80,18 +80,22 @@ enum Commands {
     },
 }
 
-fn setup_duckdb() -> Result<Connection, Box<dyn std::error::Error>> {
-    let config = duckdb::Config::default().allow_unsigned_extensions()?;
-    let conn = Connection::open_in_memory_with_flags(config)?;
-    
-    // We need to construct the path to our compiled extension
+fn load_geozarr_extension(conn: &Connection) -> Result<(), duckdb::Error> {
     let ext_path = if cfg!(target_os = "windows") {
         "../target/debug/geozarr.duckdb_extension"
     } else {
         "../target/debug/libgeozarr.duckdb_extension"
     };
-    
     conn.execute(&format!("LOAD '{}'", ext_path), [])?;
+    Ok(())
+}
+
+fn setup_duckdb() -> Result<Connection, Box<dyn std::error::Error>> {
+    let config = duckdb::Config::default().allow_unsigned_extensions()?;
+    let conn = Connection::open_in_memory_with_flags(config)?;
+    
+    load_geozarr_extension(&conn)?;
+    
     Ok(conn)
 }
 
@@ -138,16 +142,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::Extract { zarr_uri, vector_path, out } => {
-            let conn = Connection::open(&out)?;
+            let config = duckdb::Config::default().allow_unsigned_extensions()?;
+            let conn = Connection::open_with_flags(&out, config)?;
             
             // Load extensions
-            conn.execute("SET allow_unsigned_extensions = true", [])?;
-            let ext_path = if cfg!(target_os = "windows") {
-                "../target/debug/geozarr.duckdb_extension"
-            } else {
-                "../target/debug/libgeozarr.duckdb_extension"
-            };
-            conn.execute(&format!("LOAD '{}'", ext_path), [])?;
+            load_geozarr_extension(&conn)?;
             
             // Install and load official spatial extension
             println!("Loading DuckDB spatial extension...");
@@ -158,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             
             // The magic query: Create a table by joining the GeoZarr pixels that intersect the vector polygons
             let query = format!(
-                "CREATE TABLE extracted_data AS \n                 SELECT z.*, v.* EXCLUDE (geom) \n                 FROM read_zarr('{}') z, ST_Read('{}') v \n                 WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))",
+                "CREATE OR REPLACE TABLE extracted_data AS \n                 SELECT z.*, v.* EXCLUDE (geom) \n                 FROM read_zarr('{}') z, ST_Read('{}') v \n                 WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))",
                 zarr_uri.replace("'", "''"), vector_path.replace("'", "''")
             );
             
