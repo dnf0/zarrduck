@@ -174,6 +174,20 @@ macro_rules! dispatch_yield_loop {
                                 .copied()
                                 .unwrap_or(f64::NAN);
                         }
+                    } else if let Some(ref transform) = $bind_data.spatial_transform {
+                        if dim < transform.scale.len() {
+                            let mut coord_vector = $output.flat_vector(dim);
+                            let coord_slice = coord_vector.as_mut_slice::<f64>();
+                            for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
+                                coord_slice[valid_rows + idx] = apply_transform(transform, dim, global_coords[dim]);
+                            }
+                        } else {
+                            let mut coord_vector = $output.flat_vector(dim);
+                            let coord_slice = coord_vector.as_mut_slice::<i64>();
+                            for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
+                                coord_slice[valid_rows + idx] = global_coords[dim] as i64;
+                            }
+                        }
                     } else {
                         let mut coord_vector = $output.flat_vector(dim);
                         let coord_slice = coord_vector.as_mut_slice::<i64>();
@@ -222,6 +236,12 @@ macro_rules! dispatch_yield_loop {
     }};
 }
 
+pub fn apply_transform(transform: &crate::metadata::SpatialTransform, dim_index: usize, grid_index: u64) -> f64 {
+    let scale = transform.scale.get(dim_index).copied().unwrap_or(1.0);
+    let translation = transform.translation.get(dim_index).copied().unwrap_or(0.0);
+    translation + (grid_index as f64 * scale)
+}
+
 pub struct ReadZarrBindData {
     pub path: String,
     pub shape: Vec<u64>,
@@ -233,6 +253,7 @@ pub struct ReadZarrBindData {
     pub bounds_max: Vec<u64>,
     pub fill_value_bytes: Option<Vec<u8>>,
     pub array: std::sync::Arc<zarrs::array::Array<dyn zarrs::storage::ReadableStorageTraits>>,
+    pub spatial_transform: Option<crate::metadata::SpatialTransform>,
 }
 
 pub enum ChunkBuffer {
@@ -311,6 +332,17 @@ impl VTab for ReadZarrVTab {
         }
         let metadata = array.metadata();
 
+        let mut spatial_transform = None;
+        if let zarrs::array::ArrayMetadata::V2(meta) = metadata {
+            if let Some(geozarr_meta) = crate::metadata::parse_geozarr_metadata(&serde_json::Value::Object(meta.attributes.clone())) {
+                spatial_transform = geozarr_meta.transform;
+            }
+        } else if let zarrs::array::ArrayMetadata::V3(meta) = metadata {
+            if let Some(geozarr_meta) = crate::metadata::parse_geozarr_metadata(&serde_json::Value::Object(meta.attributes.clone())) {
+                spatial_transform = geozarr_meta.transform;
+            }
+        }
+
         let dim_names = resolve_dimension_names(metadata, rank);
 
         let mut coords = std::collections::HashMap::new();
@@ -350,9 +382,10 @@ impl VTab for ReadZarrVTab {
             }
         }
 
-        // Add coordinate columns (DuckDB Double if physical, Bigint if fallback)
-        for name in &dim_names {
-            if coords.contains_key(name) {
+        // Add coordinate columns (DuckDB Double if physical or transformed, Bigint if fallback)
+        for (i, name) in dim_names.iter().enumerate() {
+            let has_transform = spatial_transform.as_ref().map_or(false, |t| i < t.scale.len());
+            if coords.contains_key(name) || has_transform {
                 bind.add_result_column(name, LogicalTypeId::Double.into());
             } else {
                 bind.add_result_column(name, LogicalTypeId::Bigint.into());
@@ -484,6 +517,7 @@ impl VTab for ReadZarrVTab {
             bounds_max,
             fill_value_bytes,
             array: std::sync::Arc::new(array),
+            spatial_transform: spatial_transform.clone(),
         })
     }
 
@@ -689,6 +723,20 @@ impl VTab for ReadZarrVTab {
                                         .get(global_coords[dim] as usize)
                                         .copied()
                                         .unwrap_or(f64::NAN);
+                                }
+                            } else if let Some(ref transform) = bind_data.spatial_transform {
+                                if dim < transform.scale.len() {
+                                    let mut coord_vector = output.flat_vector(dim);
+                                    let coord_slice = coord_vector.as_mut_slice::<f64>();
+                                    for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
+                                        coord_slice[valid_rows + idx] = apply_transform(transform, dim, global_coords[dim]);
+                                    }
+                                } else {
+                                    let mut coord_vector = output.flat_vector(dim);
+                                    let coord_slice = coord_vector.as_mut_slice::<i64>();
+                                    for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
+                                        coord_slice[valid_rows + idx] = global_coords[dim] as i64;
+                                    }
                                 }
                             } else {
                                 let mut coord_vector = output.flat_vector(dim);
@@ -1179,5 +1227,19 @@ mod tests {
         // lat <= 10.0 => min_idx: 4, max_idx: 5
         let (min, max) = translate_filter(&coords_desc, "<=", 10.0, 0, 5);
         assert_eq!((min, max), (4, 5));
+    }
+
+    #[test]
+    fn test_spatial_transform_coordinate_generation() {
+        // This is a direct test of the `func` iteration coordinate mapping logic.
+        // However, since `func` requires DuckDB Context, we test it through an e2e test in test_extension.rs later.
+        // For now, we will add a unit test for a new helper function `apply_transform`
+        let transform = crate::metadata::SpatialTransform {
+            scale: vec![0.1, -0.1],
+            translation: vec![-180.0, 90.0]
+        };
+        
+        assert_eq!(super::apply_transform(&transform, 0, 5), -180.0 + (5.0 * 0.1));
+        assert_eq!(super::apply_transform(&transform, 1, 10), 90.0 + (10.0 * -0.1));
     }
 }

@@ -41,4 +41,5 @@ ORDER BY time;
 - **Spatial Pruning**: Network I/O is the slowest part of cloud analytics. Use named parameters (like `lat_min`, `lon_max`) to filter data at the chunk-level. The extension strictly prunes out-of-bounds chunks before they are ever requested over the network.
 - **Universal Types**: Supports all common Zarr primitives (`f32`, `f64`, `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `bool`, and `String`) seamlessly.
 - **Missing Data Awareness**: Missing data tokens (Zarr `fill_value`s like `-9999.0` or `NaN`) are mapped perfectly to true SQL `NULL`s via DuckDB's ValidityMask, ensuring aggregations like `SUM()` and `AVG()` are mathematically correct.
+- **GeoZarr Spec Alignment**: Natively parses GeoZarr `spatial` affine transforms to project grid coordinates into geographic coordinates (e.g., `lon`, `lat`) on-the-fly, and exposes global properties like `crs` via `read_zarr_metadata()`.
 - **Companion Export CLI**: Includes the `geozarr-cli` tool, allowing you to run SQL queries and export the results back into N-dimensional Zarr arrays on S3 using async, lock-free streaming.

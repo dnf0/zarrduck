@@ -881,6 +881,7 @@ dependencies = [
  "bytemuck",
  "duckdb",
  "opendal",
+ "serde",
  "serde_json",
  "tempfile",
  "zarrs",
