@@ -1,12 +1,23 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use duckdb::{Connection, Result};
+use std::process::Command;
+
+#[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum OutputFormat {
+    Table,
+    Json,
+}
 
 #[derive(Parser)]
-#[command(name = "geozarr-cli")]
-#[command(about = "Companion CLI tool for exporting DuckDB tables to Zarr", long_about = None)]
+#[command(name = "zarrduck")]
+#[command(about = "Agentic Spatial Data Engine for GeoZarr and DuckDB", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    /// Output format (table or json)
+    #[arg(global = true, long, default_value = "table")]
+    output: OutputFormat,
 }
 
 enum ChunkData {
@@ -26,7 +37,27 @@ enum ChunkData {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Export the results of a SQL query to a Zarr array
+    /// Discover dataset metadata
+    Info {
+        /// The Zarr array URI
+        uri: String,
+    },
+    /// Extract Zarr data intersecting with vector polygons
+    Extract {
+        /// The Zarr array URI
+        zarr_uri: String,
+        /// Path to the vector boundaries (GeoJSON, Shapefile)
+        vector_path: String,
+        /// Output DuckDB database file
+        #[arg(long)]
+        out: String,
+    },
+    /// Open an interactive DuckDB shell loaded with the data
+    Shell {
+        /// The DuckDB database file to open
+        db_path: String,
+    },
+    /// Export DuckDB query results to a Zarr array
     Export {
         /// Path to the DuckDB database file (or leave empty for in-memory)
         #[arg(long)]
@@ -50,11 +81,132 @@ enum Commands {
     },
 }
 
+fn load_geozarr_extension(conn: &Connection) -> Result<(), duckdb::Error> {
+    let ext_path = if cfg!(target_os = "windows") {
+        "../target/debug/geozarr.duckdb_extension"
+    } else {
+        "../target/debug/libgeozarr.duckdb_extension"
+    };
+    conn.execute(&format!("LOAD '{}'", ext_path), [])?;
+    Ok(())
+}
+
+fn setup_duckdb() -> Result<Connection, Box<dyn std::error::Error>> {
+    let config = duckdb::Config::default().allow_unsigned_extensions()?;
+    let conn = Connection::open_in_memory_with_flags(config)?;
+    
+    load_geozarr_extension(&conn)?;
+    
+    Ok(conn)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Info { uri } => {
+            let conn = setup_duckdb()?;
+            let escaped_uri = uri.replace("'", "''");
+            let query = format!("SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')", escaped_uri);
+            
+            let mut stmt = conn.prepare(&query)?;
+            let mut rows = stmt.query([])?;
+            
+            if let Some(row) = rows.next()? {
+                let array_shape: String = row.get(0)?;
+                let chunk_shape: String = row.get(1)?;
+                let data_type: String = row.get(2)?;
+                let crs: String = row.get(3)?;
+                
+                // NOTE: Use the OutputFormat enum you implemented in Task 1!
+                if cli.output == OutputFormat::Json {
+                    let json_out = serde_json::json!({
+                        "uri": uri,
+                        "array_shape": array_shape,
+                        "chunk_shape": chunk_shape,
+                        "data_type": data_type,
+                        "crs": crs
+                    });
+                    println!("{}", json_out.to_string());
+                } else {
+                    println!("GeoZarr Dataset Info:");
+                    println!("URI: {}", uri);
+                    println!("Shape: {}", array_shape);
+                    println!("Chunks: {}", chunk_shape);
+                    println!("Type: {}", data_type);
+                    println!("CRS: {}", crs);
+                }
+            } else {
+                eprintln!("Failed to read metadata for {}", uri);
+                std::process::exit(1);
+            }
+        }
+        Commands::Extract { zarr_uri, vector_path, out } => {
+            let config = duckdb::Config::default().allow_unsigned_extensions()?;
+            let conn = Connection::open_with_flags(&out, config)?;
+            
+            // Load extensions
+            load_geozarr_extension(&conn)?;
+            
+            // Install and load official spatial extension
+            if cli.output != OutputFormat::Json {
+                println!("Loading DuckDB spatial extension...");
+            }
+            conn.execute("INSTALL spatial", [])?;
+            conn.execute("LOAD spatial", [])?;
+            
+            if cli.output != OutputFormat::Json {
+                println!("Extracting data... This may take a while depending on the bounding box.");
+            }
+            
+            // The magic query: Create a table by joining the GeoZarr pixels that intersect the vector polygons
+            let query = format!(
+                "CREATE OR REPLACE TABLE extracted_data AS \n                 SELECT z.*, v.* EXCLUDE (geom) \n                 FROM read_zarr('{}') z, ST_Read('{}') v \n                 WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))",
+                zarr_uri.replace("'", "''"), vector_path.replace("'", "''")
+            );
+            
+            match conn.execute(&query, []) {
+                Ok(_) => {
+                    // NOTE: Use OutputFormat::Json from Task 1
+                    if cli.output == OutputFormat::Json {
+                        println!(r#"{{"status": "success", "db": "{}"}}"#, out);
+                    } else {
+                        println!("Extraction complete! Data saved to table 'extracted_data' in {}", out);
+                        println!("Run `zarrduck shell {}` to explore it.", out);
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Extraction failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Shell { db_path } => {
+            let ext_path = if cfg!(target_os = "windows") {
+                "../target/debug/geozarr.duckdb_extension"
+            } else {
+                "../target/debug/libgeozarr.duckdb_extension"
+            };
+            
+            let init_commands = format!(
+                "SET allow_unsigned_extensions = true; LOAD '{}'; INSTALL spatial; LOAD spatial;", 
+                ext_path
+            );
+            
+            println!("Starting DuckDB shell...");
+            let status = Command::new("duckdb")
+                .arg(&db_path)
+                .arg("-cmd")
+                .arg(&init_commands)
+                .status();
+                
+            match status {
+                Ok(s) if s.success() => {},
+                Ok(s) => eprintln!("DuckDB shell exited with status: {}", s),
+                Err(e) => eprintln!("Failed to launch 'duckdb' CLI. Is it installed in your PATH? Error: {}", e),
+            }
+        }
         Commands::Export {
             db,
             query,

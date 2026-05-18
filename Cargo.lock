@@ -1113,19 +1113,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "geozarr-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "duckdb",
- "futures",
- "opendal",
- "serde_json",
- "tokio",
- "zarrs",
-]
-
-[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3738,6 +3725,19 @@ dependencies = [
  "quote",
  "syn 2.0.117",
  "synstructure",
+]
+
+[[package]]
+name = "zarrduck"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "duckdb",
+ "opendal",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zarrs",
 ]
 
 [[package]]
