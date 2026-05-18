@@ -102,7 +102,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Commands::Info { uri } => {
             let conn = setup_duckdb()?;
-            let query = format!("SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')", uri);
+            let escaped_uri = uri.replace("'", "''");
+            let query = format!("SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')", escaped_uri);
             
             let mut stmt = conn.prepare(&query)?;
             let mut rows = stmt.query([])?;
