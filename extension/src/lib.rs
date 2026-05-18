@@ -1,3 +1,4 @@
+pub mod metadata;
 pub mod table_function;
 pub use table_function::ReadZarrVTab;
 
