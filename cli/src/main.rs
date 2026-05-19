@@ -1024,6 +1024,72 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             
             // Just close the input connection so we don't lock the file for the next step
             drop(input_conn);
+
+            // Overwrite protection for output db
+            if std::path::Path::new(&output_db).exists() {
+                if resolved_output == OutputFormat::Json {
+                    return Err(eyre!("Output database '{}' already exists. Aborting.", output_db));
+                } else {
+                    let ans = inquire::Confirm::new(&format!("File '{}' already exists. Overwrite?", output_db))
+                        .with_default(false)
+                        .prompt()
+                        .wrap_err("Failed to read user input")?;
+                        
+                    if !ans {
+                        println!("Aborting resampling.");
+                        return Ok(());
+                    }
+                    std::fs::remove_file(&output_db).wrap_err_with(|| format!("Failed to delete '{}'", output_db))?;
+                }
+            }
+
+            let conn = Connection::open(&output_db)
+                .wrap_err_with(|| format!("Failed to open output database '{}'", output_db))?;
+            
+            let spinner = if resolved_output != OutputFormat::Json {
+                let pb = indicatif::ProgressBar::new_spinner();
+                pb.set_style(
+                    indicatif::ProgressStyle::default_spinner()
+                        .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+                        .template("{spinner:.green} {msg}")
+                        .unwrap()
+                );
+                pb.set_message("Resampling time-series data...");
+                pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                Some(pb)
+            } else {
+                None
+            };
+            
+            conn.execute(&format!("ATTACH '{}' AS source_db", input_db), [])
+                .wrap_err("Failed to attach input database")?;
+                
+            let query = format!(
+                "CREATE TABLE resampled_data AS 
+                 SELECT 
+                     date_trunc('{}', {}) as {},
+                     {}, {},
+                     {}({}) as value
+                 FROM source_db.extracted_data
+                 GROUP BY 1, 2, 3",
+                freq.replace("'", "''"), time_col, time_col,
+                lat_col, lon_col,
+                agg.replace("'", "''"), val_col
+            );
+            
+            // Note: Since this is a blocking call, we run it directly on this thread. The tokio runtime isn't heavily needed here since it's local.
+            conn.execute(&query, []).wrap_err("Resampling query failed")?;
+            
+            if let Some(pb) = spinner {
+                pb.finish_with_message("Resampling complete!");
+            }
+            
+            if resolved_output == OutputFormat::Json {
+                println!(r#"{{"status": "success", "db": "{}"}}"#, output_db);
+            } else {
+                println!("Data saved to table 'resampled_data' in {}", output_db);
+                println!("Run `zarrduck shell {}` to explore it.", output_db);
+            }
         }
     }
 
