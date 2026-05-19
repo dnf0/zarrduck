@@ -169,6 +169,29 @@ fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String,
     Ok((time_col, lat_col, lon_col, val_col))
 }
 
+fn auto_calculate_chunks(conn: &duckdb::Connection, table: &str) -> EyreResult<serde_json::Value> {
+    // Very simple heuristic for demonstration. Real implementation would query min/max of coords.
+    // For this prototype, we'll assign a flat default if we can't infer smartly.
+    
+    let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))?;
+    let mut rows = stmt.query([])?;
+    
+    let mut map = serde_json::Map::new();
+    while let Some(row) = rows.next()? {
+        let col_name: String = row.get(0)?;
+        let col_lower = col_name.to_lowercase();
+        if col_lower == "x" || col_lower.contains("lon") {
+            map.insert(col_name, serde_json::json!(100)); // Default spatial chunk
+        } else if col_lower == "y" || col_lower.contains("lat") {
+            map.insert(col_name, serde_json::json!(100));
+        } else if col_lower.contains("time") || col_lower.contains("date") {
+            map.insert(col_name, serde_json::json!(10)); // Default temporal chunk
+        }
+    }
+    
+    Ok(serde_json::Value::Object(map))
+}
+
 fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
     let ext_path = if cfg!(target_os = "windows") {
         "../target/debug/geozarr.duckdb_extension"
@@ -1112,7 +1135,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 println!("Run `zarrduck shell {}` to explore it.", output_db);
             }
         }
-        Commands::Ingest { input_file, output_zarr_uri: _output_zarr_uri, chunks: _chunks, value_column: _value_column } => {
+        Commands::Ingest { input_file, output_zarr_uri: _output_zarr_uri, chunks, value_column: _value_column } => {
             if !std::path::Path::new(&input_file).exists() {
                 return Err(eyre!("Input file '{}' does not exist.", input_file));
             }
@@ -1133,8 +1156,21 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             let view_query = format!("CREATE VIEW temp_ingest AS SELECT * EXCLUDE (geom) FROM ST_Read('{}')", input_file.replace("'", "''"));
             conn.execute(&view_query, []).wrap_err("Failed to execute ST_Read on input file")?;
             
+            let mut final_chunks = auto_calculate_chunks(&conn, "temp_ingest")?;
+            
+            if let Some(user_chunks_str) = chunks {
+                let user_chunks: serde_json::Value = serde_json::from_str(&user_chunks_str)
+                    .wrap_err("Failed to parse user --chunks flag as JSON")?;
+                
+                if let Some(user_obj) = user_chunks.as_object() {
+                    for (k, v) in user_obj {
+                        final_chunks.as_object_mut().unwrap().insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            
             if resolved_output != OutputFormat::Json {
-                println!("Ingestion command structure setup complete.");
+                println!("Calculated chunk shape: {}", final_chunks.to_string());
             }
         }
     }
