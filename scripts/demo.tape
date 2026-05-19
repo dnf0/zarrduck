@@ -26,6 +26,8 @@ Enter
 Show
 
 # Step 1: STAC Discovery
+Type "clear"
+Enter
 Type "# 1. Discover cloud-native GeoZarr assets via STAC"
 Enter
 Sleep 1s
@@ -34,14 +36,26 @@ Enter
 Sleep 3s
 
 # Step 2: Zonal Extraction
-Type "# 2. Perform a massive Vector-Raster join on the cloud"
+Type "clear"
+Enter
+Type "# 2. Extract and join spatial data (Interactive Dataset Selection)"
 Enter
 Sleep 1s
-Type "zarrduck extract climate_data.zarr/air_temperature scripts/demo_region.geojson --out analysis.duckdb"
+Type "zarrduck extract climate_data.zarr scripts/demo_region.geojson --out analysis.duckdb"
+Enter
+Sleep 2s
+Down 1
+Sleep 1s
+Down 1
+Sleep 1s
+Up 2
+Sleep 1s
 Enter
 Sleep 4s
 
 # Step 3: Temporal Resampling
+Type "clear"
+Enter
 Type "# 3. Automatically aggregate time-series data to monthly means"
 Enter
 Sleep 1s
@@ -50,12 +64,14 @@ Enter
 Sleep 3s
 
 # Step 4: Interactive Analysis
+Type "clear"
+Enter
 Type "# 4. Drop into a spatial-enabled shell"
 Enter
 Sleep 1s
 Type "zarrduck shell monthly.duckdb"
 Enter
-Sleep 2s
+Sleep 3s
 Type "SELECT time, lat, lon, value FROM resampled_data LIMIT 5;"
 Enter
 Sleep 4s
