@@ -83,6 +83,12 @@ enum Commands {
         #[arg(long)]
         chunks: Option<String>,
     },
+    /// Generate shell completion scripts
+    Completions {
+        /// The shell to generate completions for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
 }
 
 fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
@@ -857,6 +863,9 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             }
 
             println!("Export successful!");
+        }
+        Commands::Completions { shell: _ } => {
+            // Placeholder for now
         }
     }
 
