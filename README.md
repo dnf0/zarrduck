@@ -2,6 +2,8 @@
 
 A high-performance, cloud-native [DuckDB](https://duckdb.org/) extension for reading and writing N-dimensional [Zarr](https://zarr.readthedocs.io/) and GeoZarr arrays directly as flat relational tables.
 
+![Zarrduck End-to-End Demo](docs/src/demo.gif)
+
 [![Semantic Release](https://github.com/dnf0/duckdb_geozarr/actions/workflows/release.yaml/badge.svg)](https://github.com/dnf0/duckdb_geozarr/actions/workflows/release.yaml)
 
 📖 **[Read the Full Documentation here!](https://dnf0.github.io/duckdb_geozarr/)**
