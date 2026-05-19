@@ -89,6 +89,24 @@ enum Commands {
         #[arg(value_enum)]
         shell: clap_complete::Shell,
     },
+    /// Search a STAC API for GeoZarr assets
+    Search {
+        /// The STAC API URL (e.g., https://planetarycomputer.microsoft.com/api/stac/v1/search)
+        #[arg(long)]
+        api: String,
+        
+        /// The collection ID to search (e.g., era5-pds)
+        #[arg(long)]
+        collection: String,
+        
+        /// Bounding box (min_lon, min_lat, max_lon, max_lat)
+        #[arg(long)]
+        bbox: Option<String>,
+        
+        /// Datetime range (e.g., 2020-01-01T00:00:00Z/2020-12-31T23:59:59Z)
+        #[arg(long)]
+        datetime: Option<String>,
+    },
 }
 
 fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
@@ -868,6 +886,83 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             let mut cmd = Cli::command();
             let bin_name = cmd.get_name().to_string();
             clap_complete::generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
+        }
+        Commands::Search { api, collection, bbox, datetime } => {
+            let client = reqwest::Client::new();
+            
+            let mut payload = serde_json::json!({
+                "collections": [collection],
+                "limit": 10
+            });
+            
+            if let Some(b) = bbox {
+                let bbox_arr: Vec<f64> = b.split(',').map(|s| s.trim().parse::<f64>()).collect::<Result<Vec<_>, _>>().wrap_err("Failed to parse bbox coordinates as floats")?;
+                if bbox_arr.len() == 4 {
+                    payload.as_object_mut().unwrap().insert("bbox".to_string(), serde_json::json!(bbox_arr));
+                } else {
+                    return Err(eyre!("bbox must be 4 comma-separated numbers (min_lon, min_lat, max_lon, max_lat)"));
+                }
+            }
+            
+            if let Some(dt) = datetime {
+                payload.as_object_mut().unwrap().insert("datetime".to_string(), serde_json::json!(dt));
+            }
+            
+            let mut search_api = api.clone();
+            if !search_api.ends_with("/search") {
+                search_api = format!("{}/search", search_api.trim_end_matches('/'));
+            }
+            
+            if cli.output != Some(OutputFormat::Json) {
+                println!("Querying STAC API: {}", search_api);
+            }
+            
+            let res = client.post(&search_api)
+                .json(&payload)
+                .send()
+                .await
+                .wrap_err("Failed to send request to STAC API")?;
+                
+            if !res.status().is_success() {
+                let status = res.status();
+                let text = res.text().await.unwrap_or_default();
+                return Err(eyre!("STAC API returned {}: {}", status, text));
+            }
+            
+            let stac_response: serde_json::Value = res.json().await.wrap_err("Failed to parse STAC API response")?;
+            
+            let mut found_uris = Vec::new();
+            
+            if let Some(features) = stac_response.get("features").and_then(|f| f.as_array()) {
+                for feature in features {
+                    if let Some(assets) = feature.get("assets").and_then(|a| a.as_object()) {
+                        for (_, asset) in assets {
+                            // Planetary computer uses application/vnd+zarr, but sometimes just roles or type "zarr"
+                            if let Some(href) = asset.get("href").and_then(|h| h.as_str()) {
+                                let is_zarr_type = asset.get("type").and_then(|t| t.as_str()).map_or(false, |t| t.contains("zarr"));
+                                let is_zarr_href = href.ends_with(".zarr") || href.contains(".zarr/");
+                                
+                                if is_zarr_type || is_zarr_href {
+                                    found_uris.push(href.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if cli.output == Some(OutputFormat::Json) {
+                let json_out = serde_json::json!({
+                    "status": "success",
+                    "uris": found_uris
+                });
+                println!("{}", json_out.to_string());
+            } else {
+                println!("Found {} Zarr URIs:", found_uris.len());
+                for uri in found_uris {
+                    println!("- {}", uri);
+                }
+            }
         }
     }
 

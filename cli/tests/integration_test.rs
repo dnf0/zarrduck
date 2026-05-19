@@ -42,3 +42,17 @@ fn test_cli_completions_bash() {
         .success()
         .stdout(predicate::str::contains("_zarrduck() {"));
 }
+
+#[test]
+fn test_cli_search_invalid_api() {
+    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    cmd.arg("search")
+        .arg("--api")
+        .arg("http://api.test.invalid")
+        .arg("--collection")
+        .arg("era5")
+        .arg("--output=json")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains(r#""status":"error""#));
+}
