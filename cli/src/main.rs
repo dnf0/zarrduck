@@ -126,7 +126,7 @@ enum Commands {
 }
 
 fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String, String, String, String)> {
-    let mut stmt = conn.prepare(&format!("DESCRIBE {}", table))
+    let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))
         .wrap_err_with(|| format!("Failed to describe table '{}'", table))?;
     
     let mut rows = stmt.query([])?;
@@ -141,10 +141,10 @@ fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String,
     let time_col = columns.iter().find(|c| c.contains("time") || c.contains("date"))
         .cloned().ok_or_else(|| eyre!("Could not automatically detect a time column"))?;
         
-    let lat_col = columns.iter().find(|c| c.contains("lat") || c.contains("y"))
+    let lat_col = columns.iter().find(|c| c.contains("lat") || c == &"y")
         .cloned().ok_or_else(|| eyre!("Could not automatically detect a latitude column"))?;
         
-    let lon_col = columns.iter().find(|c| c.contains("lon") || c.contains("x"))
+    let lon_col = columns.iter().find(|c| c.contains("lon") || c == &"x")
         .cloned().ok_or_else(|| eyre!("Could not automatically detect a longitude column"))?;
 
     let val_col = columns.iter().find(|&c| c != &time_col && c != &lat_col && c != &lon_col && c != "geom")
