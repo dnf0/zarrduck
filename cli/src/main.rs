@@ -1,3 +1,6 @@
+mod config;
+use config::ZarrduckConfig;
+
 use clap::{Parser, Subcommand, ValueEnum};
 use duckdb::{Connection, Result};
 use std::process::Command;
@@ -17,8 +20,8 @@ struct Cli {
     command: Commands,
 
     /// Output format (table or json)
-    #[arg(global = true, long, default_value = "table")]
-    output: OutputFormat,
+    #[arg(global = true, long)]
+    output: Option<OutputFormat>,
 }
 
 enum ChunkData {
@@ -51,7 +54,7 @@ enum Commands {
         vector_path: String,
         /// Output DuckDB database file
         #[arg(long)]
-        out: String,
+        out: Option<String>,
     },
     /// Open an interactive DuckDB shell loaded with the data
     Shell {
@@ -93,7 +96,7 @@ fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
     Ok(())
 }
 
-fn setup_duckdb() -> EyreResult<Connection> {
+fn setup_duckdb(s3_config: Option<&crate::config::S3Config>) -> EyreResult<Connection> {
     let config = duckdb::Config::default().allow_unsigned_extensions()
         .wrap_err("Failed to configure unsigned extensions")?;
     let conn = Connection::open_in_memory_with_flags(config)
@@ -102,17 +105,37 @@ fn setup_duckdb() -> EyreResult<Connection> {
     load_geozarr_extension(&conn)
         .wrap_err("Failed to load geozarr extension")?;
 
+    inject_s3_secret(&conn, s3_config)?;
+
     Ok(conn)
+}
+
+fn inject_s3_secret(conn: &Connection, s3_config: Option<&crate::config::S3Config>) -> EyreResult<()> {
+    if let Some(s3) = s3_config {
+        if s3.access_key.is_some() || s3.secret_key.is_some() || s3.region.is_some() || s3.endpoint.is_some() {
+            let mut parts = vec!["TYPE S3".to_string()];
+            if let Some(ak) = &s3.access_key { parts.push(format!("KEY_ID '{}'", ak.replace("'", "''"))); }
+            if let Some(sk) = &s3.secret_key { parts.push(format!("SECRET '{}'", sk.replace("'", "''"))); }
+            if let Some(r) = &s3.region { parts.push(format!("REGION '{}'", r.replace("'", "''"))); }
+            if let Some(e) = &s3.endpoint { parts.push(format!("ENDPOINT '{}'", e.replace("'", "''"))); }
+            
+            let query = format!("CREATE SECRET ( {} )", parts.join(", "));
+            conn.execute(&query, []).wrap_err("Failed to inject S3 secret into DuckDB")?;
+        }
+    }
+    Ok(())
 }
 
 #[tokio::main]
 async fn main() -> EyreResult<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
+    let config = ZarrduckConfig::load().unwrap_or_else(|_| ZarrduckConfig { output_format: None, default_out: None, s3: None });
     
-    let is_json = cli.output == OutputFormat::Json;
+    let is_json = cli.output.as_ref().map(|o| *o == OutputFormat::Json)
+        .unwrap_or_else(|| config.output_format.as_deref() == Some("json"));
     
-    if let Err(e) = run_cli(cli).await {
+    if let Err(e) = run_cli(cli, config).await {
         if is_json {
             // Build error chain string
             let error_msgs: Vec<String> = e.chain().map(|c| c.to_string()).collect();
@@ -131,11 +154,23 @@ async fn main() -> EyreResult<()> {
     Ok(())
 }
 
-async fn run_cli(cli: Cli) -> EyreResult<()> {
+async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
+    let resolved_output = cli.output.clone()
+        .or_else(|| {
+            config.output_format.as_deref().and_then(|s| match s {
+                "json" => Some(OutputFormat::Json),
+                "table" => Some(OutputFormat::Table),
+                _ => None,
+            })
+        })
+        .unwrap_or(OutputFormat::Table);
+        
+    // Update cli struct so nested commands can just use it
+    cli.output = Some(resolved_output.clone());
 
     match cli.command {
         Commands::Info { uri } => {
-            let conn = setup_duckdb()?;
+            let conn = setup_duckdb(config.s3.as_ref())?;
             let escaped_uri = uri.replace("'", "''");
             let query = format!("SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')", escaped_uri);
             
@@ -149,7 +184,7 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
                 let crs: String = row.get(3)?;
                 
                 // NOTE: Use the OutputFormat enum you implemented in Task 1!
-                if cli.output == OutputFormat::Json {
+                if resolved_output == OutputFormat::Json {
                     let json_out = serde_json::json!({
                         "uri": uri,
                         "array_shape": array_shape,
@@ -171,12 +206,15 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
             }
         }
         Commands::Extract { zarr_uri, vector_path, out } => {
+            let out_path = out.or(config.default_out)
+                .ok_or_else(|| eyre!("Output path not specified. Use --out or set default_out in config."))?;
+            
             // Overwrite protection
-            if std::path::Path::new(&out).exists() {
-                if cli.output == OutputFormat::Json {
-                    return Err(color_eyre::eyre::eyre!("Output database '{}' already exists. Aborting to prevent overwrite.", out));
+            if std::path::Path::new(&out_path).exists() {
+                if resolved_output == OutputFormat::Json {
+                    return Err(color_eyre::eyre::eyre!("Output database '{}' already exists. Aborting to prevent overwrite.", out_path));
                 } else {
-                    let ans = inquire::Confirm::new(&format!("File '{}' already exists. Overwrite?", out))
+                    let ans = inquire::Confirm::new(&format!("File '{}' already exists. Overwrite?", out_path))
                         .with_default(false)
                         .prompt()
                         .wrap_err("Failed to read user input")?;
@@ -187,26 +225,27 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
                     }
                     
                     // User confirmed, so delete the file before opening it with DuckDB
-                    std::fs::remove_file(&out).wrap_err_with(|| format!("Failed to delete existing file '{}'", out))?;
+                    std::fs::remove_file(&out_path).wrap_err_with(|| format!("Failed to delete existing file '{}'", out_path))?;
                 }
             }
 
-            let config = duckdb::Config::default().allow_unsigned_extensions()
+            let db_config = duckdb::Config::default().allow_unsigned_extensions()
                 .wrap_err("Failed to configure unsigned extensions")?;
-            let conn = Connection::open_with_flags(&out, config)
-                .wrap_err_with(|| format!("Failed to open database at {}", out))?;
+            let conn = Connection::open_with_flags(&out_path, db_config)
+                .wrap_err_with(|| format!("Failed to open database at {}", out_path))?;
             
             // Load extensions
             load_geozarr_extension(&conn)?;
+            inject_s3_secret(&conn, config.s3.as_ref())?;
             
             // Install and load official spatial extension
-            if cli.output != OutputFormat::Json {
+            if resolved_output != OutputFormat::Json {
                 println!("Loading DuckDB spatial extension...");
             }
             conn.execute("INSTALL spatial", []).wrap_err("Failed to install spatial extension")?;
             conn.execute("LOAD spatial", []).wrap_err("Failed to load spatial extension")?;
             
-            let spinner = if cli.output != OutputFormat::Json {
+            let spinner = if resolved_output != OutputFormat::Json {
                 let pb = indicatif::ProgressBar::new_spinner();
                 pb.set_style(
                     indicatif::ProgressStyle::default_spinner()
@@ -234,10 +273,10 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
                 pb.finish_with_message("Extraction complete!");
             }
             
-            if cli.output == OutputFormat::Json {
-                println!(r#"{{"status": "success", "db": "{}"}}"#, out);
+            if resolved_output == OutputFormat::Json {
+                println!(r#"{{"status": "success", "db": "{}"}}"#, out_path);
             } else {
-                println!("Run `zarrduck shell {}` to explore the extracted data.", out);
+                println!("Run `zarrduck shell {}` to explore the extracted data.", out_path);
             }
         }
         Commands::Shell { db_path } => {
@@ -440,7 +479,7 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
             let total_rows_query = format!("SELECT COUNT(*) FROM ({})", query);
             let total_rows: u64 = _conn.query_row(&total_rows_query, [], |row| row.get(0)).unwrap_or(0);
             
-            let progress = if cli.output != OutputFormat::Json && total_rows > 0 {
+            let progress = if resolved_output != OutputFormat::Json && total_rows > 0 {
                 let pb = indicatif::ProgressBar::new(total_rows);
                 pb.set_style(
                     indicatif::ProgressStyle::default_bar()
@@ -813,7 +852,7 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
 
             if let Some(pb) = progress {
                 pb.finish_with_message("Streaming complete");
-            } else if cli.output != OutputFormat::Json {
+            } else if resolved_output != OutputFormat::Json {
                 println!("Finished streaming {} rows.", row_count);
             }
 
