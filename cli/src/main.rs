@@ -162,10 +162,10 @@ fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String,
         let col_lower = col_name.to_lowercase();
         columns.push(col_lower.clone());
         
-        if col_lower.contains("time") || col_lower.contains("date") {
-            if col_type.contains("INT") || col_type.contains("DOUBLE") || col_type.contains("FLOAT") {
-                time_is_numeric = true;
-            }
+        if (col_lower.contains("time") || col_lower.contains("date"))
+            && (col_type.contains("INT") || col_type.contains("DOUBLE") || col_type.contains("FLOAT"))
+        {
+            time_is_numeric = true;
         }
     }
 
