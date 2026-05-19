@@ -123,6 +123,22 @@ enum Commands {
         #[arg(long)]
         agg: String,
     },
+    /// Convert legacy spatial files (NetCDF, GeoTIFF, CSV) to GeoZarr
+    Ingest {
+        /// The local file to ingest
+        input_file: String,
+        
+        /// The destination Zarr URI
+        output_zarr_uri: String,
+        
+        /// Optional JSON string to override automatic chunk sizes (e.g., '{"time": 30}')
+        #[arg(long)]
+        chunks: Option<String>,
+        
+        /// Optional name for the value column (defaults to "value")
+        #[arg(long)]
+        value_column: Option<String>,
+    },
 }
 
 fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String, String, String, String)> {
@@ -1095,6 +1111,29 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 println!("Data saved to table 'resampled_data' in {}", output_db);
                 println!("Run `zarrduck shell {}` to explore it.", output_db);
             }
+        }
+        Commands::Ingest { input_file, output_zarr_uri, chunks, value_column } => {
+            if !std::path::Path::new(&input_file).exists() {
+                return Err(eyre!("Input file '{}' does not exist.", input_file));
+            }
+
+            let conn = setup_duckdb(config.s3.as_ref())?;
+            
+            if resolved_output != OutputFormat::Json {
+                println!("Loading DuckDB spatial extension...");
+            }
+            conn.execute("INSTALL spatial", []).wrap_err("Failed to install spatial extension")?;
+            conn.execute("LOAD spatial", []).wrap_err("Failed to load spatial extension")?;
+            
+            if resolved_output != OutputFormat::Json {
+                println!("Reading legacy file into DuckDB...");
+            }
+            
+            // Create a view wrapping the ST_Read call to treat it as a table
+            let view_query = format!("CREATE VIEW temp_ingest AS SELECT * EXCLUDE (geom) FROM ST_Read('{}')", input_file.replace("'", "''"));
+            conn.execute(&view_query, []).wrap_err("Failed to execute ST_Read on input file")?;
+            
+            println!("Ingestion command structure setup complete.");
         }
     }
 
