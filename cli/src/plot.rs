@@ -55,7 +55,7 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
              SELECT min(\"{v}\") as v_min, max(\"{v}\") as v_max FROM \"{t}\"
          ),
          bins AS (
-             SELECT 
+             SELECT
                  {g}
                  COALESCE(floor((\"{v}\" - v_min) / NULLIF((v_max - v_min) / 10.0, 0)), 0) as bin_idx,
                  count(*) as freq
@@ -246,7 +246,7 @@ fn plot_heatmap(
             FROM \"{t}\"
         ),
         grid AS (
-            SELECT 
+            SELECT
                 COALESCE(floor((\"{lat}\" - min_lat) / NULLIF((max_lat - min_lat) / {rows_count}.0, 0)), 0) as row_idx,
                 COALESCE(floor((\"{lon}\" - min_lon) / NULLIF((max_lon - min_lon) / {cols_count}.0, 0)), 0) as col_idx,
                 avg(\"{v}\") as cell_val
@@ -316,8 +316,8 @@ fn plot_heatmap(
             print!("           │ ");
         }
 
-        for c in 0..cols_count {
-            let val = grid_data[r][c];
+        for val in grid_data[r].iter().take(cols_count) {
+            let val = *val;
             if val.is_nan() {
                 print!("  ");
             } else {

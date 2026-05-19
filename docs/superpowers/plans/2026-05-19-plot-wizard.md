@@ -24,19 +24,19 @@ Change the `plot_type` argument to be optional so the command can be invoked sim
     Plot {
         /// The DuckDB database file
         db_path: String,
-        
+
         /// Type of plot (hist, heatmap, line). If omitted, launches interactive wizard.
         #[arg(long, value_enum)]
         plot_type: Option<plot::PlotType>,
-        
+
         /// The table to query
         #[arg(long, default_value = "extracted_data")]
         table: String,
-        
+
         /// The value column to aggregate (auto-detected if omitted)
         #[arg(long)]
         value: Option<String>,
-        
+
         /// Optional column to group by
         #[arg(long)]
         group_by: Option<String>,
@@ -90,7 +90,7 @@ pub fn run_plot(
     }
 
     let conn = Connection::open(db_path)?;
-    
+
     // If plot_type is provided, run non-interactively
     if let Some(pt) = plot_type {
         let val_col = match value_column {
@@ -98,7 +98,7 @@ pub fn run_plot(
             None => detect_value_column(&conn, table)?,
         };
 
-        println!("Plotting {} from table {} (Value: {})", 
+        println!("Plotting {} from table {} (Value: {})",
             format!("{:?}", pt).to_lowercase(), table, val_col);
 
         match pt {
@@ -129,7 +129,7 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
         let table_name: String = row.get(0)?;
         tables.push(table_name);
     }
-    
+
     if tables.is_empty() {
         return Err(eyre!("No tables found in database."));
     }
@@ -164,7 +164,7 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
     // 3. Recommend Plot Type
     let num_vars = var_names.len();
     println!("\nDetected {} variable(s).", num_vars);
-    
+
     let plot_options = match num_vars {
         1 => vec!["Histogram (Distribution)", "Line Plot (Time Series)"],
         2 => vec!["Scatter Plot (X vs Y)", "Line Plot"],
@@ -191,7 +191,7 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
     let val_col = var_names.last().unwrap();
 
     println!("\nExecuting generated command:");
-    println!("zarrduck plot <db> --plot-type {} --table {} --value {}\n", 
+    println!("zarrduck plot <db> --plot-type {} --table {} --value {}\n",
         format!("{:?}", plot_type).to_lowercase(), selected_table, val_col);
 
     // Delegate to existing rendering functions
