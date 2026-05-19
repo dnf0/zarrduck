@@ -96,7 +96,7 @@ fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
     Ok(())
 }
 
-fn setup_duckdb() -> EyreResult<Connection> {
+fn setup_duckdb(s3_config: Option<&crate::config::S3Config>) -> EyreResult<Connection> {
     let config = duckdb::Config::default().allow_unsigned_extensions()
         .wrap_err("Failed to configure unsigned extensions")?;
     let conn = Connection::open_in_memory_with_flags(config)
@@ -105,7 +105,25 @@ fn setup_duckdb() -> EyreResult<Connection> {
     load_geozarr_extension(&conn)
         .wrap_err("Failed to load geozarr extension")?;
 
+    inject_s3_secret(&conn, s3_config)?;
+
     Ok(conn)
+}
+
+fn inject_s3_secret(conn: &Connection, s3_config: Option<&crate::config::S3Config>) -> EyreResult<()> {
+    if let Some(s3) = s3_config {
+        if s3.access_key.is_some() || s3.secret_key.is_some() || s3.region.is_some() || s3.endpoint.is_some() {
+            let mut parts = vec!["TYPE S3".to_string()];
+            if let Some(ak) = &s3.access_key { parts.push(format!("KEY_ID '{}'", ak.replace("'", "''"))); }
+            if let Some(sk) = &s3.secret_key { parts.push(format!("SECRET '{}'", sk.replace("'", "''"))); }
+            if let Some(r) = &s3.region { parts.push(format!("REGION '{}'", r.replace("'", "''"))); }
+            if let Some(e) = &s3.endpoint { parts.push(format!("ENDPOINT '{}'", e.replace("'", "''"))); }
+            
+            let query = format!("CREATE SECRET ( {} )", parts.join(", "));
+            conn.execute(&query, []).wrap_err("Failed to inject S3 secret into DuckDB")?;
+        }
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -152,7 +170,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
 
     match cli.command {
         Commands::Info { uri } => {
-            let conn = setup_duckdb()?;
+            let conn = setup_duckdb(config.s3.as_ref())?;
             let escaped_uri = uri.replace("'", "''");
             let query = format!("SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')", escaped_uri);
             
@@ -218,6 +236,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             
             // Load extensions
             load_geozarr_extension(&conn)?;
+            inject_s3_secret(&conn, config.s3.as_ref())?;
             
             // Install and load official spatial extension
             if resolved_output != OutputFormat::Json {
