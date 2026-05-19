@@ -154,13 +154,20 @@ fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String,
 }
 
 fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
-    let ext_path = if cfg!(target_os = "windows") {
-        "../target/debug/geozarr.duckdb_extension"
+    let ext_name = "duckdb_geozarr.duckdb_extension";
+
+    let path1 = format!("./target/debug/{}", ext_name);
+    let path2 = format!("../target/debug/{}", ext_name);
+
+    let ext_path = if std::path::Path::new(&path1).exists() {
+        path1
     } else {
-        "../target/debug/libgeozarr.duckdb_extension"
+        path2
     };
+
     conn.execute(&format!("LOAD '{}'", ext_path), [])
         .wrap_err_with(|| format!("Failed to load extension at {}", ext_path))?;
+
     Ok(())
 }
 
