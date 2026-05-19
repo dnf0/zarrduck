@@ -331,7 +331,10 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             conn.execute("LOAD spatial", []).wrap_err("Failed to load spatial extension")?;
             
             let spinner = if resolved_output != OutputFormat::Json {
-                let pb = indicatif::ProgressBar::new_spinner();
+                let pb = indicatif::ProgressBar::with_draw_target(
+                    None, 
+                    indicatif::ProgressDrawTarget::stdout()
+                );
                 pb.set_style(
                     indicatif::ProgressStyle::default_spinner()
                         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
@@ -339,7 +342,6 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                         .unwrap()
                 );
                 pb.set_message("Extracting spatial data...");
-                pb.enable_steady_tick(std::time::Duration::from_millis(100));
                 Some(pb)
             } else {
                 None
@@ -355,7 +357,8 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             conn.execute(&query, []).wrap_err("Spatial extraction query failed")?;
             
             if let Some(pb) = spinner {
-                pb.finish_with_message("Extraction complete!");
+                pb.finish_and_clear();
+                println!("Extraction complete!");
             }
             
             if resolved_output == OutputFormat::Json {
@@ -571,7 +574,10 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             let total_rows: u64 = _conn.query_row(&total_rows_query, [], |row| row.get(0)).unwrap_or(0);
             
             let progress = if resolved_output != OutputFormat::Json && total_rows > 0 {
-                let pb = indicatif::ProgressBar::new(total_rows);
+                let pb = indicatif::ProgressBar::with_draw_target(
+                    Some(total_rows),
+                    indicatif::ProgressDrawTarget::stdout()
+                );
                 pb.set_style(
                     indicatif::ProgressStyle::default_bar()
                         .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} rows ({eta})")
@@ -1070,7 +1076,10 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 .wrap_err_with(|| format!("Failed to open output database '{}'", output_db))?;
             
             let spinner = if resolved_output != OutputFormat::Json {
-                let pb = indicatif::ProgressBar::new_spinner();
+                let pb = indicatif::ProgressBar::with_draw_target(
+                    None,
+                    indicatif::ProgressDrawTarget::stdout()
+                );
                 pb.set_style(
                     indicatif::ProgressStyle::default_spinner()
                         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
@@ -1078,7 +1087,6 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                         .unwrap()
                 );
                 pb.set_message("Resampling time-series data...");
-                pb.enable_steady_tick(std::time::Duration::from_millis(100));
                 Some(pb)
             } else {
                 None
@@ -1115,7 +1123,8 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             conn.execute(&query, []).wrap_err("Resampling query failed")?;
             
             if let Some(pb) = spinner {
-                pb.finish_with_message("Resampling complete!");
+                pb.finish_and_clear();
+                println!("Resampling complete!");
             }
             
             if resolved_output == OutputFormat::Json {
