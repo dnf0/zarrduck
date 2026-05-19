@@ -107,6 +107,22 @@ enum Commands {
         #[arg(long)]
         datetime: Option<String>,
     },
+    /// Temporally resample extracted GeoZarr data
+    Resample {
+        /// The input DuckDB file containing the 'extracted_data' table
+        input_db: String,
+        
+        /// The output DuckDB file to save the resampled data
+        output_db: String,
+        
+        /// The temporal frequency (e.g., month, year, day)
+        #[arg(long)]
+        freq: String,
+        
+        /// The aggregate function to apply (e.g., avg, sum, max)
+        #[arg(long)]
+        agg: String,
+    },
 }
 
 fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
@@ -963,6 +979,9 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     println!("- {}", uri);
                 }
             }
+        }
+        Commands::Resample { input_db, output_db, freq, agg } => {
+            println!("Resampling {} to {} with freq {} and agg {}", input_db, output_db, freq, agg);
         }
     }
 
