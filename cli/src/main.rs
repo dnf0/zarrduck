@@ -1112,7 +1112,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 println!("Run `zarrduck shell {}` to explore it.", output_db);
             }
         }
-        Commands::Ingest { input_file, output_zarr_uri, chunks, value_column } => {
+        Commands::Ingest { input_file, output_zarr_uri: _output_zarr_uri, chunks: _chunks, value_column: _value_column } => {
             if !std::path::Path::new(&input_file).exists() {
                 return Err(eyre!("Input file '{}' does not exist.", input_file));
             }
@@ -1133,7 +1133,9 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             let view_query = format!("CREATE VIEW temp_ingest AS SELECT * EXCLUDE (geom) FROM ST_Read('{}')", input_file.replace("'", "''"));
             conn.execute(&view_query, []).wrap_err("Failed to execute ST_Read on input file")?;
             
-            println!("Ingestion command structure setup complete.");
+            if resolved_output != OutputFormat::Json {
+                println!("Ingestion command structure setup complete.");
+            }
         }
     }
 
