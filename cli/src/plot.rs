@@ -116,6 +116,57 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
     Ok(())
 }
 
+fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&str>) -> Result<()> {
+    if group_by.is_some() {
+        println!("Warning: group-by is not yet supported for line plots in this MVP. Showing overall line.");
+    }
+
+    // We assume there's a time/date column. Let's find it.
+    let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))?;
+    let mut rows = stmt.query([])?;
+    let mut time_col = String::from("time"); // Fallback
+    while let Some(row) = rows.next()? {
+        let col_name: String = row.get(0)?;
+        let col_lower = col_name.to_lowercase();
+        if col_lower.contains("time") || col_lower.contains("date") {
+            time_col = col_name;
+            break;
+        }
+    }
+
+    let query = format!(
+        "SELECT \"{v}\" FROM \"{t}\" ORDER BY \"{time}\"",
+        v = val_col.replace("\"", "\"\""),
+        t = table.replace("\"", "\"\""),
+        time = time_col.replace("\"", "\"\"")
+    );
+
+    let mut stmt = conn.prepare(&query)?;
+    let mut rows = stmt.query([])?;
+    
+    let mut data: Vec<f64> = Vec::new();
+    while let Some(row) = rows.next()? {
+        if let Ok(val) = row.get::<_, f64>(0) {
+            data.push(val);
+        }
+    }
+
+    if data.is_empty() {
+        return Err(eyre!("No numeric data found for line plot."));
+    }
+
+    let graph = rasciigraph::plot(
+        data,
+        rasciigraph::Config::default()
+            .with_height(15)
+            .with_caption(format!("{} over {}", val_col, time_col)),
+    );
+
+    println!("\n{}\n", graph);
+
+    Ok(())
+}
+
 pub fn run_plot(
     db_path: &str,
     plot_type: PlotType,
@@ -140,8 +191,8 @@ pub fn run_plot(
     // Call specific plot functions here later
     match plot_type {
         PlotType::Hist => plot_hist(&conn, table, &val_col, group_by)?,
-        PlotType::Heatmap => {}
-        PlotType::Line => {}
+        PlotType::Heatmap => println!("Heatmap not yet implemented"),
+        PlotType::Line => plot_line(&conn, table, &val_col, group_by)?,
     }
 
     Ok(())
@@ -180,6 +231,25 @@ mod tests {
         
         let result = plot_hist(&conn, "test_zero", "val", None);
         assert!(result.is_ok(), "plot_hist div by zero failed: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_plot_line_basic() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE test_data (time TIMESTAMP, val DOUBLE)", []).unwrap();
+        conn.execute("INSERT INTO test_data VALUES ('2023-01-01', 1.0), ('2023-01-02', 2.0), ('2023-01-03', 3.0)", []).unwrap();
+        
+        let result = plot_line(&conn, "test_data", "val", None);
+        assert!(result.is_ok(), "plot_line failed: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_plot_line_no_data() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE test_empty (time TIMESTAMP, val DOUBLE)", []).unwrap();
+        
+        let result = plot_line(&conn, "test_empty", "val", None);
+        assert!(result.is_err(), "plot_line should fail on empty data");
     }
 }
 
