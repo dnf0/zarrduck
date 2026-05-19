@@ -56,3 +56,19 @@ fn test_cli_search_invalid_api() {
         .failure()
         .stdout(predicate::str::contains(r#""status":"error""#));
 }
+
+#[test]
+fn test_cli_resample_missing_input() {
+    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    cmd.arg("resample")
+        .arg("missing_input.duckdb")
+        .arg("out.duckdb")
+        .arg("--freq")
+        .arg("month")
+        .arg("--agg")
+        .arg("avg")
+        .arg("--output=json")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("Input database 'missing_input.duckdb' does not exist"));
+}
