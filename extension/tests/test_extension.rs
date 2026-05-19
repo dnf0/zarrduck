@@ -71,14 +71,18 @@ fn test_new_data_types() -> Result<()> {
 
 #[test]
 fn test_read_zarr_function_compiles() {
-    let ext_path = "../target/debug/duckdb_geozarr.duckdb_extension";
+    let candidate_paths = vec![
+        "../target/debug/duckdb_geozarr.duckdb_extension",
+        "target/debug/duckdb_geozarr.duckdb_extension",
+    ];
 
     // We just verify the extension file was successfully packaged by `cargo duckdb-ext build`.
     // Loading it dynamically into the host duckdb CLI is not tested here because
     // DuckDB extensions are strictly tied to the exact minor version (v1.1.x vs v1.5.x)
     // and will panic on load if there's a mismatch.
+    let exists = candidate_paths.iter().any(|p| Path::new(p).exists());
     assert!(
-        Path::new(ext_path).exists(),
+        exists,
         "Extension file not found. Please run `cargo duckdb-ext build` before `cargo test`"
     );
 }
