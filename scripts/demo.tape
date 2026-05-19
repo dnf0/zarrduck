@@ -31,9 +31,11 @@ Enter
 Type "# 1. Discover cloud-native GeoZarr assets via STAC"
 Enter
 Sleep 1s
-Type "zarrduck search --api https://planetarycomputer.microsoft.com/api/stac/v1 --collection era5-pds --bbox -122.27,37.77,-122.22,37.81"
+Type "zarrduck search --bbox -122.27,37.77,-122.22,37.81"
 Enter
-Sleep 3s
+Sleep 2s
+Enter
+Sleep 4s
 Down 1
 Sleep 1s
 Down 1
@@ -41,7 +43,15 @@ Sleep 1s
 Up 1
 Sleep 1s
 Enter
-Sleep 2s
+Sleep 4s
+Down 1
+Sleep 1s
+Enter
+Sleep 3s
+Down 1
+Sleep 1s
+Enter
+Sleep 3s
 
 # Step 2: Zonal Extraction
 Type "clear"
