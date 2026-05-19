@@ -169,13 +169,13 @@ fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String,
     Ok((time_col, lat_col, lon_col, val_col))
 }
 
-fn auto_calculate_chunks(conn: &duckdb::Connection, table: &str) -> EyreResult<serde_json::Value> {
+fn auto_calculate_chunks(conn: &duckdb::Connection, table: &str) -> EyreResult<serde_json::Map<String, serde_json::Value>> {
     // Very simple heuristic for demonstration. Real implementation would query min/max of coords.
     // For this prototype, we'll assign a flat default if we can't infer smartly.
-    
+
     let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))?;
     let mut rows = stmt.query([])?;
-    
+
     let mut map = serde_json::Map::new();
     while let Some(row) = rows.next()? {
         let col_name: String = row.get(0)?;
@@ -188,10 +188,9 @@ fn auto_calculate_chunks(conn: &duckdb::Connection, table: &str) -> EyreResult<s
             map.insert(col_name, serde_json::json!(10)); // Default temporal chunk
         }
     }
-    
-    Ok(serde_json::Value::Object(map))
-}
 
+    Ok(map)
+}
 fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
     let ext_path = if cfg!(target_os = "windows") {
         "../target/debug/geozarr.duckdb_extension"
@@ -1164,13 +1163,15 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 
                 if let Some(user_obj) = user_chunks.as_object() {
                     for (k, v) in user_obj {
-                        final_chunks.as_object_mut().unwrap().insert(k.clone(), v.clone());
+                        final_chunks.insert(k.clone(), v.clone());
                     }
+                } else {
+                    return Err(eyre!("--chunks must be a JSON object"));
                 }
             }
             
             if resolved_output != OutputFormat::Json {
-                println!("Calculated chunk shape: {}", final_chunks.to_string());
+                println!("Calculated chunk shape: {}", serde_json::Value::Object(final_chunks).to_string());
             }
         }
     }
