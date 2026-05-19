@@ -132,7 +132,7 @@ enum Commands {
         
         /// Type of plot (hist, heatmap, line)
         #[arg(long, value_enum)]
-        plot_type: plot::PlotType,
+        plot_type: Option<plot::PlotType>,
         
         /// The table to query
         #[arg(long, default_value = "extracted_data")]

@@ -1,5 +1,6 @@
 use color_eyre::eyre::{eyre, Result};
 use duckdb::Connection;
+use inquire::{Select, MultiSelect};
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum PlotType {
@@ -349,7 +350,7 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
 
 pub fn run_plot(
     db_path: &str,
-    plot_type: PlotType,
+    plot_type: Option<PlotType>,
     table: &str,
     value_column: Option<&str>,
     group_by: Option<&str>,
@@ -360,19 +361,109 @@ pub fn run_plot(
 
     let conn = Connection::open(db_path)?;
     
-    let val_col = match value_column {
-        Some(v) => v.to_string(),
-        None => detect_value_column(&conn, table)?,
+    // If plot_type is provided, run non-interactively
+    if let Some(pt) = plot_type {
+        let val_col = match value_column {
+            Some(v) => v.to_string(),
+            None => detect_value_column(&conn, table)?,
+        };
+
+        println!("Plotting {} from table {} (Value: {})", 
+            format!("{:?}", pt).to_lowercase(), table, val_col);
+
+        match pt {
+            PlotType::Hist => plot_hist(&conn, table, &val_col, group_by)?,
+            PlotType::Heatmap => plot_heatmap(&conn, table, &val_col, group_by)?,
+            PlotType::Line => plot_line(&conn, table, &val_col, group_by)?,
+        }
+        return Ok(());
+    }
+
+    // Otherwise, run interactive wizard
+    run_wizard(&conn, table)
+}
+
+fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
+    println!("Launching Interactive Plot Wizard...\n");
+
+    // 1. Select Table
+    let mut stmt = conn.prepare("SHOW TABLES")?;
+    let mut rows = stmt.query([])?;
+    let mut tables = Vec::new();
+    while let Some(row) = rows.next()? {
+        let table_name: String = row.get(0)?;
+        tables.push(table_name);
+    }
+    
+    if tables.is_empty() {
+        return Err(eyre!("No tables found in database."));
+    }
+
+    let selected_table = Select::new("Which table would you like to plot?", tables)
+        .with_starting_cursor(0)
+        .prompt()?;
+
+    // 2. Select Variables
+    let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", selected_table.replace("\"", "\"\"")))?;
+    let mut rows = stmt.query([])?;
+    let mut columns = Vec::new();
+    while let Some(row) = rows.next()? {
+        let col_name: String = row.get(0)?;
+        let col_type: String = row.get(1)?;
+        columns.push(format!("{} ({})", col_name, col_type));
+    }
+
+    let selected_vars = MultiSelect::new("Select variables to analyze (Space to select, Enter to confirm):", columns)
+        .prompt()?;
+
+    if selected_vars.is_empty() {
+        println!("No variables selected. Exiting.");
+        return Ok(());
+    }
+
+    // Extract just the column names
+    let var_names: Vec<String> = selected_vars.iter()
+        .map(|v| v.split(' ').next().unwrap().to_string())
+        .collect();
+
+    // 3. Recommend Plot Type
+    let num_vars = var_names.len();
+    println!("\nDetected {} variable(s).", num_vars);
+    
+    let plot_options = match num_vars {
+        1 => vec!["Histogram (Distribution)", "Line Plot (Time Series)"],
+        2 => vec!["Scatter Plot (X vs Y)", "Line Plot"],
+        _ => vec!["Heatmap (2D Spatial)", "Scatter Plot"],
     };
 
-    println!("Plotting {} from table {} (Value: {})", 
-        format!("{:?}", plot_type).to_lowercase(), table, val_col);
+    let selected_plot_str = Select::new("Choose plot type:", plot_options)
+        .with_starting_cursor(0)
+        .prompt()?;
 
-    // Call specific plot functions here later
+    // Map selection to enum
+    let plot_type = if selected_plot_str.contains("Histogram") {
+        PlotType::Hist
+    } else if selected_plot_str.contains("Heatmap") {
+        PlotType::Heatmap
+    } else if selected_plot_str.contains("Line") {
+        PlotType::Line
+    } else {
+        println!("Plot type '{}' is not fully implemented yet in the renderer. Exiting.", selected_plot_str);
+        return Ok(());
+    };
+
+    // Determine value column (pick the last selected variable as a heuristic)
+    let val_col = var_names.last().unwrap();
+
+    println!("\nExecuting generated command:");
+    println!("zarrduck plot <db> --plot-type {} --table {} --value {}\n", 
+        format!("{:?}", plot_type).to_lowercase(), selected_table, val_col);
+
+    // Delegate to existing rendering functions
     match plot_type {
-        PlotType::Hist => plot_hist(&conn, table, &val_col, group_by)?,
-        PlotType::Heatmap => plot_heatmap(&conn, table, &val_col, group_by)?,
-        PlotType::Line => plot_line(&conn, table, &val_col, group_by)?,
+        PlotType::Hist => plot_hist(conn, &selected_table, val_col, None)?,
+        PlotType::Heatmap => plot_heatmap(conn, &selected_table, val_col, None)?,
+        PlotType::Line => plot_line(conn, &selected_table, val_col, None)?,
     }
 
     Ok(())
