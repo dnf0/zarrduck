@@ -49,11 +49,7 @@ Sleep 4s
 Type "air temp max"
 Sleep 2s
 Enter
-Sleep 3s
-Type "air_temp"
-Sleep 1s
-Enter
-Sleep 3s
+Sleep 4s
 
 # Step 2: Zonal Extraction
 Type "clear"
