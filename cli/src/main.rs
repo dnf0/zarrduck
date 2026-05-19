@@ -154,7 +154,7 @@ fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String,
 }
 
 fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
-    let ext_name = "duckdb_geozarr.duckdb_extension";
+    let ext_name = "geozarr.duckdb_extension";
 
     let path1 = format!("./target/debug/{}", ext_name);
     let path2 = format!("../target/debug/{}", ext_name);

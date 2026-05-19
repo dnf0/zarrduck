@@ -8,7 +8,7 @@ Set Theme "Dracula"
 
 # Build the project to ensure the binary is fresh before recording
 Hide
-Type "cargo build -p zarrduck && cd extension && cargo duckdb-ext build && cd .."
+Type "cargo build -p zarrduck && cd extension && cargo duckdb-ext build --duckdb-version v1.5.2 -- --features loadable-extension && cd .. && cp target/debug/duckdb_geozarr.duckdb_extension target/debug/geozarr.duckdb_extension"
 Enter
 Sleep 10s
 Type "pip3 install zarr numpy"
