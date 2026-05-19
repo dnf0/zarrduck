@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-4d33b73c.js";
+            window.path_to_searchindex_js = "searchindex-bd7e1045.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-23aa1bb8.js"></script>
@@ -323,21 +323,29 @@ SELECT AVG(value) FROM read_zarr('s3://bucket/data.zarr');
 <h1 id="zarrduck-cli"><a class="header" href="#zarrduck-cli">Zarrduck CLI</a></h1>
 <p>The <code>zarrduck</code> CLI is an Agentic Spatial Data Engine. It allows users and LLM agents to easily discover, extract, and manipulate GeoZarr data directly from the terminal without writing complex spatial SQL.</p>
 <h2 id="commands"><a class="header" href="#commands">Commands</a></h2>
-<h3 id="discovery-info"><a class="header" href="#discovery-info">Discovery: <code>info</code></a></h3>
-<p>Quickly inspect the shape, chunking, and Coordinate Reference System (CRS) of a remote Zarr array.</p>
-<pre><code class="language-bash">zarrduck info s3://my-bucket/climate.zarr
+<h3 id="discovery-search"><a class="header" href="#discovery-search">Discovery: <code>search</code></a></h3>
+<p>Search modern STAC APIs for cloud-native Zarr data.</p>
+<pre><code class="language-bash">zarrduck search --bbox -122.27,37.77,-122.22,37.81
 </code></pre>
-<p><strong>Agent Mode:</strong> Use <code>--output=json</code> to get a clean, parseable JSON response.</p>
-<pre><code class="language-bash">zarrduck info s3://my-bucket/climate.zarr --output=json
+<p><strong>Interactive TUI Explorer:</strong> For human users, the CLI features a powerful multi-level interactive menu. If run without explicitly specifying an <code>--api</code> or <code>--collection</code>, it guides you through selecting a Provider, a Collection, and a Dataset URI. It parses STAC metadata to provide rich descriptions and includes a <strong>smart multi-word filter</strong>—just type keywords separated by spaces to instantly drill down large catalogs!</p>
+<h3 id="introspection-info"><a class="header" href="#introspection-info">Introspection: <code>info</code></a></h3>
+<p>Quickly inspect the shape, chunking, and Coordinate Reference System (CRS) of a remote Zarr array or Group. If pointed at a Group, it will present an interactive menu to let you select which specific array to load.</p>
+<pre><code class="language-bash">zarrduck info s3://my-bucket/climate.zarr
 </code></pre>
 <h3 id="extraction-extract"><a class="header" href="#extraction-extract">Extraction: <code>extract</code></a></h3>
 <p>Perform a Vector-Raster join (zonal extraction). This command downloads only the Zarr chunks that intersect with your vector boundaries, masks the pixels exactly to the polygons, and saves the data to a local DuckDB file.</p>
-<pre><code class="language-bash">zarrduck extract s3://my-bucket/climate.zarr ./my_region.geojson --out analysis.duckdb
+<pre><code class="language-bash">zarrduck extract climate_data.zarr/air_temperature ./my_region.geojson --out analysis.duckdb
+</code></pre>
+<h3 id="analytics-resample"><a class="header" href="#analytics-resample">Analytics: <code>resample</code></a></h3>
+<p>Automatically temporally aggregate high-frequency time-series data into coarser buckets (e.g., convert hourly data to monthly means). It intelligently detects numeric time columns and dynamically casts them for you.</p>
+<pre><code class="language-bash">zarrduck resample analysis.duckdb monthly.duckdb --freq month --agg avg
 </code></pre>
 <h3 id="analytics-shell"><a class="header" href="#analytics-shell">Analytics: <code>shell</code></a></h3>
 <p>Drop into an interactive DuckDB REPL pre-loaded with the <code>spatial</code> and <code>duckdb_geozarr</code> extensions.</p>
-<pre><code class="language-bash">zarrduck shell analysis.duckdb
+<pre><code class="language-bash">zarrduck shell monthly.duckdb
 </code></pre>
+<h2 id="agent-mode"><a class="header" href="#agent-mode">Agent Mode</a></h2>
+<p>To bypass all interactive prompts, spinners, and menus when automating with an LLM agent, simply append <code>--output=json</code> to any command. The CLI will return clean, parseable JSON payloads and explicitly error out if a required parameter is missing instead of hanging on an interactive prompt.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="exporting-to-zarr-geozarr-cli"><a class="header" href="#exporting-to-zarr-geozarr-cli">Exporting to Zarr (geozarr-cli)</a></h1>
 <p>While the DuckDB GeoZarr extension is designed for high-performance <strong>reads</strong> directly within the database engine, exporting relational data back out into N-dimensional Zarr arrays requires a different approach.</p>
