@@ -384,7 +384,7 @@ impl VTab for ReadZarrVTab {
 
         // Add coordinate columns (DuckDB Double if physical or transformed, Bigint if fallback)
         for (i, name) in dim_names.iter().enumerate() {
-            let has_transform = spatial_transform.as_ref().map_or(false, |t| i < t.scale.len());
+            let has_transform = spatial_transform.as_ref().is_some_and(|t| i < t.scale.len());
             if coords.contains_key(name) || has_transform {
                 bind.add_result_column(name, LogicalTypeId::Double.into());
             } else {

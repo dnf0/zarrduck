@@ -2,6 +2,8 @@
 
 Welcome to the **DuckDB GeoZarr** extension!
 
+![Zarrduck End-to-End Demo](demo.gif)
+
 This loadable DuckDB extension enables you to read N-dimensional [Zarr](https://zarr.readthedocs.io/) and GeoZarr arrays directly into flat relational DuckDB vectors.
 
 ## The Problem: N-Dimensional Data in a Relational World
