@@ -437,6 +437,21 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
 
             // 4. Setup Async Upload Workers
             println!("Pass 2: Streaming data...");
+            let total_rows_query = format!("SELECT COUNT(*) FROM ({})", query);
+            let total_rows: u64 = _conn.query_row(&total_rows_query, [], |row| row.get(0)).unwrap_or(0);
+            
+            let progress = if cli.output != OutputFormat::Json && total_rows > 0 {
+                let pb = indicatif::ProgressBar::new(total_rows);
+                pb.set_style(
+                    indicatif::ProgressStyle::default_bar()
+                        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} rows ({eta})")
+                        .unwrap()
+                        .progress_chars("#>-")
+                );
+                Some(pb)
+            } else {
+                None
+            };
             let (tx, mut rx) = tokio::sync::mpsc::channel::<(Vec<u64>, ChunkData)>(16);
             let array_clone = array.clone();
 
@@ -771,8 +786,11 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
                     }
 
                     row_count += 1;
-                    if row_count % 100_000 == 0 {
-                        println!("Streamed {} rows...", row_count);
+                    
+                    if let Some(ref pb) = progress {
+                        if row_count % 10_000 == 0 {
+                            pb.set_position(row_count);
+                        }
                     }
                 }
                 Ok(())
@@ -793,7 +811,11 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
             // If the stream encountered an error, propagate it now
             stream_result?;
 
-            println!("Finished streaming {} rows.", row_count);
+            if let Some(pb) = progress {
+                pb.finish_with_message("Streaming complete");
+            } else if cli.output != OutputFormat::Json {
+                println!("Finished streaming {} rows.", row_count);
+            }
 
             println!("Export successful!");
         }
