@@ -1,7 +1,7 @@
 mod config;
 use config::ZarrduckConfig;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use duckdb::{Connection, Result};
 use std::process::Command;
 use color_eyre::eyre::{eyre, WrapErr, Result as EyreResult};
