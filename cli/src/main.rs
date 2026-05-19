@@ -864,8 +864,10 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
 
             println!("Export successful!");
         }
-        Commands::Completions { shell: _ } => {
-            // Placeholder for now
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let bin_name = cmd.get_name().to_string();
+            clap_complete::generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
         }
     }
 
