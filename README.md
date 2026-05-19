@@ -50,17 +50,26 @@ GROUP BY time;
 
 ## Zarrduck CLI (Agentic Data Engine)
 
-The companion `zarrduck` CLI allows you to perform complex spatial operations like Vector-Raster joins (Zonal Extraction) from the terminal. It is designed to be fully LLM-agent friendly via the `--output=json` flag.
+The companion `zarrduck` CLI allows you to perform complex spatial operations and STAC discoveries directly from the terminal. It features a powerful, multi-level interactive Terminal User Interface (TUI) for human users, while remaining fully LLM-agent friendly via the `--output=json` flag.
 
 ```bash
-# 1. Discover the dataset metadata
-zarrduck info s3://my-bucket/climate.zarr --output=json
+# 1. Multi-Level STAC Discovery (Interactive TUI)
+# Run without arguments to launch the guided interactive explorer.
+# Navigate Providers -> Collections -> Dataset URIs -> Zarr Channels
+# Supports smart multi-word filtering and STAC descriptions!
+zarrduck search --bbox -122.27,37.77,-122.22,37.81
 
-# 2. Extract raster data strictly within your vector polygons
-zarrduck extract s3://my-bucket/climate.zarr ./my_region.geojson --out analysis.duckdb
+# 2. Vector-Raster Extraction
+# Downloads only intersecting chunks and joins spatial pixels with vector polygons
+zarrduck extract climate_data.zarr/air_temperature ./my_region.geojson --out analysis.duckdb
 
-# 3. Open an interactive spatial SQL shell to analyze the extracted data
-zarrduck shell analysis.duckdb
+# 3. Temporal Analytics
+# Resample massive time-series data to coarser frequencies (e.g., monthly averages)
+zarrduck resample analysis.duckdb monthly.duckdb --freq month --agg avg
+
+# 4. Interactive SQL Shell
+# Drop into a spatial-enabled REPL to query your extracted data
+zarrduck shell monthly.duckdb
 ```
 
 ## Development
