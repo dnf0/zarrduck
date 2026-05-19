@@ -100,7 +100,7 @@ enum Commands {
         collection: String,
         
         /// Bounding box (min_lon, min_lat, max_lon, max_lat)
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         bbox: Option<String>,
         
         /// Datetime range (e.g., 2020-01-01T00:00:00Z/2020-12-31T23:59:59Z)
