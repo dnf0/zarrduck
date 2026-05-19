@@ -125,6 +125,34 @@ enum Commands {
     },
 }
 
+fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String, String, String, String)> {
+    let mut stmt = conn.prepare(&format!("DESCRIBE {}", table))
+        .wrap_err_with(|| format!("Failed to describe table '{}'", table))?;
+    
+    let mut rows = stmt.query([])?;
+    
+    let mut columns = Vec::new();
+    while let Some(row) = rows.next()? {
+        let col_name: String = row.get(0)?;
+        columns.push(col_name.to_lowercase());
+    }
+
+    // Heuristics
+    let time_col = columns.iter().find(|c| c.contains("time") || c.contains("date"))
+        .cloned().ok_or_else(|| eyre!("Could not automatically detect a time column"))?;
+        
+    let lat_col = columns.iter().find(|c| c.contains("lat") || c.contains("y"))
+        .cloned().ok_or_else(|| eyre!("Could not automatically detect a latitude column"))?;
+        
+    let lon_col = columns.iter().find(|c| c.contains("lon") || c.contains("x"))
+        .cloned().ok_or_else(|| eyre!("Could not automatically detect a longitude column"))?;
+
+    let val_col = columns.iter().find(|&c| c != &time_col && c != &lat_col && c != &lon_col && c != "geom")
+        .cloned().ok_or_else(|| eyre!("Could not automatically detect a value column"))?;
+
+    Ok((time_col, lat_col, lon_col, val_col))
+}
+
 fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
     let ext_path = if cfg!(target_os = "windows") {
         "../target/debug/geozarr.duckdb_extension"
@@ -981,7 +1009,21 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             }
         }
         Commands::Resample { input_db, output_db, freq, agg } => {
-            println!("Resampling {} to {} with freq {} and agg {}", input_db, output_db, freq, agg);
+            if !std::path::Path::new(&input_db).exists() {
+                return Err(eyre!("Input database '{}' does not exist.", input_db));
+            }
+
+            let input_conn = Connection::open(&input_db)
+                .wrap_err_with(|| format!("Failed to open input database '{}'", input_db))?;
+            
+            let (time_col, lat_col, lon_col, val_col) = detect_columns(&input_conn, "extracted_data")?;
+            
+            if resolved_output != OutputFormat::Json {
+                println!("Detected schema: Time='{}', Spatial='{}', '{}', Value='{}'", time_col, lat_col, lon_col, val_col);
+            }
+            
+            // Just close the input connection so we don't lock the file for the next step
+            drop(input_conn);
         }
     }
 
