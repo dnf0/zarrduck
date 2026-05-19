@@ -1,3 +1,6 @@
+mod config;
+use config::ZarrduckConfig;
+
 use clap::{Parser, Subcommand, ValueEnum};
 use duckdb::{Connection, Result};
 use std::process::Command;
