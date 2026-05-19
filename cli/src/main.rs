@@ -896,7 +896,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             });
             
             if let Some(b) = bbox {
-                let bbox_arr: Vec<f64> = b.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                let bbox_arr: Vec<f64> = b.split(',').map(|s| s.trim().parse::<f64>()).collect::<Result<Vec<_>, _>>().wrap_err("Failed to parse bbox coordinates as floats")?;
                 if bbox_arr.len() == 4 {
                     payload.as_object_mut().unwrap().insert("bbox".to_string(), serde_json::json!(bbox_arr));
                 } else {
@@ -908,11 +908,16 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 payload.as_object_mut().unwrap().insert("datetime".to_string(), serde_json::json!(dt));
             }
             
-            if cli.output != Some(OutputFormat::Json) {
-                println!("Querying STAC API: {}", api);
+            let mut search_api = api.clone();
+            if !search_api.ends_with("/search") {
+                search_api = format!("{}/search", search_api.trim_end_matches('/'));
             }
             
-            let res = client.post(&api)
+            if cli.output != Some(OutputFormat::Json) {
+                println!("Querying STAC API: {}", search_api);
+            }
+            
+            let res = client.post(&search_api)
                 .json(&payload)
                 .send()
                 .await
