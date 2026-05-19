@@ -155,8 +155,18 @@ fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
         return Err(eyre!("No numeric data found for line plot."));
     }
 
+    let max_points = 100;
+    let plot_data: Vec<f64> = if data.len() > max_points {
+        let chunk_size = (data.len() as f64 / max_points as f64).ceil() as usize;
+        data.chunks(chunk_size)
+            .map(|chunk| chunk.iter().sum::<f64>() / chunk.len() as f64)
+            .collect()
+    } else {
+        data
+    };
+
     let graph = rasciigraph::plot(
-        data,
+        plot_data,
         rasciigraph::Config::default()
             .with_height(15)
             .with_caption(format!("{} over {}", val_col, time_col)),
@@ -229,8 +239,29 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
         }
     }
 
-    // ASCII density characters
-    let chars = ['.', ':', '-', '=', '+', '*', '#', '%', '@'];
+    // ANSI Truecolor mapping from blue to red
+    let get_color = |t: f64| -> String {
+        let colors = [
+            (0, 0, 255),     // Blue
+            (0, 255, 255),   // Cyan
+            (0, 255, 0),     // Green
+            (255, 255, 0),   // Yellow
+            (255, 0, 0),     // Red
+        ];
+        let t_val = t.clamp(0.0, 1.0) * (colors.len() - 1) as f64;
+        let idx = t_val.floor() as usize;
+        if idx >= colors.len() - 1 {
+            let c = colors.last().unwrap();
+            return format!("\x1b[38;2;{};{};{}m", c.0, c.1, c.2);
+        }
+        let frac = t_val - idx as f64;
+        let c1 = colors[idx];
+        let c2 = colors[idx + 1];
+        let r = (c1.0 as f64 + (c2.0 as f64 - c1.0 as f64) * frac) as u8;
+        let g = (c1.1 as f64 + (c2.1 as f64 - c1.1 as f64) * frac) as u8;
+        let b = (c1.2 as f64 + (c2.2 as f64 - c1.2 as f64) * frac) as u8;
+        format!("\x1b[38;2;{};{};{}m", r, g, b)
+    };
     
     println!("\nHeatmap of {} (Spatial):\n", val_col);
     for r in (0..rows_count).rev() { // Print top-to-bottom
@@ -244,14 +275,25 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
                 } else {
                     0.5
                 };
-                let char_idx = (normalized * (chars.len() as f64 - 1.0)).round() as usize;
-                print!("{}{}", chars[char_idx], chars[char_idx]);
+                let color_escape = get_color(normalized);
+                print!("{}██\x1b[0m", color_escape);
             }
         }
         println!();
     }
-    println!();
-    println!("Legend: Min ({:.2}) -> Max ({:.2}) mapped to density [ {} ]", global_min, global_max, chars.iter().collect::<String>());
+    
+    println!("\nLegend:");
+    if global_min <= global_max {
+        let steps = 10;
+        for i in 0..=steps {
+            let t = i as f64 / steps as f64;
+            let val = global_min + (global_max - global_min) * t;
+            let color = get_color(t);
+            print!("{}██\x1b[0m {:.2}   ", color, val);
+            if i == 4 { println!(); }
+        }
+        println!();
+    }
 
     Ok(())
 }
