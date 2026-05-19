@@ -171,6 +171,26 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
             }
         }
         Commands::Extract { zarr_uri, vector_path, out } => {
+            // Overwrite protection
+            if std::path::Path::new(&out).exists() {
+                if cli.output == OutputFormat::Json {
+                    return Err(color_eyre::eyre::eyre!("Output database '{}' already exists. Aborting to prevent overwrite.", out));
+                } else {
+                    let ans = inquire::Confirm::new(&format!("File '{}' already exists. Overwrite?", out))
+                        .with_default(false)
+                        .prompt()
+                        .wrap_err("Failed to read user input")?;
+                        
+                    if !ans {
+                        println!("Aborting extraction.");
+                        return Ok(());
+                    }
+                    
+                    // User confirmed, so delete the file before opening it with DuckDB
+                    std::fs::remove_file(&out).wrap_err_with(|| format!("Failed to delete existing file '{}'", out))?;
+                }
+            }
+
             let config = duckdb::Config::default().allow_unsigned_extensions()
                 .wrap_err("Failed to configure unsigned extensions")?;
             let conn = Connection::open_with_flags(&out, config)
