@@ -399,8 +399,10 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
         return Err(eyre!("No tables found in database."));
     }
 
+    let default_idx = tables.iter().position(|t| t == default_table).unwrap_or(0);
+
     let selected_table = Select::new("Which table would you like to plot?", tables)
-        .with_starting_cursor(0)
+        .with_starting_cursor(default_idx)
         .prompt()?;
 
     // 2. Select Variables
@@ -432,8 +434,7 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
     
     let plot_options = match num_vars {
         1 => vec!["Histogram (Distribution)", "Line Plot (Time Series)"],
-        2 => vec!["Scatter Plot (X vs Y)", "Line Plot"],
-        _ => vec!["Heatmap (2D Spatial)", "Scatter Plot"],
+        _ => vec!["Heatmap (2D Spatial)", "Line Plot (Time Series)", "Histogram (Distribution)"],
     };
 
     let selected_plot_str = Select::new("Choose plot type:", plot_options)
@@ -453,7 +454,7 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
     };
 
     // Determine value column (pick the last selected variable as a heuristic)
-    let val_col = var_names.last().unwrap();
+    let val_col = var_names.last().expect("var_names is guaranteed to be non-empty");
 
     println!("\nExecuting generated command:");
     println!("zarrduck plot <db> --plot-type {} --table {} --value {}\n", 
