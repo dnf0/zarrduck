@@ -1,6 +1,9 @@
-use serde::Deserialize;
-use figment::{Figment, providers::{Format, Toml, Env}};
 use directories::ProjectDirs;
+use figment::{
+    providers::{Env, Format, Toml},
+    Figment,
+};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct S3Config {
@@ -30,7 +33,9 @@ impl ZarrduckConfig {
         }
 
         // Local config
-        let local_config = std::env::current_dir().unwrap_or_default().join(".zarrduck.toml");
+        let local_config = std::env::current_dir()
+            .unwrap_or_default()
+            .join(".zarrduck.toml");
         if local_config.exists() {
             figment = figment.merge(Toml::file(local_config));
         }

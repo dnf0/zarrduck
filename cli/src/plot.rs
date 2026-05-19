@@ -1,6 +1,6 @@
 use color_eyre::eyre::{eyre, Result};
 use duckdb::Connection;
-use inquire::{Select, MultiSelect};
+use inquire::{MultiSelect, Select};
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum PlotType {
@@ -12,7 +12,7 @@ pub enum PlotType {
 fn detect_value_column(conn: &Connection, table: &str) -> Result<String> {
     let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))?;
     let mut rows = stmt.query([])?;
-    
+
     let mut columns = Vec::new();
     while let Some(row) = rows.next()? {
         let col_name: String = row.get(0)?;
@@ -20,14 +20,19 @@ fn detect_value_column(conn: &Connection, table: &str) -> Result<String> {
         columns.push((col_name, col_lower));
     }
 
-    let val_col = columns.iter().find(|(_, lower)| {
-        !lower.contains("time") && !lower.contains("date") && 
-        !lower.contains("lat") && lower != "y" &&
-        !lower.contains("lon") && lower != "x" &&
-        lower != "geom"
-    })
-    .map(|(name, _)| name.clone())
-    .ok_or_else(|| eyre!("Could not automatically detect a value column"))?;
+    let val_col = columns
+        .iter()
+        .find(|(_, lower)| {
+            !lower.contains("time")
+                && !lower.contains("date")
+                && !lower.contains("lat")
+                && lower != "y"
+                && !lower.contains("lon")
+                && lower != "x"
+                && lower != "geom"
+        })
+        .map(|(name, _)| name.clone())
+        .ok_or_else(|| eyre!("Could not automatically detect a value column"))?;
 
     Ok(val_col)
 }
@@ -68,8 +73,9 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
     let mut rows = stmt.query([])?;
 
     let mut max_freq = 0;
-    let mut grouped_results: std::collections::BTreeMap<String, Vec<(i32, i64)>> = std::collections::BTreeMap::new();
-    
+    let mut grouped_results: std::collections::BTreeMap<String, Vec<(i32, i64)>> =
+        std::collections::BTreeMap::new();
+
     while let Some(row) = rows.next()? {
         let (group_name, bin_idx_opt, freq) = if group_by.is_some() {
             let g: Option<String> = match row.get(0) {
@@ -92,10 +98,13 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
             let f: i64 = row.get(1)?;
             ("All".to_string(), b, f)
         };
-        
+
         if let Some(b) = bin_idx_opt {
             max_freq = max_freq.max(freq);
-            grouped_results.entry(group_name).or_default().push((b as i32, freq));
+            grouped_results
+                .entry(group_name)
+                .or_default()
+                .push((b as i32, freq));
         }
     }
 
@@ -105,7 +114,11 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
             println!("Group: {}", group_name);
         }
         for (bin, freq) in results {
-            let bars = if max_freq > 0 { (freq as f64 / max_freq as f64 * max_bars as f64) as usize } else { 0 };
+            let bars = if max_freq > 0 {
+                (freq as f64 / max_freq as f64 * max_bars as f64) as usize
+            } else {
+                0
+            };
             let bar_str = "█".repeat(bars);
             println!("Bin {:2} │ {} ({})", bin, bar_str, freq);
         }
@@ -144,7 +157,7 @@ fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
 
     let mut stmt = conn.prepare(&query)?;
     let mut rows = stmt.query([])?;
-    
+
     let mut data: Vec<f64> = Vec::new();
     while let Some(row) = rows.next()? {
         if let Ok(val) = row.get::<_, f64>(0) {
@@ -178,11 +191,16 @@ fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
     Ok(())
 }
 
-fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<&str>) -> Result<()> {
+fn plot_heatmap(
+    conn: &Connection,
+    table: &str,
+    val_col: &str,
+    group_by: Option<&str>,
+) -> Result<()> {
     if group_by.is_some() {
-         println!("Warning: group-by is ignored for spatial heatmaps.");
+        println!("Warning: group-by is ignored for spatial heatmaps.");
     }
-    
+
     // Attempt to find lat/lon columns
     let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))?;
     let mut rows = stmt.query([])?;
@@ -191,8 +209,12 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
     while let Some(row) = rows.next()? {
         let col_name: String = row.get(0)?;
         let col_lower = col_name.to_lowercase();
-        if col_lower.contains("lat") || col_lower == "y" { lat_col = col_name.clone(); }
-        if col_lower.contains("lon") || col_lower == "x" { lon_col = col_name.clone(); }
+        if col_lower.contains("lat") || col_lower == "y" {
+            lat_col = col_name.clone();
+        }
+        if col_lower.contains("lon") || col_lower == "x" {
+            lon_col = col_name.clone();
+        }
     }
 
     let rows_count = 20;
@@ -240,7 +262,7 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
 
     let mut stmt = conn.prepare(&query)?;
     let mut rows = stmt.query([])?;
-    
+
     let mut grid_data = vec![vec![f64::NAN; cols_count]; rows_count];
     let mut global_min = f64::MAX;
     let mut global_max = f64::MIN;
@@ -249,7 +271,7 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
         let r: Option<f64> = row.get(0)?;
         let c: Option<f64> = row.get(1)?;
         let v: Option<f64> = row.get(2)?;
-        
+
         if let (Some(r), Some(c), Some(v)) = (r, c, v) {
             let r_idx = r.max(0.0).min((rows_count - 1) as f64) as usize;
             let c_idx = c.max(0.0).min((cols_count - 1) as f64) as usize;
@@ -262,11 +284,11 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
     // ANSI Truecolor mapping from blue to red
     let get_color = |t: f64| -> String {
         let colors = [
-            (0, 0, 255),     // Blue
-            (0, 255, 255),   // Cyan
-            (0, 255, 0),     // Green
-            (255, 255, 0),   // Yellow
-            (255, 0, 0),     // Red
+            (0, 0, 255),   // Blue
+            (0, 255, 255), // Cyan
+            (0, 255, 0),   // Green
+            (255, 255, 0), // Yellow
+            (255, 0, 0),   // Red
         ];
         let t_val = t.clamp(0.0, 1.0) * (colors.len() - 1) as f64;
         let idx = t_val.floor() as usize;
@@ -282,9 +304,10 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
         let b = (c1.2 as f64 + (c2.2 as f64 - c1.2 as f64) * frac) as u8;
         format!("\x1b[38;2;{};{};{}m", r, g, b)
     };
-    
+
     println!("\nHeatmap of {} (Spatial):\n", val_col);
-    for r in (0..rows_count).rev() { // Print top-to-bottom
+    for r in (0..rows_count).rev() {
+        // Print top-to-bottom
         if r == rows_count - 1 {
             print!("{:>8.2} ┤ ", max_lat_bound);
         } else if r == 0 {
@@ -309,7 +332,7 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
         }
         println!();
     }
-    
+
     // Print X-axis
     let padding = " ".repeat(11);
     let plot_width = cols_count * 2;
@@ -318,20 +341,30 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
         print!("──");
     }
     println!();
-    
+
     let start_lon_str = format!("{:.2}", min_lon_bound);
     let end_lon_str = format!("{:.2}", max_lon_bound);
     let start_len = start_lon_str.chars().count();
     let end_len = end_lon_str.chars().count();
-    
+
     if plot_width > start_len + end_len {
         let space_between = plot_width - start_len - end_len;
-        println!("{}{}{}{}", padding, start_lon_str, " ".repeat(space_between), end_lon_str);
+        println!(
+            "{}{}{}{}",
+            padding,
+            start_lon_str,
+            " ".repeat(space_between),
+            end_lon_str
+        );
     } else {
         println!("{}{}", padding, start_lon_str);
-        println!("{}{}", " ".repeat(11 + plot_width.saturating_sub(end_len)), end_lon_str);
+        println!(
+            "{}{}",
+            " ".repeat(11 + plot_width.saturating_sub(end_len)),
+            end_lon_str
+        );
     }
-    
+
     println!("\nLegend:");
     if global_min <= global_max {
         let steps = 10;
@@ -340,7 +373,9 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
             let val = global_min + (global_max - global_min) * t;
             let color = get_color(t);
             print!("{}██\x1b[0m {:.2}   ", color, val);
-            if i == 4 { println!(); }
+            if i == 4 {
+                println!();
+            }
         }
         println!();
     }
@@ -360,7 +395,7 @@ pub fn run_plot(
     }
 
     let conn = Connection::open(db_path)?;
-    
+
     // If plot_type is provided, run non-interactively
     if let Some(pt) = plot_type {
         let val_col = match value_column {
@@ -368,8 +403,12 @@ pub fn run_plot(
             None => detect_value_column(&conn, table)?,
         };
 
-        println!("Plotting {} from table {} (Value: {})", 
-            format!("{:?}", pt).to_lowercase(), table, val_col);
+        println!(
+            "Plotting {} from table {} (Value: {})",
+            format!("{:?}", pt).to_lowercase(),
+            table,
+            val_col
+        );
 
         match pt {
             PlotType::Hist => plot_hist(&conn, table, &val_col, group_by)?,
@@ -394,7 +433,7 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
         let table_name: String = row.get(0)?;
         tables.push(table_name);
     }
-    
+
     if tables.is_empty() {
         return Err(eyre!("No tables found in database."));
     }
@@ -406,7 +445,10 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
         .prompt()?;
 
     // 2. Select Variables
-    let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", selected_table.replace("\"", "\"\"")))?;
+    let mut stmt = conn.prepare(&format!(
+        "DESCRIBE \"{}\"",
+        selected_table.replace("\"", "\"\"")
+    ))?;
     let mut rows = stmt.query([])?;
     let mut columns = Vec::new();
     while let Some(row) = rows.next()? {
@@ -415,8 +457,11 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
         columns.push(format!("{} ({})", col_name, col_type));
     }
 
-    let selected_vars = MultiSelect::new("Select variables to analyze (Space to select, Enter to confirm):", columns)
-        .prompt()?;
+    let selected_vars = MultiSelect::new(
+        "Select variables to analyze (Space to select, Enter to confirm):",
+        columns,
+    )
+    .prompt()?;
 
     if selected_vars.is_empty() {
         println!("No variables selected. Exiting.");
@@ -424,17 +469,22 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
     }
 
     // Extract just the column names
-    let var_names: Vec<String> = selected_vars.iter()
+    let var_names: Vec<String> = selected_vars
+        .iter()
         .map(|v| v.split(' ').next().unwrap().to_string())
         .collect();
 
     // 3. Recommend Plot Type
     let num_vars = var_names.len();
     println!("\nDetected {} variable(s).", num_vars);
-    
+
     let plot_options = match num_vars {
         1 => vec!["Histogram (Distribution)", "Line Plot (Time Series)"],
-        _ => vec!["Heatmap (2D Spatial)", "Line Plot (Time Series)", "Histogram (Distribution)"],
+        _ => vec![
+            "Heatmap (2D Spatial)",
+            "Line Plot (Time Series)",
+            "Histogram (Distribution)",
+        ],
     };
 
     let selected_plot_str = Select::new("Choose plot type:", plot_options)
@@ -449,16 +499,25 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
     } else if selected_plot_str.contains("Line") {
         PlotType::Line
     } else {
-        println!("Plot type '{}' is not fully implemented yet in the renderer. Exiting.", selected_plot_str);
+        println!(
+            "Plot type '{}' is not fully implemented yet in the renderer. Exiting.",
+            selected_plot_str
+        );
         return Ok(());
     };
 
     // Determine value column (pick the last selected variable as a heuristic)
-    let val_col = var_names.last().expect("var_names is guaranteed to be non-empty");
+    let val_col = var_names
+        .last()
+        .expect("var_names is guaranteed to be non-empty");
 
     println!("\nExecuting generated command:");
-    println!("zarrduck plot <db> --plot-type {} --table {} --value {}\n", 
-        format!("{:?}", plot_type).to_lowercase(), selected_table, val_col);
+    println!(
+        "zarrduck plot <db> --plot-type {} --table {} --value {}\n",
+        format!("{:?}", plot_type).to_lowercase(),
+        selected_table,
+        val_col
+    );
 
     // Delegate to existing rendering functions
     match plot_type {
@@ -478,9 +537,14 @@ mod tests {
     #[test]
     fn test_plot_hist_no_group_by() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute("CREATE TABLE test_data (val DOUBLE)", []).unwrap();
-        conn.execute("INSERT INTO test_data VALUES (1.0), (2.0), (3.0), (1.5)", []).unwrap();
-        
+        conn.execute("CREATE TABLE test_data (val DOUBLE)", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO test_data VALUES (1.0), (2.0), (3.0), (1.5)",
+            [],
+        )
+        .unwrap();
+
         let result = plot_hist(&conn, "test_data", "val", None);
         assert!(result.is_ok(), "plot_hist failed: {:?}", result.err());
     }
@@ -488,29 +552,45 @@ mod tests {
     #[test]
     fn test_plot_hist_with_group_by() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute("CREATE TABLE test_group (val DOUBLE, category VARCHAR)", []).unwrap();
-        conn.execute("INSERT INTO test_group VALUES (1.0, 'A'), (2.0, 'A'), (3.0, 'B'), (1.5, 'B')", []).unwrap();
-        
+        conn.execute("CREATE TABLE test_group (val DOUBLE, category VARCHAR)", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO test_group VALUES (1.0, 'A'), (2.0, 'A'), (3.0, 'B'), (1.5, 'B')",
+            [],
+        )
+        .unwrap();
+
         let result = plot_hist(&conn, "test_group", "val", Some("category"));
-        assert!(result.is_ok(), "plot_hist with group_by failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "plot_hist with group_by failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn test_plot_hist_div_by_zero() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute("CREATE TABLE test_zero (val DOUBLE)", []).unwrap();
-        conn.execute("INSERT INTO test_zero VALUES (2.0), (2.0), (2.0)", []).unwrap();
-        
+        conn.execute("CREATE TABLE test_zero (val DOUBLE)", [])
+            .unwrap();
+        conn.execute("INSERT INTO test_zero VALUES (2.0), (2.0), (2.0)", [])
+            .unwrap();
+
         let result = plot_hist(&conn, "test_zero", "val", None);
-        assert!(result.is_ok(), "plot_hist div by zero failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "plot_hist div by zero failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn test_plot_line_basic() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute("CREATE TABLE test_data (time TIMESTAMP, val DOUBLE)", []).unwrap();
+        conn.execute("CREATE TABLE test_data (time TIMESTAMP, val DOUBLE)", [])
+            .unwrap();
         conn.execute("INSERT INTO test_data VALUES ('2023-01-01', 1.0), ('2023-01-02', 2.0), ('2023-01-03', 3.0)", []).unwrap();
-        
+
         let result = plot_line(&conn, "test_data", "val", None);
         assert!(result.is_ok(), "plot_line failed: {:?}", result.err());
     }
@@ -518,8 +598,9 @@ mod tests {
     #[test]
     fn test_plot_line_no_data() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute("CREATE TABLE test_empty (time TIMESTAMP, val DOUBLE)", []).unwrap();
-        
+        conn.execute("CREATE TABLE test_empty (time TIMESTAMP, val DOUBLE)", [])
+            .unwrap();
+
         let result = plot_line(&conn, "test_empty", "val", None);
         assert!(result.is_err(), "plot_line should fail on empty data");
     }
@@ -527,11 +608,22 @@ mod tests {
     #[test]
     fn test_plot_heatmap_div_by_zero() {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute("CREATE TABLE test_hm_zero (lat DOUBLE, lon DOUBLE, val DOUBLE)", []).unwrap();
-        conn.execute("INSERT INTO test_hm_zero VALUES (2.0, 3.0, 1.0), (2.0, 3.0, 2.0)", []).unwrap();
-        
+        conn.execute(
+            "CREATE TABLE test_hm_zero (lat DOUBLE, lon DOUBLE, val DOUBLE)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO test_hm_zero VALUES (2.0, 3.0, 1.0), (2.0, 3.0, 2.0)",
+            [],
+        )
+        .unwrap();
+
         let result = plot_heatmap(&conn, "test_hm_zero", "val", None);
-        assert!(result.is_ok(), "plot_heatmap div by zero failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "plot_heatmap div by zero failed: {:?}",
+            result.err()
+        );
     }
 }
-

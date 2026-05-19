@@ -70,5 +70,7 @@ fn test_cli_resample_missing_input() {
         .arg("--output=json")
         .assert()
         .failure()
-        .stdout(predicate::str::contains("Input database 'missing_input.duckdb' does not exist"));
+        .stdout(predicate::str::contains(
+            "Input database 'missing_input.duckdb' does not exist",
+        ));
 }

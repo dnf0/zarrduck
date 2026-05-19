@@ -1,5 +1,8 @@
-use opendal::{Operator, services::{Fs, Http}};
 use color_eyre::eyre::Result;
+use opendal::{
+    services::{Fs, Http},
+    Operator,
+};
 
 pub async fn list_arrays(uri: &str) -> Result<Vec<String>> {
     let operator = if uri.starts_with("http") {
@@ -7,16 +10,20 @@ pub async fn list_arrays(uri: &str) -> Result<Vec<String>> {
     } else {
         Operator::new(Fs::default().root(uri))?.finish()
     };
-    
+
     let is_group = operator.is_exist(".zgroup").await.unwrap_or(false);
     let mut arrays = Vec::new();
-    
+
     if is_group {
         let entries = operator.list("/").await?;
         for entry in entries {
             if entry.metadata().is_dir() {
                 let path = entry.path();
-                if operator.is_exist(&format!("{}.zarray", path)).await.unwrap_or(false) {
+                if operator
+                    .is_exist(&format!("{}.zarray", path))
+                    .await
+                    .unwrap_or(false)
+                {
                     arrays.push(path.trim_end_matches('/').to_string());
                 }
             }
@@ -24,19 +31,19 @@ pub async fn list_arrays(uri: &str) -> Result<Vec<String>> {
     } else if operator.is_exist(".zarray").await.unwrap_or(false) {
         arrays.push("".to_string());
     }
-    
+
     Ok(arrays)
 }
 
 pub async fn resolve_zarr_uri(uri: &str, is_json: bool) -> Result<String> {
     let arrays = list_arrays(uri).await?;
-    
+
     if arrays.is_empty() {
         // Assume it's a direct array URI or unreadable, just pass it through
         return Ok(uri.to_string());
     }
 
-    if arrays.len() == 1 && arrays[0] == "" {
+    if arrays.len() == 1 && arrays[0].is_empty() {
         // It's exactly an array
         return Ok(uri.to_string());
     }
@@ -49,9 +56,12 @@ pub async fn resolve_zarr_uri(uri: &str, is_json: bool) -> Result<String> {
         ));
     }
 
-    let selection = inquire::Select::new("The specified Zarr URI is a Group. Select a dataset to use:", arrays.clone())
-        .with_page_size(10)
-        .prompt()?;
+    let selection = inquire::Select::new(
+        "The specified Zarr URI is a Group. Select a dataset to use:",
+        arrays.clone(),
+    )
+    .with_page_size(10)
+    .prompt()?;
 
     // Build the resolved URI
     let resolved = if uri.ends_with('/') {

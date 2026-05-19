@@ -179,7 +179,8 @@ macro_rules! dispatch_yield_loop {
                             let mut coord_vector = $output.flat_vector(dim);
                             let coord_slice = coord_vector.as_mut_slice::<f64>();
                             for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
-                                coord_slice[valid_rows + idx] = apply_transform(transform, dim, global_coords[dim]);
+                                coord_slice[valid_rows + idx] =
+                                    apply_transform(transform, dim, global_coords[dim]);
                             }
                         } else {
                             let mut coord_vector = $output.flat_vector(dim);
@@ -236,7 +237,11 @@ macro_rules! dispatch_yield_loop {
     }};
 }
 
-pub fn apply_transform(transform: &crate::metadata::SpatialTransform, dim_index: usize, grid_index: u64) -> f64 {
+pub fn apply_transform(
+    transform: &crate::metadata::SpatialTransform,
+    dim_index: usize,
+    grid_index: u64,
+) -> f64 {
     let scale = transform.scale.get(dim_index).copied().unwrap_or(1.0);
     let translation = transform.translation.get(dim_index).copied().unwrap_or(0.0);
     translation + (grid_index as f64 * scale)
@@ -334,11 +339,15 @@ impl VTab for ReadZarrVTab {
 
         let mut spatial_transform = None;
         if let zarrs::array::ArrayMetadata::V2(meta) = metadata {
-            if let Some(geozarr_meta) = crate::metadata::parse_geozarr_metadata(&serde_json::Value::Object(meta.attributes.clone())) {
+            if let Some(geozarr_meta) = crate::metadata::parse_geozarr_metadata(
+                &serde_json::Value::Object(meta.attributes.clone()),
+            ) {
                 spatial_transform = geozarr_meta.transform;
             }
         } else if let zarrs::array::ArrayMetadata::V3(meta) = metadata {
-            if let Some(geozarr_meta) = crate::metadata::parse_geozarr_metadata(&serde_json::Value::Object(meta.attributes.clone())) {
+            if let Some(geozarr_meta) = crate::metadata::parse_geozarr_metadata(
+                &serde_json::Value::Object(meta.attributes.clone()),
+            ) {
                 spatial_transform = geozarr_meta.transform;
             }
         }
@@ -384,7 +393,9 @@ impl VTab for ReadZarrVTab {
 
         // Add coordinate columns (DuckDB Double if physical or transformed, Bigint if fallback)
         for (i, name) in dim_names.iter().enumerate() {
-            let has_transform = spatial_transform.as_ref().is_some_and(|t| i < t.scale.len());
+            let has_transform = spatial_transform
+                .as_ref()
+                .is_some_and(|t| i < t.scale.len());
             if coords.contains_key(name) || has_transform {
                 bind.add_result_column(name, LogicalTypeId::Double.into());
             } else {
@@ -728,13 +739,16 @@ impl VTab for ReadZarrVTab {
                                 if dim < transform.scale.len() {
                                     let mut coord_vector = output.flat_vector(dim);
                                     let coord_slice = coord_vector.as_mut_slice::<f64>();
-                                    for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
-                                        coord_slice[valid_rows + idx] = apply_transform(transform, dim, global_coords[dim]);
+                                    for (idx, (_, global_coords)) in valid_coords.iter().enumerate()
+                                    {
+                                        coord_slice[valid_rows + idx] =
+                                            apply_transform(transform, dim, global_coords[dim]);
                                     }
                                 } else {
                                     let mut coord_vector = output.flat_vector(dim);
                                     let coord_slice = coord_vector.as_mut_slice::<i64>();
-                                    for (idx, (_, global_coords)) in valid_coords.iter().enumerate() {
+                                    for (idx, (_, global_coords)) in valid_coords.iter().enumerate()
+                                    {
                                         coord_slice[valid_rows + idx] = global_coords[dim] as i64;
                                     }
                                 }
@@ -1236,10 +1250,16 @@ mod tests {
         // For now, we will add a unit test for a new helper function `apply_transform`
         let transform = crate::metadata::SpatialTransform {
             scale: vec![0.1, -0.1],
-            translation: vec![-180.0, 90.0]
+            translation: vec![-180.0, 90.0],
         };
-        
-        assert_eq!(super::apply_transform(&transform, 0, 5), -180.0 + (5.0 * 0.1));
-        assert_eq!(super::apply_transform(&transform, 1, 10), 90.0 + (10.0 * -0.1));
+
+        assert_eq!(
+            super::apply_transform(&transform, 0, 5),
+            -180.0 + (5.0 * 0.1)
+        );
+        assert_eq!(
+            super::apply_transform(&transform, 1, 10),
+            90.0 + (10.0 * -0.1)
+        );
     }
 }

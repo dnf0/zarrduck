@@ -261,7 +261,9 @@ fn test_read_zarr_schema() -> Result<()> {
 fn test_geozarr_spatial_metadata() -> duckdb::Result<()> {
     let conn = duckdb::Connection::open_in_memory()?;
     conn.register_table_function::<geozarr::ReadZarrVTab>("read_zarr")?;
-    conn.register_table_function::<geozarr::metadata_vtab::ReadZarrMetadataVTab>("read_zarr_metadata")?;
+    conn.register_table_function::<geozarr::metadata_vtab::ReadZarrMetadataVTab>(
+        "read_zarr_metadata",
+    )?;
 
     let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let store_path = temp_dir.path().join("test_spatial.zarr");
@@ -279,22 +281,33 @@ fn test_geozarr_spatial_metadata() -> duckdb::Result<()> {
     );
 
     let mut attributes = serde_json::Map::new();
-    attributes.insert("_ARRAY_DIMENSIONS".to_string(), serde_json::json!(["y", "x"]));
-    attributes.insert("geozarr".to_string(), serde_json::json!({
-        "crs": "EPSG:3857",
-        "spatial_transform": {
-            "scale": [-10.0, 10.0],
-            "translation": [90.0, -180.0]
-        }
-    }));
+    attributes.insert(
+        "_ARRAY_DIMENSIONS".to_string(),
+        serde_json::json!(["y", "x"]),
+    );
+    attributes.insert(
+        "geozarr".to_string(),
+        serde_json::json!({
+            "crs": "EPSG:3857",
+            "spatial_transform": {
+                "scale": [-10.0, 10.0],
+                "translation": [90.0, -180.0]
+            }
+        }),
+    );
     builder.attributes(attributes);
 
     let array = builder.build(Arc::clone(&store), "/").unwrap();
     array.store_metadata().unwrap();
-    array.store_chunk_elements(&[0, 0], &[1.0f32, 2.0, 3.0, 4.0]).unwrap();
+    array
+        .store_chunk_elements(&[0, 0], &[1.0f32, 2.0, 3.0, 4.0])
+        .unwrap();
 
     // 1. Test Metadata
-    let query_meta = format!("SELECT crs FROM read_zarr_metadata('{}')", store_path.display());
+    let query_meta = format!(
+        "SELECT crs FROM read_zarr_metadata('{}')",
+        store_path.display()
+    );
     let mut stmt_meta = conn.prepare(&query_meta)?;
     let crs: String = stmt_meta.query_row([], |row| row.get(0))?;
     assert_eq!(crs, "EPSG:3857");
@@ -303,8 +316,11 @@ fn test_geozarr_spatial_metadata() -> duckdb::Result<()> {
     // y_idx=0, x_idx=0 -> y: 90 + (0 * -10) = 90.0 | x: -180 + (0 * 10) = -180.0
     // y_idx=0, x_idx=1 -> y: 90 + (0 * -10) = 90.0 | x: -180 + (1 * 10) = -170.0
     // y_idx=1, x_idx=0 -> y: 90 + (1 * -10) = 80.0 | x: -180 + (0 * 10) = -180.0
-    
-    let query_data = format!("SELECT y, x, value FROM read_zarr('{}') ORDER BY y DESC, x ASC", store_path.display());
+
+    let query_data = format!(
+        "SELECT y, x, value FROM read_zarr('{}') ORDER BY y DESC, x ASC",
+        store_path.display()
+    );
     let mut stmt_data = conn.prepare(&query_data)?;
     let mut rows = stmt_data.query([])?;
 
@@ -320,4 +336,3 @@ fn test_geozarr_spatial_metadata() -> duckdb::Result<()> {
 
     Ok(())
 }
-
