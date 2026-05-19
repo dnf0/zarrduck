@@ -18,6 +18,7 @@ inquire = "0.7"
 figment = { version = "0.10", features = ["toml", "env"] }
 directories = "5.0"
 reqwest = { version = "0.12", features = ["json"] }
+rasciigraph = "0.3.0"
 
 [dev-dependencies]
 assert_cmd = "2.0"

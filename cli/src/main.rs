@@ -1,4 +1,5 @@
 mod config;
+mod plot;
 use config::ZarrduckConfig;
 
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
@@ -123,6 +124,27 @@ enum Commands {
         #[arg(long)]
         agg: String,
     },
+    /// Plot data from a local DuckDB file
+    Plot {
+        /// The DuckDB database file
+        db_path: String,
+        
+        /// Type of plot (hist, heatmap, line)
+        #[arg(long, value_enum)]
+        plot_type: plot::PlotType,
+        
+        /// The table to query
+        #[arg(long, default_value = "extracted_data")]
+        table: String,
+        
+        /// The value column to aggregate (auto-detected if omitted)
+        #[arg(long)]
+        value: Option<String>,
+        
+        /// Optional column to group by
+        #[arg(long)]
+        group_by: Option<String>,
+    },
 }
 
 fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String, String, String, String, bool)> {
@@ -140,10 +162,10 @@ fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String,
         let col_lower = col_name.to_lowercase();
         columns.push(col_lower.clone());
         
-        if col_lower.contains("time") || col_lower.contains("date") {
-            if col_type.contains("INT") || col_type.contains("DOUBLE") || col_type.contains("FLOAT") {
-                time_is_numeric = true;
-            }
+        if (col_lower.contains("time") || col_lower.contains("date"))
+            && (col_type.contains("INT") || col_type.contains("DOUBLE") || col_type.contains("FLOAT"))
+        {
+            time_is_numeric = true;
         }
     }
 
@@ -1133,6 +1155,9 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 println!("Data saved to table 'resampled_data' in {}", output_db);
                 println!("Run `zarrduck shell {}` to explore it.", output_db);
             }
+        }
+        Commands::Plot { db_path, plot_type, table, value, group_by } => {
+            plot::run_plot(&db_path, plot_type, &table, value.as_deref(), group_by.as_deref())?;
         }
     }
 
