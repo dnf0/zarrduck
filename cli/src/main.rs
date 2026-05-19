@@ -1001,8 +1001,17 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     "https://api.pangeo-forge.org/stac/ - Pangeo Forge",
                 ];
                 
-                let selection = inquire::Select::new("Select a STAC Provider:", providers)
-                    .prompt()?;
+                let mut select = inquire::Select::new("Select a STAC Provider:", providers);
+                select.scorer = &|input, _, string_value, _| {
+                    let input = input.to_lowercase();
+                    let val = string_value.to_lowercase();
+                    if input.split_whitespace().all(|word| val.contains(word)) {
+                        Some(1)
+                    } else {
+                        None
+                    }
+                };
+                let selection = select.prompt()?;
                 
                 // Extract just the URL part
                 selection.split(" - ").next().unwrap().to_string()
@@ -1056,9 +1065,18 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     return Ok(());
                 }
                 
-                let selection = inquire::Select::new("Select a STAC Collection to search:", collection_options)
-                    .with_page_size(10)
-                    .prompt()?;
+                let mut select = inquire::Select::new("Select a STAC Collection to search:", collection_options)
+                    .with_page_size(10);
+                select.scorer = &|input, _, string_value, _| {
+                    let input = input.to_lowercase();
+                    let val = string_value.to_lowercase();
+                    if input.split_whitespace().all(|word| val.contains(word)) {
+                        Some(1)
+                    } else {
+                        None
+                    }
+                };
+                let selection = select.prompt()?;
                 
                 // Extract just the ID part
                 selection.split(" - ").next().unwrap().to_string()
@@ -1140,9 +1158,19 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     let selection = if found_options.len() == 1 {
                         found_uris[0].clone()
                     } else {
-                        let chosen = inquire::Select::new(&format!("Found {} Zarr URIs. Select a dataset to use:", found_options.len()), found_options)
-                            .with_page_size(10)
-                            .prompt()?;
+                        let prompt_msg = format!("Found {} Zarr URIs. Select a dataset to use:", found_options.len());
+                        let mut select = inquire::Select::new(&prompt_msg, found_options)
+                            .with_page_size(10);
+                        select.scorer = &|input, _, string_value, _| {
+                            let input = input.to_lowercase();
+                            let val = string_value.to_lowercase();
+                            if input.split_whitespace().all(|word| val.contains(word)) {
+                                Some(1)
+                            } else {
+                                None
+                            }
+                        };
+                        let chosen = select.prompt()?;
                         chosen.split(" - ").next().unwrap().to_string()
                     };
                     

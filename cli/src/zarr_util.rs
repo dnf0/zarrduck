@@ -49,9 +49,18 @@ pub async fn resolve_zarr_uri(uri: &str, is_json: bool) -> Result<String> {
         ));
     }
 
-    let selection = inquire::Select::new("The specified Zarr URI is a Group. Select a dataset to use:", arrays.clone())
-        .with_page_size(10)
-        .prompt()?;
+    let mut select = inquire::Select::new("The specified Zarr URI is a Group. Select a dataset to use:", arrays.clone())
+        .with_page_size(10);
+    select.scorer = &|input, _, string_value, _| {
+        let input = input.to_lowercase();
+        let val = string_value.to_lowercase();
+        if input.split_whitespace().all(|word| val.contains(word)) {
+            Some(1)
+        } else {
+            None
+        }
+    };
+    let selection = select.prompt()?;
 
     // Build the resolved URI
     let resolved = if uri.ends_with('/') {
