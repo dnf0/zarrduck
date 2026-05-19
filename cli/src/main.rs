@@ -1,4 +1,5 @@
 mod config;
+mod zarr_util;
 mod plot;
 use config::ZarrduckConfig;
 
@@ -277,6 +278,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
 
     match cli.command {
         Commands::Info { uri } => {
+            let uri = zarr_util::resolve_zarr_uri(&uri, resolved_output == OutputFormat::Json).await?;
             let conn = setup_duckdb(config.s3.as_ref())?;
             let escaped_uri = uri.replace("'", "''");
             let query = format!("SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')", escaped_uri);
@@ -313,6 +315,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             }
         }
         Commands::Extract { zarr_uri, vector_path, out } => {
+            let zarr_uri = zarr_util::resolve_zarr_uri(&zarr_uri, resolved_output == OutputFormat::Json).await?;
             let out_path = out.or(config.default_out)
                 .ok_or_else(|| eyre!("Output path not specified. Use --out or set default_out in config."))?;
             
