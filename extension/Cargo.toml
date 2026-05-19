@@ -5,7 +5,7 @@ edition = "2021"
 build = "build.rs"
 
 [lib]
-name = "geozarr"
+name = "duckdb_geozarr"
 crate-type = ["cdylib", "rlib"]
 
 [features]

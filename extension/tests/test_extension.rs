@@ -4,7 +4,7 @@ use std::path::Path;
 #[test]
 fn test_new_data_types() -> Result<()> {
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<geozarr::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<duckdb_geozarr::ReadZarrVTab>("read_zarr")?;
 
     // We don't set GEOZARR_ALLOW_PATH dynamically to avoid race conditions in parallel tests.
     // Instead, the tests will be run with GEOZARR_ALLOW_PATH set for the whole test process
@@ -86,7 +86,7 @@ fn test_read_zarr_function_compiles() {
 #[test]
 fn test_read_zarr_schema() -> Result<()> {
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<geozarr::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<duckdb_geozarr::ReadZarrVTab>("read_zarr")?;
 
     // Create a temporary zarr store inside target to avoid VFS bypass checks on /var
     let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
@@ -260,8 +260,8 @@ fn test_read_zarr_schema() -> Result<()> {
 #[test]
 fn test_geozarr_spatial_metadata() -> duckdb::Result<()> {
     let conn = duckdb::Connection::open_in_memory()?;
-    conn.register_table_function::<geozarr::ReadZarrVTab>("read_zarr")?;
-    conn.register_table_function::<geozarr::metadata_vtab::ReadZarrMetadataVTab>(
+    conn.register_table_function::<duckdb_geozarr::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<duckdb_geozarr::metadata_vtab::ReadZarrMetadataVTab>(
         "read_zarr_metadata",
     )?;
 
