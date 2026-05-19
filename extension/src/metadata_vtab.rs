@@ -32,7 +32,7 @@ impl VTab for ReadZarrMetadataVTab {
         let array = zarrs::array::Array::open(store, "/").map_err(|e| e.to_string())?;
 
         let shape = format!("{:?}", array.shape());
-        let chunk_shape = format!("{:?}", array.chunk_grid().chunk_shape(&vec![0; array.shape().len()], &array.shape().to_vec()).unwrap_or(None));
+        let chunk_shape = format!("{:?}", array.chunk_grid().chunk_shape(&vec![0; array.shape().len()], array.shape()).unwrap_or(None));
         let data_type = format!("{:?}", array.data_type());
 
         let mut crs = "UNKNOWN".to_string();

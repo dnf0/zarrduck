@@ -198,7 +198,7 @@ fn inject_s3_secret(conn: &Connection, s3_config: Option<&crate::config::S3Confi
 async fn main() -> EyreResult<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
-    let config = ZarrduckConfig::load().unwrap_or_else(|_| ZarrduckConfig { output_format: None, default_out: None, s3: None });
+    let config = ZarrduckConfig::load().unwrap_or(ZarrduckConfig { output_format: None, default_out: None, s3: None });
     
     let is_json = cli.output.as_ref().map(|o| *o == OutputFormat::Json)
         .unwrap_or_else(|| config.output_format.as_deref() == Some("json"));
@@ -211,7 +211,7 @@ async fn main() -> EyreResult<()> {
                 "status": "error",
                 "message": error_msgs.join(": ")
             });
-            println!("{}", json_err.to_string());
+            println!("{}", json_err);
             std::process::exit(1);
         } else {
             // Return error to let color-eyre format it
@@ -260,7 +260,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                         "data_type": data_type,
                         "crs": crs
                     });
-                    println!("{}", json_out.to_string());
+                    println!("{}", json_out);
                 } else {
                     println!("GeoZarr Dataset Info:");
                     println!("URI: {}", uri);
@@ -983,7 +983,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                         for (_, asset) in assets {
                             // Planetary computer uses application/vnd+zarr, but sometimes just roles or type "zarr"
                             if let Some(href) = asset.get("href").and_then(|h| h.as_str()) {
-                                let is_zarr_type = asset.get("type").and_then(|t| t.as_str()).map_or(false, |t| t.contains("zarr"));
+                                let is_zarr_type = asset.get("type").and_then(|t| t.as_str()).is_some_and(|t| t.contains("zarr"));
                                 let is_zarr_href = href.ends_with(".zarr") || href.contains(".zarr/");
                                 
                                 if is_zarr_type || is_zarr_href {
@@ -1000,7 +1000,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     "status": "success",
                     "uris": found_uris
                 });
-                println!("{}", json_out.to_string());
+                println!("{}", json_out);
             } else {
                 println!("Found {} Zarr URIs:", found_uris.len());
                 for uri in found_uris {
