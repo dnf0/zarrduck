@@ -119,11 +119,11 @@ enum Commands {
         
         /// The temporal frequency (e.g., month, year, day)
         #[arg(long)]
-        freq: String,
+        freq: Option<String>,
         
         /// The aggregate function to apply (e.g., avg, sum, max)
         #[arg(long)]
-        agg: String,
+        agg: Option<String>,
     },
     /// Plot data from a local DuckDB file
     Plot {
@@ -1212,6 +1212,28 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             }
         }
         Commands::Resample { input_db, output_db, freq, agg } => {
+            let selected_freq = if let Some(f) = freq {
+                f
+            } else {
+                if resolved_output == OutputFormat::Json {
+                    return Err(eyre!("--freq is required when using --output=json"));
+                }
+                inquire::Select::new("Select temporal resampling frequency:", vec!["hour", "day", "week", "month", "year"])
+                    .prompt()?
+                    .to_string()
+            };
+            
+            let selected_agg = if let Some(a) = agg {
+                a
+            } else {
+                if resolved_output == OutputFormat::Json {
+                    return Err(eyre!("--agg is required when using --output=json"));
+                }
+                inquire::Select::new("Select aggregation function:", vec!["avg", "min", "max", "sum", "count", "median", "mode", "stddev", "variance"])
+                    .prompt()?
+                    .to_string()
+            };
+
             if !std::path::Path::new(&input_db).exists() {
                 return Err(eyre!("Input database '{}' does not exist.", input_db));
             }
@@ -1266,9 +1288,9 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 None
             };
             
-            let allowed_aggs = ["sum", "avg", "min", "max", "count", "mean"];
-            if !allowed_aggs.contains(&agg.to_lowercase().as_str()) {
-                return Err(eyre!("Invalid aggregation function: '{}'. Allowed: {:?}", agg, allowed_aggs));
+            let allowed_aggs = ["sum", "avg", "min", "max", "count", "mean", "median", "mode", "stddev", "variance"];
+            if !allowed_aggs.contains(&selected_agg.to_lowercase().as_str()) {
+                return Err(eyre!("Invalid aggregation function: '{}'. Allowed: {:?}", selected_agg, allowed_aggs));
             }
 
             conn.execute(&format!("ATTACH '{}' AS source_db", input_db), [])
@@ -1288,9 +1310,9 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                      {}({}) as value
                  FROM source_db.extracted_data
                  GROUP BY 1, 2, 3",
-                freq.replace("'", "''"), time_expr, time_col,
+                selected_freq.replace("'", "''"), time_expr, time_col,
                 lat_col, lon_col,
-                agg, val_col
+                selected_agg, val_col
             );
             
             // Note: Since this is a blocking call, we run it directly on this thread. The tokio runtime isn't heavily needed here since it's local.

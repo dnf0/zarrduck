@@ -57,10 +57,18 @@ Enter
 Sleep 4s
 
 # Step 3: Temporal Resampling
-Type "# 3. Automatically aggregate time-series data to monthly means"
+Type "# 3. Automatically aggregate time-series data using interactive menus"
 Enter
 Sleep 1s
-Type "zarrduck resample analysis.duckdb monthly.duckdb --freq month --agg avg"
+Type "zarrduck resample analysis.duckdb monthly.duckdb"
+Enter
+Sleep 2s
+Type "mon"
+Sleep 1s
+Enter
+Sleep 2s
+Type "avg"
+Sleep 1s
 Enter
 Sleep 3s
 
