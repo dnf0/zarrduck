@@ -25,8 +25,10 @@ Ctrl+L
 Show
 
 # Step 1: STAC Discovery
-Type "# 1. Discover cloud-native GeoZarr assets via STAC"
+Hide
+Type "echo -e '\e[1;36m# 1. Discover cloud-native GeoZarr assets via STAC\e[0m'"
 Enter
+Show
 Sleep 1s
 Type "zarrduck search --bbox -122.27,37.77,-122.22,37.81"
 Enter
@@ -49,16 +51,20 @@ Enter
 Sleep 4s
 
 # Step 2: Zonal Extraction
-Type "# 2. Extract and join spatial data"
+Hide
+Type "echo -e '\n\e[1;36m# 2. Extract and join spatial data\e[0m'"
 Enter
+Show
 Sleep 1s
 Type "zarrduck extract climate_data.zarr/air_temperature scripts/demo_region.geojson --out analysis.duckdb"
 Enter
 Sleep 4s
 
 # Step 3: Temporal Resampling
-Type "# 3. Automatically aggregate time-series data using interactive menus"
+Hide
+Type "echo -e '\n\e[1;36m# 3. Automatically aggregate time-series data using interactive menus\e[0m'"
 Enter
+Show
 Sleep 1s
 Type "zarrduck resample analysis.duckdb monthly.duckdb"
 Enter
@@ -73,8 +79,10 @@ Enter
 Sleep 3s
 
 # Step 4: Interactive Analysis
-Type "# 4. Drop into a spatial-enabled shell"
+Hide
+Type "echo -e '\n\e[1;36m# 4. Drop into a spatial-enabled shell\e[0m'"
 Enter
+Show
 Sleep 1s
 Type "zarrduck shell monthly.duckdb"
 Enter
