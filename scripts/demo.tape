@@ -38,6 +38,10 @@ Type "plan"
 Sleep 1s
 Enter
 Sleep 4s
+Type "3dep"
+Sleep 1s
+Enter
+Sleep 4s
 Type "era5"
 Sleep 1s
 Enter
