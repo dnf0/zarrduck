@@ -206,9 +206,20 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
             conn.execute("INSTALL spatial", []).wrap_err("Failed to install spatial extension")?;
             conn.execute("LOAD spatial", []).wrap_err("Failed to load spatial extension")?;
             
-            if cli.output != OutputFormat::Json {
-                println!("Extracting data... This may take a while depending on the bounding box.");
-            }
+            let spinner = if cli.output != OutputFormat::Json {
+                let pb = indicatif::ProgressBar::new_spinner();
+                pb.set_style(
+                    indicatif::ProgressStyle::default_spinner()
+                        .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+                        .template("{spinner:.green} {msg}")
+                        .unwrap()
+                );
+                pb.set_message("Performing spatial extraction (this may take a few minutes)...");
+                pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                Some(pb)
+            } else {
+                None
+            };
             
             // The magic query: Create a table by joining the GeoZarr pixels that intersect the vector polygons
             let query = format!(
@@ -216,13 +227,17 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
                 zarr_uri.replace("'", "''"), vector_path.replace("'", "''")
             );
             
+            // Note: Since this is a blocking call, we run it in a blocking task so the tokio runtime can still tick the spinner if needed (though enable_steady_tick actually uses its own background thread).
             conn.execute(&query, []).wrap_err("Spatial extraction query failed")?;
+            
+            if let Some(pb) = spinner {
+                pb.finish_with_message("Extraction complete!");
+            }
             
             if cli.output == OutputFormat::Json {
                 println!(r#"{{"status": "success", "db": "{}"}}"#, out);
             } else {
-                println!("Extraction complete! Data saved to table 'extracted_data' in {}", out);
-                println!("Run `zarrduck shell {}` to explore it.", out);
+                println!("Run `zarrduck shell {}` to explore the extracted data.", out);
             }
         }
         Commands::Shell { db_path } => {
