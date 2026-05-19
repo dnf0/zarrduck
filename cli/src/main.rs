@@ -1,4 +1,5 @@
 mod config;
+mod plot;
 use config::ZarrduckConfig;
 
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
@@ -122,6 +123,27 @@ enum Commands {
         /// The aggregate function to apply (e.g., avg, sum, max)
         #[arg(long)]
         agg: String,
+    },
+    /// Plot data from a local DuckDB file
+    Plot {
+        /// The DuckDB database file
+        db_path: String,
+        
+        /// Type of plot (hist, heatmap, line)
+        #[arg(long, value_enum)]
+        plot_type: plot::PlotType,
+        
+        /// The table to query
+        #[arg(long, default_value = "extracted_data")]
+        table: String,
+        
+        /// The value column to aggregate (auto-detected if omitted)
+        #[arg(long)]
+        value: Option<String>,
+        
+        /// Optional column to group by
+        #[arg(long)]
+        group_by: Option<String>,
     },
 }
 
@@ -1133,6 +1155,9 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 println!("Data saved to table 'resampled_data' in {}", output_db);
                 println!("Run `zarrduck shell {}` to explore it.", output_db);
             }
+        }
+        Commands::Plot { db_path, plot_type, table, value, group_by } => {
+            plot::run_plot(&db_path, plot_type, &table, value.as_deref(), group_by.as_deref())?;
         }
     }
 
