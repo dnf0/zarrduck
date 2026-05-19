@@ -632,7 +632,23 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             if resolved_output != OutputFormat::Json {
                 println!("Calculated chunk shape: {}", serde_json::Value::Object(final_chunks.clone()).to_string());
             }
-            let val_col = value_column.unwrap_or_else(|| "value".to_string());
+            let val_col = if let Some(vc) = value_column {
+                vc
+            } else {
+                let mut stmt = conn.prepare("DESCRIBE temp_ingest")?;
+                let mut rows = stmt.query([])?;
+                let mut fallback_col = "value".to_string();
+                let exclude_cols = ["geom", "x", "y", "lon", "lat", "longitude", "latitude", "time", "t"];
+                while let Some(row) = rows.next()? {
+                    let col_name: String = row.get(0)?;
+                    let col_lower = col_name.to_lowercase();
+                    if !exclude_cols.contains(&col_lower.as_str()) {
+                        fallback_col = col_name;
+                        break;
+                    }
+                }
+                fallback_col
+            };
             let query = "SELECT * FROM temp_ingest";
             
             if resolved_output != OutputFormat::Json {
@@ -694,7 +710,9 @@ async fn run_export(
                     );
                 }
                 // 2. Pass 1: Infer Shape
-                println!("Pass 1: Inferring shape...");
+                if *resolved_output != OutputFormat::Json {
+                    println!("Pass 1: Inferring shape...");
+                }
                 let mut shape = Vec::new();
 
                 if !coord_columns.is_empty() {
@@ -722,7 +740,9 @@ async fn run_export(
                     })?;
                 }
 
-                println!("Inferred Shape: {:?}", shape);
+                if *resolved_output != OutputFormat::Json {
+                    println!("Inferred Shape: {:?}", shape);
+                }
 
                 // 3. Initialize Zarr Store
                 let store = if output.starts_with("s3://") {
@@ -752,12 +772,22 @@ async fn run_export(
                     chunk_shape.push(chunk_dim);
                     current_volume = current_volume.saturating_mul(chunk_dim);
                 }
-                if let Some(_c) = chunks {
-                    // Simplified chunk parsing fallback
-                    println!(
-                        "Chunk parsing not fully implemented, using auto-chunking: {:?}",
-                        chunk_shape
-                    );
+                if let Some(c_str) = chunks {
+                    if let Ok(user_chunks) = serde_json::from_str::<serde_json::Value>(&c_str) {
+                        if let Some(user_obj) = user_chunks.as_object() {
+                            for (i, coord_name) in coord_columns.iter().enumerate() {
+                                if let Some(val) = user_obj.get(coord_name) {
+                                    if let Some(dim_chunk) = val.as_u64() {
+                                        if i < chunk_shape.len() {
+                                            chunk_shape[i] = dim_chunk;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if *resolved_output != OutputFormat::Json {
+                        println!("Failed to parse chunks JSON, using auto-chunking");
+                    }
                 }
 
                 if chunk_shape.contains(&0) {
@@ -816,12 +846,16 @@ async fn run_export(
 
                 let array = array_builder.build(store.clone(), "/").unwrap();
                 array.async_store_metadata().await?;
-                println!("Initialized Zarr Array.");
+                if *resolved_output != OutputFormat::Json {
+                    println!("Initialized Zarr Array.");
+                }
 
                 let array = std::sync::Arc::new(array);
 
                 // 4. Setup Async Upload Workers
-                println!("Pass 2: Streaming data...");
+                if *resolved_output != OutputFormat::Json {
+                    println!("Pass 2: Streaming data...");
+                }
                 let total_rows_query = format!("SELECT COUNT(*) FROM ({})", query);
                 let total_rows: u64 = _conn.query_row(&total_rows_query, [], |row| row.get(0)).unwrap_or(0);
 
@@ -1202,7 +1236,9 @@ async fn run_export(
                     println!("Finished streaming {} rows.", row_count);
                 }
 
-                println!("Export successful!");
+                if *resolved_output != OutputFormat::Json {
+                    println!("Export successful!");
+                }
 
     Ok(())
 }
