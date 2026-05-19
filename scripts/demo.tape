@@ -34,21 +34,19 @@ Sleep 1s
 Type "zarrduck search --bbox -122.27,37.77,-122.22,37.81"
 Enter
 Sleep 2s
-Enter
-Sleep 4s
-Down 1
-Sleep 1s
-Down 1
-Sleep 1s
-Up 1
+Type "plan"
 Sleep 1s
 Enter
 Sleep 4s
-Down 1
+Type "era5"
 Sleep 1s
+Enter
+Sleep 4s
+Type "air temp max"
+Sleep 2s
 Enter
 Sleep 3s
-Down 1
+Type "air_temp"
 Sleep 1s
 Enter
 Sleep 3s
