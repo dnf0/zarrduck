@@ -167,6 +167,95 @@ fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
     Ok(())
 }
 
+fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<&str>) -> Result<()> {
+    if group_by.is_some() {
+         println!("Warning: group-by is ignored for spatial heatmaps.");
+    }
+    
+    // Attempt to find lat/lon columns
+    let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))?;
+    let mut rows = stmt.query([])?;
+    let mut lat_col = String::from("lat");
+    let mut lon_col = String::from("lon");
+    while let Some(row) = rows.next()? {
+        let col_name: String = row.get(0)?;
+        let col_lower = col_name.to_lowercase();
+        if col_lower.contains("lat") || col_lower == "y" { lat_col = col_name.clone(); }
+        if col_lower.contains("lon") || col_lower == "x" { lon_col = col_name.clone(); }
+    }
+
+    let rows_count = 20;
+    let cols_count = 40;
+
+    let query = format!(
+        "WITH bounds AS (
+            SELECT min(\"{lat}\") as min_lat, max(\"{lat}\") as max_lat,
+                   min(\"{lon}\") as min_lon, max(\"{lon}\") as max_lon
+            FROM \"{t}\"
+        ),
+        grid AS (
+            SELECT 
+                COALESCE(floor((\"{lat}\" - min_lat) / NULLIF((max_lat - min_lat) / {rows_count}.0, 0)), 0) as row_idx,
+                COALESCE(floor((\"{lon}\" - min_lon) / NULLIF((max_lon - min_lon) / {cols_count}.0, 0)), 0) as col_idx,
+                avg(\"{v}\") as cell_val
+            FROM \"{t}\", bounds
+            GROUP BY 1, 2
+        )
+        SELECT row_idx, col_idx, cell_val FROM grid",
+        lat = lat_col.replace("\"", "\"\""),
+        lon = lon_col.replace("\"", "\"\""),
+        v = val_col.replace("\"", "\"\""),
+        t = table.replace("\"", "\"\"")
+    );
+
+    let mut stmt = conn.prepare(&query)?;
+    let mut rows = stmt.query([])?;
+    
+    let mut grid_data = vec![vec![f64::NAN; cols_count]; rows_count];
+    let mut global_min = f64::MAX;
+    let mut global_max = f64::MIN;
+
+    while let Some(row) = rows.next()? {
+        let r: Option<f64> = row.get(0)?;
+        let c: Option<f64> = row.get(1)?;
+        let v: Option<f64> = row.get(2)?;
+        
+        if let (Some(r), Some(c), Some(v)) = (r, c, v) {
+            let r_idx = r.max(0.0).min((rows_count - 1) as f64) as usize;
+            let c_idx = c.max(0.0).min((cols_count - 1) as f64) as usize;
+            grid_data[r_idx][c_idx] = v;
+            global_min = global_min.min(v);
+            global_max = global_max.max(v);
+        }
+    }
+
+    // ASCII density characters
+    let chars = ['.', ':', '-', '=', '+', '*', '#', '%', '@'];
+    
+    println!("\nHeatmap of {} (Spatial):\n", val_col);
+    for r in (0..rows_count).rev() { // Print top-to-bottom
+        for c in 0..cols_count {
+            let val = grid_data[r][c];
+            if val.is_nan() {
+                print!("  ");
+            } else {
+                let normalized = if global_max > global_min {
+                    (val - global_min) / (global_max - global_min)
+                } else {
+                    0.5
+                };
+                let char_idx = (normalized * (chars.len() as f64 - 1.0)).round() as usize;
+                print!("{}{}", chars[char_idx], chars[char_idx]);
+            }
+        }
+        println!();
+    }
+    println!();
+    println!("Legend: Min ({:.2}) -> Max ({:.2}) mapped to density [ {} ]", global_min, global_max, chars.iter().collect::<String>());
+
+    Ok(())
+}
+
 pub fn run_plot(
     db_path: &str,
     plot_type: PlotType,
@@ -191,7 +280,7 @@ pub fn run_plot(
     // Call specific plot functions here later
     match plot_type {
         PlotType::Hist => plot_hist(&conn, table, &val_col, group_by)?,
-        PlotType::Heatmap => println!("Heatmap not yet implemented"),
+        PlotType::Heatmap => plot_heatmap(&conn, table, &val_col, group_by)?,
         PlotType::Line => plot_line(&conn, table, &val_col, group_by)?,
     }
 
@@ -250,6 +339,16 @@ mod tests {
         
         let result = plot_line(&conn, "test_empty", "val", None);
         assert!(result.is_err(), "plot_line should fail on empty data");
+    }
+
+    #[test]
+    fn test_plot_heatmap_div_by_zero() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE test_hm_zero (lat DOUBLE, lon DOUBLE, val DOUBLE)", []).unwrap();
+        conn.execute("INSERT INTO test_hm_zero VALUES (2.0, 3.0, 1.0), (2.0, 3.0, 2.0)", []).unwrap();
+        
+        let result = plot_heatmap(&conn, "test_hm_zero", "val", None);
+        assert!(result.is_ok(), "plot_heatmap div by zero failed: {:?}", result.err());
     }
 }
 
