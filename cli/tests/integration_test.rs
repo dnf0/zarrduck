@@ -18,7 +18,7 @@ fn test_cli_info_invalid_uri_table() {
         .arg("--output=table")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("array metadata is missing"));
+        .stderr(predicate::str::contains("Binder Error"));
 }
 
 #[test]
