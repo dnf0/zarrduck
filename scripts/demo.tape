@@ -2,7 +2,7 @@ Output docs/src/demo.gif
 
 Set FontSize 16
 Set Width 1200
-Set Height 600
+Set Height 800
 Set TypingSpeed 50ms
 Set Theme "Dracula"
 
@@ -25,7 +25,6 @@ Ctrl+L
 Show
 
 # Step 1: STAC Discovery
-Ctrl+L
 Type "# 1. Discover cloud-native GeoZarr assets via STAC"
 Enter
 Sleep 1s
@@ -50,7 +49,6 @@ Enter
 Sleep 4s
 
 # Step 2: Zonal Extraction
-Ctrl+L
 Type "# 2. Extract and join spatial data"
 Enter
 Sleep 1s
@@ -59,7 +57,6 @@ Enter
 Sleep 4s
 
 # Step 3: Temporal Resampling
-Ctrl+L
 Type "# 3. Automatically aggregate time-series data to monthly means"
 Enter
 Sleep 1s
@@ -68,7 +65,6 @@ Enter
 Sleep 3s
 
 # Step 4: Interactive Analysis
-Ctrl+L
 Type "# 4. Drop into a spatial-enabled shell"
 Enter
 Sleep 1s
