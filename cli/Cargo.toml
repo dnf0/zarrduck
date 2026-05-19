@@ -12,6 +12,8 @@ zarrs = { version = "0.16.4", features = ["opendal", "async"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 color-eyre = "0.6"
+indicatif = "0.17"
+inquire = "0.7"
 
 [dev-dependencies]
 assert_cmd = "2.0"

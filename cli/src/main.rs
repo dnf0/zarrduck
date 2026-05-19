@@ -171,6 +171,26 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
             }
         }
         Commands::Extract { zarr_uri, vector_path, out } => {
+            // Overwrite protection
+            if std::path::Path::new(&out).exists() {
+                if cli.output == OutputFormat::Json {
+                    return Err(color_eyre::eyre::eyre!("Output database '{}' already exists. Aborting to prevent overwrite.", out));
+                } else {
+                    let ans = inquire::Confirm::new(&format!("File '{}' already exists. Overwrite?", out))
+                        .with_default(false)
+                        .prompt()
+                        .wrap_err("Failed to read user input")?;
+                        
+                    if !ans {
+                        println!("Aborting extraction.");
+                        return Ok(());
+                    }
+                    
+                    // User confirmed, so delete the file before opening it with DuckDB
+                    std::fs::remove_file(&out).wrap_err_with(|| format!("Failed to delete existing file '{}'", out))?;
+                }
+            }
+
             let config = duckdb::Config::default().allow_unsigned_extensions()
                 .wrap_err("Failed to configure unsigned extensions")?;
             let conn = Connection::open_with_flags(&out, config)
@@ -186,9 +206,20 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
             conn.execute("INSTALL spatial", []).wrap_err("Failed to install spatial extension")?;
             conn.execute("LOAD spatial", []).wrap_err("Failed to load spatial extension")?;
             
-            if cli.output != OutputFormat::Json {
-                println!("Extracting data... This may take a while depending on the bounding box.");
-            }
+            let spinner = if cli.output != OutputFormat::Json {
+                let pb = indicatif::ProgressBar::new_spinner();
+                pb.set_style(
+                    indicatif::ProgressStyle::default_spinner()
+                        .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+                        .template("{spinner:.green} {msg}")
+                        .unwrap()
+                );
+                pb.set_message("Performing spatial extraction (this may take a few minutes)...");
+                pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                Some(pb)
+            } else {
+                None
+            };
             
             // The magic query: Create a table by joining the GeoZarr pixels that intersect the vector polygons
             let query = format!(
@@ -196,13 +227,17 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
                 zarr_uri.replace("'", "''"), vector_path.replace("'", "''")
             );
             
+            // Note: Since this is a blocking call, we run it in a blocking task so the tokio runtime can still tick the spinner if needed (though enable_steady_tick actually uses its own background thread).
             conn.execute(&query, []).wrap_err("Spatial extraction query failed")?;
+            
+            if let Some(pb) = spinner {
+                pb.finish_with_message("Extraction complete!");
+            }
             
             if cli.output == OutputFormat::Json {
                 println!(r#"{{"status": "success", "db": "{}"}}"#, out);
             } else {
-                println!("Extraction complete! Data saved to table 'extracted_data' in {}", out);
-                println!("Run `zarrduck shell {}` to explore it.", out);
+                println!("Run `zarrduck shell {}` to explore the extracted data.", out);
             }
         }
         Commands::Shell { db_path } => {
@@ -402,6 +437,21 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
 
             // 4. Setup Async Upload Workers
             println!("Pass 2: Streaming data...");
+            let total_rows_query = format!("SELECT COUNT(*) FROM ({})", query);
+            let total_rows: u64 = _conn.query_row(&total_rows_query, [], |row| row.get(0)).unwrap_or(0);
+            
+            let progress = if cli.output != OutputFormat::Json && total_rows > 0 {
+                let pb = indicatif::ProgressBar::new(total_rows);
+                pb.set_style(
+                    indicatif::ProgressStyle::default_bar()
+                        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} rows ({eta})")
+                        .unwrap()
+                        .progress_chars("#>-")
+                );
+                Some(pb)
+            } else {
+                None
+            };
             let (tx, mut rx) = tokio::sync::mpsc::channel::<(Vec<u64>, ChunkData)>(16);
             let array_clone = array.clone();
 
@@ -736,8 +786,11 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
                     }
 
                     row_count += 1;
-                    if row_count % 100_000 == 0 {
-                        println!("Streamed {} rows...", row_count);
+                    
+                    if let Some(ref pb) = progress {
+                        if row_count % 10_000 == 0 {
+                            pb.set_position(row_count);
+                        }
                     }
                 }
                 Ok(())
@@ -758,7 +811,11 @@ async fn run_cli(cli: Cli) -> EyreResult<()> {
             // If the stream encountered an error, propagate it now
             stream_result?;
 
-            println!("Finished streaming {} rows.", row_count);
+            if let Some(pb) = progress {
+                pb.finish_with_message("Streaming complete");
+            } else if cli.output != OutputFormat::Json {
+                println!("Finished streaming {} rows.", row_count);
+            }
 
             println!("Export successful!");
         }
