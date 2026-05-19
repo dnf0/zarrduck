@@ -1,7 +1,7 @@
 mod config;
 use config::ZarrduckConfig;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use duckdb::{Connection, Result};
 use std::process::Command;
 use color_eyre::eyre::{eyre, WrapErr, Result as EyreResult};
@@ -82,6 +82,12 @@ enum Commands {
         /// Optional JSON mapping of dimension name to chunk size (e.g. '{"time": 10}')
         #[arg(long)]
         chunks: Option<String>,
+    },
+    /// Generate shell completion scripts
+    Completions {
+        /// The shell to generate completions for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
     },
 }
 
@@ -857,6 +863,11 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             }
 
             println!("Export successful!");
+        }
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let bin_name = cmd.get_name().to_string();
+            clap_complete::generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
         }
     }
 
