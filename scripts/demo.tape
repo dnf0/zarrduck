@@ -26,7 +26,7 @@ Show
 
 # Step 1: STAC Discovery
 Hide
-Type "echo -e '\e[1;36m# 1. Discover cloud-native GeoZarr assets via STAC\e[0m'"
+Type "echo -e '\033[1A\033[2K\e[1;36m# 1. Discover cloud-native GeoZarr assets via STAC\e[0m'"
 Enter
 Show
 Sleep 1s
@@ -52,7 +52,7 @@ Sleep 4s
 
 # Step 2: Zonal Extraction
 Hide
-Type "echo -e '\n\e[1;36m# 2. Extract and join spatial data\e[0m'"
+Type "echo -e '\033[1A\033[2K\n\e[1;36m# 2. Extract and join spatial data\e[0m'"
 Enter
 Show
 Sleep 1s
@@ -62,7 +62,7 @@ Sleep 4s
 
 # Step 3: Temporal Resampling
 Hide
-Type "echo -e '\n\e[1;36m# 3. Automatically aggregate time-series data using interactive menus\e[0m'"
+Type "echo -e '\033[1A\033[2K\n\e[1;36m# 3. Automatically aggregate time-series data using interactive menus\e[0m'"
 Enter
 Show
 Sleep 1s
@@ -80,7 +80,7 @@ Sleep 3s
 
 # Step 4: Interactive Analysis
 Hide
-Type "echo -e '\n\e[1;36m# 4. Drop into a spatial-enabled shell\e[0m'"
+Type "echo -e '\033[1A\033[2K\n\e[1;36m# 4. Drop into a spatial-enabled shell\e[0m'"
 Enter
 Show
 Sleep 1s
