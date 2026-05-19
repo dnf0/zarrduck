@@ -89,6 +89,24 @@ enum Commands {
         #[arg(value_enum)]
         shell: clap_complete::Shell,
     },
+    /// Search a STAC API for GeoZarr assets
+    Search {
+        /// The STAC API URL (e.g., https://planetarycomputer.microsoft.com/api/stac/v1/search)
+        #[arg(long)]
+        api: String,
+        
+        /// The collection ID to search (e.g., era5-pds)
+        #[arg(long)]
+        collection: String,
+        
+        /// Bounding box (min_lon, min_lat, max_lon, max_lat)
+        #[arg(long)]
+        bbox: Option<String>,
+        
+        /// Datetime range (e.g., 2020-01-01T00:00:00Z/2020-12-31T23:59:59Z)
+        #[arg(long)]
+        datetime: Option<String>,
+    },
 }
 
 fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
@@ -868,6 +886,9 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             let mut cmd = Cli::command();
             let bin_name = cmd.get_name().to_string();
             clap_complete::generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
+        }
+        Commands::Search { api, collection, bbox, datetime } => {
+            println!("Searching STAC API...");
         }
     }
 
