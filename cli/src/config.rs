@@ -19,8 +19,7 @@ pub struct ZarrduckConfig {
 
 impl ZarrduckConfig {
     pub fn load() -> color_eyre::eyre::Result<Self> {
-        let mut figment = Figment::new()
-            .merge(Env::prefixed("ZARRDUCK_"));
+        let mut figment = Figment::new();
 
         // Global config
         if let Some(proj_dirs) = ProjectDirs::from("", "", "zarrduck") {
@@ -36,11 +35,9 @@ impl ZarrduckConfig {
             figment = figment.merge(Toml::file(local_config));
         }
 
-        let config: ZarrduckConfig = figment.extract().unwrap_or_else(|_| ZarrduckConfig {
-            output_format: None,
-            default_out: None,
-            s3: None,
-        });
+        figment = figment.merge(Env::prefixed("ZARRDUCK_"));
+
+        let config: ZarrduckConfig = figment.extract()?;
 
         Ok(config)
     }
