@@ -107,6 +107,50 @@ enum Commands {
         #[arg(long)]
         datetime: Option<String>,
     },
+    /// Temporally resample extracted GeoZarr data
+    Resample {
+        /// The input DuckDB file containing the 'extracted_data' table
+        input_db: String,
+        
+        /// The output DuckDB file to save the resampled data
+        output_db: String,
+        
+        /// The temporal frequency (e.g., month, year, day)
+        #[arg(long)]
+        freq: String,
+        
+        /// The aggregate function to apply (e.g., avg, sum, max)
+        #[arg(long)]
+        agg: String,
+    },
+}
+
+fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String, String, String, String)> {
+    let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))
+        .wrap_err_with(|| format!("Failed to describe table '{}'", table))?;
+    
+    let mut rows = stmt.query([])?;
+    
+    let mut columns = Vec::new();
+    while let Some(row) = rows.next()? {
+        let col_name: String = row.get(0)?;
+        columns.push(col_name.to_lowercase());
+    }
+
+    // Heuristics
+    let time_col = columns.iter().find(|c| c.contains("time") || c.contains("date"))
+        .cloned().ok_or_else(|| eyre!("Could not automatically detect a time column"))?;
+        
+    let lat_col = columns.iter().find(|c| c.contains("lat") || c == &"y")
+        .cloned().ok_or_else(|| eyre!("Could not automatically detect a latitude column"))?;
+        
+    let lon_col = columns.iter().find(|c| c.contains("lon") || c == &"x")
+        .cloned().ok_or_else(|| eyre!("Could not automatically detect a longitude column"))?;
+
+    let val_col = columns.iter().find(|&c| c != &time_col && c != &lat_col && c != &lon_col && c != "geom")
+        .cloned().ok_or_else(|| eyre!("Could not automatically detect a value column"))?;
+
+    Ok((time_col, lat_col, lon_col, val_col))
 }
 
 fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
@@ -962,6 +1006,94 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 for uri in found_uris {
                     println!("- {}", uri);
                 }
+            }
+        }
+        Commands::Resample { input_db, output_db, freq, agg } => {
+            if !std::path::Path::new(&input_db).exists() {
+                return Err(eyre!("Input database '{}' does not exist.", input_db));
+            }
+
+            let input_conn = Connection::open(&input_db)
+                .wrap_err_with(|| format!("Failed to open input database '{}'", input_db))?;
+            
+            let (time_col, lat_col, lon_col, val_col) = detect_columns(&input_conn, "extracted_data")?;
+            
+            if resolved_output != OutputFormat::Json {
+                println!("Detected schema: Time='{}', Spatial='{}', '{}', Value='{}'", time_col, lat_col, lon_col, val_col);
+            }
+            
+            // Just close the input connection so we don't lock the file for the next step
+            drop(input_conn);
+
+            // Overwrite protection for output db
+            if std::path::Path::new(&output_db).exists() {
+                if resolved_output == OutputFormat::Json {
+                    return Err(eyre!("Output database '{}' already exists. Aborting.", output_db));
+                } else {
+                    let ans = inquire::Confirm::new(&format!("File '{}' already exists. Overwrite?", output_db))
+                        .with_default(false)
+                        .prompt()
+                        .wrap_err("Failed to read user input")?;
+                        
+                    if !ans {
+                        println!("Aborting resampling.");
+                        return Ok(());
+                    }
+                    std::fs::remove_file(&output_db).wrap_err_with(|| format!("Failed to delete '{}'", output_db))?;
+                }
+            }
+
+            let conn = Connection::open(&output_db)
+                .wrap_err_with(|| format!("Failed to open output database '{}'", output_db))?;
+            
+            let spinner = if resolved_output != OutputFormat::Json {
+                let pb = indicatif::ProgressBar::new_spinner();
+                pb.set_style(
+                    indicatif::ProgressStyle::default_spinner()
+                        .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+                        .template("{spinner:.green} {msg}")
+                        .unwrap()
+                );
+                pb.set_message("Resampling time-series data...");
+                pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                Some(pb)
+            } else {
+                None
+            };
+            
+            let allowed_aggs = ["sum", "avg", "min", "max", "count", "mean"];
+            if !allowed_aggs.contains(&agg.to_lowercase().as_str()) {
+                return Err(eyre!("Invalid aggregation function: '{}'. Allowed: {:?}", agg, allowed_aggs));
+            }
+
+            conn.execute(&format!("ATTACH '{}' AS source_db", input_db), [])
+                .wrap_err("Failed to attach input database")?;
+                
+            let query = format!(
+                "CREATE TABLE resampled_data AS 
+                 SELECT 
+                     date_trunc('{}', {}) as {},
+                     {}, {},
+                     {}({}) as value
+                 FROM source_db.extracted_data
+                 GROUP BY 1, 2, 3",
+                freq.replace("'", "''"), time_col, time_col,
+                lat_col, lon_col,
+                agg, val_col
+            );
+            
+            // Note: Since this is a blocking call, we run it directly on this thread. The tokio runtime isn't heavily needed here since it's local.
+            conn.execute(&query, []).wrap_err("Resampling query failed")?;
+            
+            if let Some(pb) = spinner {
+                pb.finish_with_message("Resampling complete!");
+            }
+            
+            if resolved_output == OutputFormat::Json {
+                println!(r#"{{"status": "success", "db": "{}"}}"#, output_db);
+            } else {
+                println!("Data saved to table 'resampled_data' in {}", output_db);
+                println!("Run `zarrduck shell {}` to explore it.", output_db);
             }
         }
     }
