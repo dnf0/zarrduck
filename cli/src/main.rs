@@ -93,13 +93,13 @@ enum Commands {
     },
     /// Search a STAC API for GeoZarr assets
     Search {
-        /// The STAC API URL (e.g., https://planetarycomputer.microsoft.com/api/stac/v1/search)
+        /// The STAC API URL (e.g., https://planetarycomputer.microsoft.com/api/stac/v1)
         #[arg(long)]
-        api: String,
+        api: Option<String>,
         
         /// The collection ID to search (e.g., era5-pds)
         #[arg(long)]
-        collection: String,
+        collection: Option<String>,
         
         /// Bounding box (min_lon, min_lat, max_lon, max_lat)
         #[arg(long, allow_hyphen_values = true)]
@@ -988,8 +988,84 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
         Commands::Search { api, collection, bbox, datetime } => {
             let client = reqwest::Client::new();
             
+            let selected_api = if let Some(a) = api {
+                a
+            } else {
+                if cli.output == Some(OutputFormat::Json) {
+                    return Err(eyre!("--api is required when using --output=json"));
+                }
+                
+                let providers = vec![
+                    "https://planetarycomputer.microsoft.com/api/stac/v1 - Microsoft Planetary Computer",
+                    "https://earth-search.aws.element84.com/v1 - Earth Search (Element84/AWS)",
+                    "https://api.pangeo-forge.org/stac/ - Pangeo Forge",
+                ];
+                
+                let selection = inquire::Select::new("Select a STAC Provider:", providers)
+                    .prompt()?;
+                
+                // Extract just the URL part
+                selection.split(" - ").next().unwrap().to_string()
+            };
+            
+            let selected_collection = if let Some(c) = collection {
+                c
+            } else {
+                let collections_url = if selected_api.ends_with("/collections") {
+                    selected_api.clone()
+                } else {
+                    format!("{}/collections", selected_api.trim_end_matches('/'))
+                };
+                
+                let res = client.get(&collections_url)
+                    .send()
+                    .await
+                    .wrap_err("Failed to fetch collections from STAC API")?;
+                    
+                if !res.status().is_success() {
+                    let status = res.status();
+                    let text = res.text().await.unwrap_or_default();
+                    return Err(eyre!("STAC API returned {}: {}", status, text));
+                }
+                
+                let collections_response: serde_json::Value = res.json().await.wrap_err("Failed to parse collections response")?;
+                
+                let mut collection_options = Vec::new();
+                let mut collection_ids = Vec::new();
+                
+                if let Some(collections) = collections_response.get("collections").and_then(|c| c.as_array()) {
+                    for col in collections {
+                        if let Some(id) = col.get("id").and_then(|id| id.as_str()) {
+                            let title = col.get("title").and_then(|t| t.as_str()).unwrap_or(id);
+                            collection_options.push(format!("{} - {}", id, title));
+                            collection_ids.push(id.to_string());
+                        }
+                    }
+                }
+                
+                if collection_ids.is_empty() {
+                    return Err(eyre!("No collections found at {}", collections_url));
+                }
+                
+                if cli.output == Some(OutputFormat::Json) {
+                    let json_out = serde_json::json!({
+                        "status": "success",
+                        "collections": collection_ids
+                    });
+                    println!("{}", json_out);
+                    return Ok(());
+                }
+                
+                let selection = inquire::Select::new("Select a STAC Collection to search:", collection_options)
+                    .with_page_size(10)
+                    .prompt()?;
+                
+                // Extract just the ID part
+                selection.split(" - ").next().unwrap().to_string()
+            };
+            
             let mut payload = serde_json::json!({
-                "collections": [collection],
+                "collections": [selected_collection],
                 "limit": 10
             });
             
@@ -1006,7 +1082,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 payload.as_object_mut().unwrap().insert("datetime".to_string(), serde_json::json!(dt));
             }
             
-            let mut search_api = api.clone();
+            let mut search_api = selected_api.clone();
             if !search_api.ends_with("/search") {
                 search_api = format!("{}/search", search_api.trim_end_matches('/'));
             }
@@ -1030,17 +1106,19 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             let stac_response: serde_json::Value = res.json().await.wrap_err("Failed to parse STAC API response")?;
             
             let mut found_uris = Vec::new();
+            let mut found_options = Vec::new();
             
             if let Some(features) = stac_response.get("features").and_then(|f| f.as_array()) {
                 for feature in features {
                     if let Some(assets) = feature.get("assets").and_then(|a| a.as_object()) {
                         for (_, asset) in assets {
-                            // Planetary computer uses application/vnd+zarr, but sometimes just roles or type "zarr"
                             if let Some(href) = asset.get("href").and_then(|h| h.as_str()) {
                                 let is_zarr_type = asset.get("type").and_then(|t| t.as_str()).is_some_and(|t| t.contains("zarr"));
                                 let is_zarr_href = href.ends_with(".zarr") || href.contains(".zarr/");
                                 
                                 if is_zarr_type || is_zarr_href {
+                                    let title = asset.get("title").and_then(|t| t.as_str()).unwrap_or(href);
+                                    found_options.push(format!("{} - {}", href, title));
                                     found_uris.push(href.to_string());
                                 }
                             }
@@ -1056,9 +1134,24 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 });
                 println!("{}", json_out);
             } else {
-                println!("Found {} Zarr URIs:", found_uris.len());
-                for uri in found_uris {
-                    println!("- {}", uri);
+                if found_uris.is_empty() {
+                    println!("No Zarr URIs found.");
+                } else {
+                    let selection = if found_options.len() == 1 {
+                        found_uris[0].clone()
+                    } else {
+                        let chosen = inquire::Select::new(&format!("Found {} Zarr URIs. Select a dataset to use:", found_options.len()), found_options)
+                            .with_page_size(10)
+                            .prompt()?;
+                        chosen.split(" - ").next().unwrap().to_string()
+                    };
+                    
+                    // Resolve the specific channel/array from the Zarr group
+                    let resolved_uri = zarr_util::resolve_zarr_uri(&selection, false).await?;
+                    
+                    println!("Selected Dataset: {}", resolved_uri);
+                    println!("You can now extract this data using:");
+                    println!("zarrduck extract {} <your-vector-file.geojson>", resolved_uri);
                 }
             }
         }
