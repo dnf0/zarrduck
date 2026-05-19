@@ -32,3 +32,13 @@ fn test_cli_info_invalid_uri_json() {
         .stdout(predicate::str::contains(r#""message":"#))
         .stdout(predicate::str::contains(r#""status":"error""#));
 }
+
+#[test]
+fn test_cli_completions_bash() {
+    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    cmd.arg("completions")
+        .arg("bash")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("_zarrduck() {"));
+}
