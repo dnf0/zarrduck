@@ -331,7 +331,7 @@ fn plot_heatmap(
         } else if r == 0 {
             print!("{:>8.2} ┤ ", min_lat_bound);
         } else {
-            print!("           │ ");
+            print!("         │ ");
         }
 
         for val in grid_data[r].iter().take(cols_count) {
