@@ -1,42 +1,53 @@
-import zarr
-import numpy as np
 import os
 import shutil
+import urllib.request
+import xarray as xr
+import zarr
 
-store_path = "climate_data.zarr"
-if os.path.exists(store_path):
-    shutil.rmtree(store_path)
+def main():
+    store_path = "climate_data.zarr"
+    nc_path = "air.mon.mean.nc"
 
-root = zarr.group(store=store_path)
+    if os.path.exists(store_path):
+        shutil.rmtree(store_path)
 
-# Create lat, lon, time
-lat = root.create_dataset('lat', shape=(180,), chunks=(180,), dtype='f8')
-lat[:] = np.linspace(-90, 90, 180)
+    if not os.path.exists(nc_path):
+        print("Downloading real climate dataset from NOAA...")
+        url = "https://downloads.psl.noaa.gov/Datasets/ncep.reanalysis.derived/surface/air.mon.mean.nc"
+        urllib.request.urlretrieve(url, nc_path)
 
-lon = root.create_dataset('lon', shape=(360,), chunks=(360,), dtype='f8')
-lon[:] = np.linspace(-180, 180, 360)
+    print("Converting NetCDF to Zarr...")
+    ds = xr.open_dataset(nc_path, engine='netcdf4')
+    
+    # Convert longitude from 0-360 to -180 to 180 to match standard geojson/stac
+    ds.coords['lon'] = (ds.coords['lon'] + 180) % 360 - 180
+    ds = ds.sortby(ds.lon)
 
-time = root.create_dataset('time', shape=(365,), chunks=(365,), dtype='i8')
-time[:] = np.arange(365) # 365 days
+    # Optional: we can chunk it nicely
+    ds = ds.chunk({'time': 12, 'lat': 73, 'lon': 144})
+    
+    # Write to Zarr
+    ds.to_zarr(store_path, mode='w', consolidated=True)
 
-# Create data (time, lat, lon)
-z = root.create_dataset(
-    'air_temperature',
-    shape=(365, 180, 360),
-    chunks=(30, 30, 30),
-    dtype='f4',
-    fill_value=-9999.0
-)
+    # Let's quickly ensure the arrays map well for zarrduck
+    # We rename 'air' to 'air_temperature' so it matches the tape
+    if 'air' in ds:
+        ds = ds.rename({'air': 'air_temperature'})
+        ds.to_zarr(store_path, mode='w', consolidated=True)
 
-# Fill with random data to look real
-data = np.random.rand(365, 180, 360).astype('f4') * 30.0 + 273.15
-z[:] = data
+    # Inject GeoZarr spatial metadata into the array attributes
+    # The resolution for NCEP is 2.5 degrees.
+    root = zarr.open(store_path, mode='a')
+    air_temp = root['air_temperature']
+    air_temp.attrs['geozarr'] = {
+        "spatial_reference": {"crs": "EPSG:4326"},
+        "spatial_transform": {
+            "scale": [1.0, -2.5, 2.5],
+            "translation": [0.0, 90.0, -180.0]
+        }
+    }
 
-# Add metadata so zarrduck can recognize it
-root.attrs['_ARRAY_DIMENSIONS'] = ['time', 'lat', 'lon']
-z.attrs['_ARRAY_DIMENSIONS'] = ['time', 'lat', 'lon']
-lat.attrs['_ARRAY_DIMENSIONS'] = ['lat']
-lon.attrs['_ARRAY_DIMENSIONS'] = ['lon']
-time.attrs['_ARRAY_DIMENSIONS'] = ['time']
+    print("Generated actual data demo store at climate_data.zarr")
 
-print("Generated demo data")
+if __name__ == "__main__":
+    main()

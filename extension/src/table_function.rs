@@ -1111,9 +1111,8 @@ impl VTab for PlanReadZarrVTab {
         };
         
         let total_bytes = total_chunks.saturating_mul(chunk_volume).saturating_mul(bytes_per_element);
-        
-        bind.add_result_column("total_chunks", LogicalTypeId::Bigint.into());
-        bind.add_result_column("total_bytes", LogicalTypeId::Bigint.into());
+
+        bind.add_result_column("total_chunks", LogicalTypeId::Bigint.into());        bind.add_result_column("total_bytes", LogicalTypeId::Bigint.into());
         
         Ok(PlanReadZarrBindData {
             total_chunks,
@@ -1144,13 +1143,13 @@ impl VTab for PlanReadZarrVTab {
         let total_chunks_idx = bind_data.rank + 1; // 1 for value column + rank for coordinates
         let total_bytes_idx = bind_data.rank + 2;
 
-        for (chunk_idx, &col_idx) in init_data.projected_columns.iter().enumerate() {
+        for &col_idx in init_data.projected_columns.iter() {
             if col_idx == total_chunks_idx {
-                output.flat_vector(chunk_idx).as_mut_slice::<i64>()[0] = bind_data.total_chunks as i64;
+                output.flat_vector(col_idx).as_mut_slice::<i64>()[0] = bind_data.total_chunks as i64;
             } else if col_idx == total_bytes_idx {
-                output.flat_vector(chunk_idx).as_mut_slice::<i64>()[0] = bind_data.total_bytes as i64;
+                output.flat_vector(col_idx).as_mut_slice::<i64>()[0] = bind_data.total_bytes as i64;
             } else {
-                output.flat_vector(chunk_idx).set_null(0);
+                output.flat_vector(col_idx).set_null(0);
             }
         }
         
