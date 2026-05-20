@@ -1063,10 +1063,10 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "duckdb",
- "opendal",
  "serde",
  "serde_json",
  "tempfile",
+ "url",
  "zarrs",
 ]
 
@@ -2804,6 +2804,12 @@ checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
 dependencies = [
  "getrandom 0.3.4",
 ]
+
+[[package]]
+name = "rasciigraph"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7d4b4f6be8decb01c72dc816cd58d0a9896a3c78f0ca9ba53aafea55cc9844b"
 
 [[package]]
 name = "rawpointer"
@@ -4633,6 +4639,7 @@ dependencies = [
  "inquire",
  "opendal",
  "predicates",
+ "rasciigraph",
  "reqwest",
  "serde",
  "serde_json",
@@ -4670,10 +4677,12 @@ dependencies = [
  "pathdiff",
  "rayon",
  "rayon_iter_concurrent_limit",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_repr",
  "thiserror 1.0.69",
+ "url",
  "walkdir",
  "zstd",
 ]

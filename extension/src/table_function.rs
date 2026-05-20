@@ -1059,10 +1059,12 @@ fn resolve_dimension_names(metadata: &ArrayMetadata, rank: usize) -> Vec<String>
 pub struct PlanReadZarrBindData {
     pub total_chunks: u64,
     pub total_bytes: u64,
+    pub rank: usize,
 }
 
 pub struct PlanReadZarrInitData {
     pub done: std::sync::atomic::AtomicBool,
+    pub projected_columns: Vec<usize>,
 }
 
 pub struct PlanReadZarrVTab;
@@ -1110,18 +1112,20 @@ impl VTab for PlanReadZarrVTab {
         
         let total_bytes = total_chunks.saturating_mul(chunk_volume).saturating_mul(bytes_per_element);
         
-        bind.add_result_column("total_chunks", LogicalTypeId::UBigint.into());
-        bind.add_result_column("total_bytes", LogicalTypeId::UBigint.into());
+        bind.add_result_column("total_chunks", LogicalTypeId::Bigint.into());
+        bind.add_result_column("total_bytes", LogicalTypeId::Bigint.into());
         
         Ok(PlanReadZarrBindData {
             total_chunks,
             total_bytes,
+            rank,
         })
     }
 
     fn init(_init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
         Ok(PlanReadZarrInitData {
             done: std::sync::atomic::AtomicBool::new(false),
+            projected_columns: _init.get_column_indices().into_iter().map(|i| i as usize).collect(),
         })
     }
 
@@ -1136,8 +1140,18 @@ impl VTab for PlanReadZarrVTab {
         }
 
         let bind_data = func.get_bind_data();
-        output.flat_vector(0).as_mut_slice::<u64>()[0] = bind_data.total_chunks;
-        output.flat_vector(1).as_mut_slice::<u64>()[0] = bind_data.total_bytes;
+        
+        let total_chunks_idx = bind_data.rank + 1; // 1 for value column + rank for coordinates
+        let total_bytes_idx = bind_data.rank + 2;
+
+        for &col_idx in init_data.projected_columns.iter() {
+            if col_idx == total_chunks_idx {
+                output.flat_vector(col_idx).as_mut_slice::<i64>()[0] = bind_data.total_chunks as i64;
+            } else if col_idx == total_bytes_idx {
+                output.flat_vector(col_idx).as_mut_slice::<i64>()[0] = bind_data.total_bytes as i64;
+            }
+        }
+        
         output.set_len(1);
         
         Ok(())

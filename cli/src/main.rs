@@ -5,6 +5,7 @@ use config::ZarrduckConfig;
 
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use duckdb::{Connection, Result};
+use std::io::IsTerminal;
 use std::process::Command;
 use color_eyre::eyre::{eyre, WrapErr, Result as EyreResult};
 
@@ -57,6 +58,9 @@ enum Commands {
         /// Output DuckDB database file
         #[arg(long)]
         out: Option<String>,
+        /// Bypass confirmation prompts
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
     /// Open an interactive DuckDB shell loaded with the data
     Shell {
@@ -314,15 +318,19 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 return Err(eyre!("Failed to read metadata for {}", uri));
             }
         }
-        Commands::Extract { zarr_uri, vector_path, out } => {
+        Commands::Extract { zarr_uri, vector_path, out, yes } => {
             let zarr_uri = zarr_util::resolve_zarr_uri(&zarr_uri, resolved_output == OutputFormat::Json).await?;
             let out_path = out.or(config.default_out)
                 .ok_or_else(|| eyre!("Output path not specified. Use --out or set default_out in config."))?;
             
+            let skip_prompts = yes || !std::io::stdin().is_terminal() || resolved_output == OutputFormat::Json;
+
             // Overwrite protection
             if std::path::Path::new(&out_path).exists() {
                 if resolved_output == OutputFormat::Json {
                     return Err(color_eyre::eyre::eyre!("Output database '{}' already exists. Aborting to prevent overwrite.", out_path));
+                } else if skip_prompts {
+                    std::fs::remove_file(&out_path).wrap_err_with(|| format!("Failed to delete existing file '{}'", out_path))?;
                 } else {
                     let ans = inquire::Confirm::new(&format!("File '{}' already exists. Overwrite?", out_path))
                         .with_default(false)
@@ -356,21 +364,19 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             conn.execute("LOAD spatial", []).wrap_err("Failed to load spatial extension")?;
             
             // Calculate the bounding box of the vector file to pass to read_zarr for spatial pushdown
-            let mut bbox_query = conn.prepare(&format!(
-                "SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e) FROM (SELECT ST_Extent(geom) as e FROM ST_Read('{}'))",
-                vector_path.replace("'", "''")
-            )).wrap_err("Failed to prepare bounding box query")?;
+            let mut bbox_query = conn.prepare(
+                "SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e) FROM (SELECT ST_Extent(geom) as e FROM ST_Read(?))"
+            ).wrap_err("Failed to prepare bounding box query")?;
 
-            let (lon_min, lat_min, lon_max, lat_max): (f64, f64, f64, f64) = bbox_query.query_row([], |row| {
+            let (lon_min, lat_min, lon_max, lat_max): (f64, f64, f64, f64) = bbox_query.query_row(duckdb::params![vector_path], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             }).wrap_err("Failed to compute bounding box from vector file")?;
 
-            let mut plan_query = conn.prepare(&format!(
-                "SELECT total_chunks, total_bytes FROM plan_read_zarr('{}', lon_min={}, lat_min={}, lon_max={}, lat_max={})",
-                zarr_uri.replace("'", "''"), lon_min, lat_min, lon_max, lat_max
-            )).wrap_err("Failed to prepare planning query")?;
+            let mut plan_query = conn.prepare(
+                "SELECT total_chunks, total_bytes FROM plan_read_zarr(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?)"
+            ).wrap_err("Failed to prepare planning query")?;
 
-            let (total_chunks, total_bytes): (u64, u64) = plan_query.query_row([], |row| {
+            let (total_chunks, total_bytes): (u64, u64) = plan_query.query_row(duckdb::params![zarr_uri, lon_min, lat_min, lon_max, lat_max], |row| {
                 Ok((row.get(0)?, row.get(1)?))
             }).wrap_err("Failed to execute planning query")?;
 
@@ -387,14 +393,16 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     println!("- Estimated Time: {:.1} minutes (@ 25 MB/s)\n", estimated_seconds / 60.0);
                 }
 
-                let ans = inquire::Confirm::new("Proceed with extraction?")
-                    .with_default(true)
-                    .prompt()
-                    .wrap_err("Failed to read user input")?;
-                    
-                if !ans {
-                    println!("Aborting extraction.");
-                    return Ok(());
+                if !skip_prompts {
+                    let ans = inquire::Confirm::new("Proceed with extraction?")
+                        .with_default(true)
+                        .prompt()
+                        .wrap_err("Failed to read user input")?;
+                        
+                    if !ans {
+                        println!("Aborting extraction.");
+                        return Ok(());
+                    }
                 }
             }
 
@@ -416,13 +424,14 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             };
             
             // The magic query: Create a table by joining the GeoZarr pixels that intersect the vector polygons
-            let query = format!(
-                "CREATE OR REPLACE TABLE extracted_data AS \n                 SELECT z.*, v.* EXCLUDE (geom) \n                 FROM read_zarr('{}', lon_min={}, lat_min={}, lon_max={}, lat_max={}) z, ST_Read('{}') v \n                 WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))",
-                zarr_uri.replace("'", "''"), lon_min, lat_min, lon_max, lat_max, vector_path.replace("'", "''")
-            );
+            let query = "CREATE OR REPLACE TABLE extracted_data AS 
+                 SELECT z.*, v.* EXCLUDE (geom) 
+                 FROM read_zarr(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?) z, ST_Read(?) v 
+                 WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))";
             
             // Note: Since this is a blocking call, we run it in a blocking task so the tokio runtime can still tick the spinner if needed (though enable_steady_tick actually uses its own background thread).
-            conn.execute(&query, []).wrap_err("Spatial extraction query failed")?;
+            conn.execute(query, duckdb::params![zarr_uri, lon_min, lat_min, lon_max, lat_max, vector_path])
+                .wrap_err("Spatial extraction query failed")?;
             
             if let Some(pb) = spinner {
                 pb.finish_and_clear();

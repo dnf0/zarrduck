@@ -1,0 +1,47 @@
+use duckdb::{Connection, Result};
+
+#[test]
+fn test_plan_read_zarr() -> Result<()> {
+    let conn = Connection::open_in_memory()?;
+    conn.register_table_function::<geozarr::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<geozarr::PlanReadZarrVTab>("plan_read_zarr")?;
+
+    let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
+    let store_path = temp_dir.path().join("test_plan.zarr");
+
+    use std::sync::Arc;
+    use zarrs::array::{ArrayBuilder, DataType, FillValue};
+    use zarrs::storage::store::FilesystemStore;
+
+    let store = Arc::new(FilesystemStore::new(&store_path).unwrap());
+
+    // 2D Array: 100x100, chunks of 10x10. float32
+    // total shape = 10000 elements. float32 = 4 bytes per element.
+    // 1 chunk = 100 elements = 400 bytes.
+    // 100 chunks.
+    let builder = ArrayBuilder::new(
+        vec![100, 100],
+        DataType::Float32,
+        vec![10, 10].try_into().unwrap(),
+        FillValue::from(0.0f32),
+    );
+    let array = builder.build(Arc::clone(&store), "/").unwrap();
+    array.store_metadata().unwrap();
+
+    let query = format!("SELECT * FROM plan_read_zarr('{}')", store_path.display());
+    let mut stmt = conn.prepare(&query)?;
+    let mut rows = stmt.query([])?;
+
+    if let Some(row) = rows.next()? {
+        let total_chunks: Option<i64> = row.get(3)?;
+        let total_bytes: Option<i64> = row.get(4)?;
+        println!("RAW: {:?} {:?}", total_chunks, total_bytes);
+        
+        assert_eq!(total_chunks, Some(100));
+        assert_eq!(total_bytes, Some(40000)); // 100 * 100 * 4 bytes
+    } else {
+        panic!("No rows returned");
+    }
+
+    Ok(())
+}
