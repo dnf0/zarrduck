@@ -7,25 +7,28 @@ use std::sync::{Arc, Mutex};
 use zarrs::array::{ArrayMetadata, DataType};
 use zarrs::storage::ReadableStorageTraits;
 
-fn resolve_store(
+pub fn resolve_store(
     path: &str,
 ) -> std::result::Result<Arc<dyn ReadableStorageTraits>, Box<dyn std::error::Error>> {
-    if path.starts_with("s3://") {
-        let bucket_and_path = path.strip_prefix("s3://").unwrap();
-        let bucket = bucket_and_path.split('/').next().unwrap_or(bucket_and_path);
-        let root = bucket_and_path.strip_prefix(bucket).unwrap_or("/");
+    if path.starts_with("s3://") || path.starts_with("abfs://") || path.starts_with("http://") || path.starts_with("https://") {
+        let http_url = if path.starts_with("s3://") {
+            let bucket_and_path = path.strip_prefix("s3://").unwrap();
+            let mut parts = bucket_and_path.splitn(2, '/');
+            let bucket = parts.next().unwrap();
+            let rest = parts.next().unwrap_or("");
+            format!("https://{}.s3.amazonaws.com/{}", bucket, rest)
+        } else if path.starts_with("abfs://") {
+            let bucket_and_path = path.strip_prefix("abfs://").unwrap();
+            let mut parts = bucket_and_path.splitn(2, '/');
+            let bucket = parts.next().unwrap();
+            let rest = parts.next().unwrap_or("");
+            format!("https://cpdataeuwest.blob.core.windows.net/{}/{}", bucket, rest)
+        } else {
+            path.to_string()
+        };
 
-        // Uses standard AWS environment variables automatically
-        let builder = opendal::services::S3::default().bucket(bucket).root(root);
-
-        let operator = opendal::Operator::new(builder)?.finish();
-        let store = zarrs::storage::store::OpendalStore::new(operator.blocking());
-        Ok(Arc::new(store))
-    } else if path.starts_with("http://") || path.starts_with("https://") {
-        let builder = opendal::services::Http::default().endpoint(path);
-
-        let operator = opendal::Operator::new(builder)?.finish();
-        let store = zarrs::storage::store::OpendalStore::new(operator.blocking());
+        #[allow(deprecated)]
+        let store = zarrs::storage::store::HTTPStore::new(&http_url)?;
         Ok(Arc::new(store))
     } else {
         let canonical_path =
