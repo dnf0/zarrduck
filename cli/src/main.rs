@@ -355,6 +355,16 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             conn.execute("INSTALL spatial", []).wrap_err("Failed to install spatial extension")?;
             conn.execute("LOAD spatial", []).wrap_err("Failed to load spatial extension")?;
             
+            // Calculate the bounding box of the vector file to pass to read_zarr for spatial pushdown
+            let mut bbox_query = conn.prepare(&format!(
+                "SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e) FROM (SELECT ST_Extent(geom) as e FROM ST_Read('{}'))",
+                vector_path.replace("'", "''")
+            )).wrap_err("Failed to prepare bounding box query")?;
+
+            let (lon_min, lat_min, lon_max, lat_max): (f64, f64, f64, f64) = bbox_query.query_row([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            }).wrap_err("Failed to compute bounding box from vector file")?;
+
             let spinner = if resolved_output != OutputFormat::Json {
                 let pb = indicatif::ProgressBar::with_draw_target(
                     None, 
@@ -374,8 +384,8 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             
             // The magic query: Create a table by joining the GeoZarr pixels that intersect the vector polygons
             let query = format!(
-                "CREATE OR REPLACE TABLE extracted_data AS \n                 SELECT z.*, v.* EXCLUDE (geom) \n                 FROM read_zarr('{}') z, ST_Read('{}') v \n                 WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))",
-                zarr_uri.replace("'", "''"), vector_path.replace("'", "''")
+                "CREATE OR REPLACE TABLE extracted_data AS \n                 SELECT z.*, v.* EXCLUDE (geom) \n                 FROM read_zarr('{}', lon_min={}, lat_min={}, lon_max={}, lat_max={}) z, ST_Read('{}') v \n                 WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))",
+                zarr_uri.replace("'", "''"), lon_min, lat_min, lon_max, lat_max, vector_path.replace("'", "''")
             );
             
             // Note: Since this is a blocking call, we run it in a blocking task so the tokio runtime can still tick the spinner if needed (though enable_steady_tick actually uses its own background thread).

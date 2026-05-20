@@ -42,7 +42,7 @@ pub fn resolve_store(
         if !canonical_path.starts_with(allowed_canon) {
             return Err("Access denied. Path is not within the allowed sandbox directory (GEOZARR_ALLOW_PATH or CWD).".into());
         }
-        let store = zarrs::storage::store::FilesystemStore::new(path)?;
+        let store = zarrs::storage::store::FilesystemStore::new(canonical_path)?;
         Ok(Arc::new(store))
     }
 }
@@ -467,36 +467,56 @@ impl VTab for ReadZarrVTab {
         }
 
         for (dim_index, name) in dim_names.iter().enumerate() {
-            if let Some(coord_vals) = coords.get(name) {
-                // Check for minimum bound parameter (e.g. "lat_min")
-                let min_param_name = format!("{}_min", name);
-                if let Some(min_val_wrapped) = bind.get_named_parameter(&min_param_name) {
-                    if let Ok(min_val) = min_val_wrapped.to_string().parse::<f64>() {
-                        let (translated_min, _) = crate::table_function::translate_filter(
-                            coord_vals,
-                            ">=",
-                            min_val,
-                            bounds_min[dim_index],
-                            bounds_max[dim_index],
-                        );
-                        bounds_min[dim_index] =
-                            std::cmp::max(bounds_min[dim_index], translated_min);
-                    }
-                }
+            let min_param_name = format!("{}_min", name);
+            let max_param_name = format!("{}_max", name);
+            
+            let min_val_opt = bind.get_named_parameter(&min_param_name).and_then(|v| v.to_string().parse::<f64>().ok());
+            let max_val_opt = bind.get_named_parameter(&max_param_name).and_then(|v| v.to_string().parse::<f64>().ok());
 
-                // Check for maximum bound parameter (e.g. "lat_max")
-                let max_param_name = format!("{}_max", name);
-                if let Some(max_val_wrapped) = bind.get_named_parameter(&max_param_name) {
-                    if let Ok(max_val) = max_val_wrapped.to_string().parse::<f64>() {
-                        let (_, translated_max) = crate::table_function::translate_filter(
-                            coord_vals,
-                            "<=",
-                            max_val,
-                            bounds_min[dim_index],
-                            bounds_max[dim_index],
-                        );
-                        bounds_max[dim_index] =
-                            std::cmp::min(bounds_max[dim_index], translated_max);
+            if let Some(coord_vals) = coords.get(name) {
+                if let Some(min_val) = min_val_opt {
+                    let (translated_min, _) = crate::table_function::translate_filter(
+                        coord_vals, ">=", min_val, bounds_min[dim_index], bounds_max[dim_index]
+                    );
+                    bounds_min[dim_index] = std::cmp::max(bounds_min[dim_index], translated_min);
+                }
+                if let Some(max_val) = max_val_opt {
+                    let (_, translated_max) = crate::table_function::translate_filter(
+                        coord_vals, "<=", max_val, bounds_min[dim_index], bounds_max[dim_index]
+                    );
+                    bounds_max[dim_index] = std::cmp::min(bounds_max[dim_index], translated_max);
+                }
+            } else if let Some(ref transform) = spatial_transform {
+                if dim_index < transform.scale.len() {
+                    let scale = transform.scale[dim_index];
+                    let translation = transform.translation.get(dim_index).copied().unwrap_or(0.0);
+                    
+                    if scale != 0.0 {
+                        if let Some(min_val) = min_val_opt {
+                            let idx1 = ((min_val - translation) / scale).floor() as i64;
+                            let idx2 = ((min_val - translation) / scale).ceil() as i64;
+                            let mut target_min = if scale > 0.0 { idx1 } else { idx2 };
+                            if target_min < 0 { target_min = 0; }
+                            
+                            if scale > 0.0 {
+                                bounds_min[dim_index] = std::cmp::max(bounds_min[dim_index], target_min as u64);
+                            } else {
+                                bounds_max[dim_index] = std::cmp::min(bounds_max[dim_index], target_min as u64);
+                            }
+                        }
+                        
+                        if let Some(max_val) = max_val_opt {
+                            let idx1 = ((max_val - translation) / scale).floor() as i64;
+                            let idx2 = ((max_val - translation) / scale).ceil() as i64;
+                            let mut target_max = if scale > 0.0 { idx2 } else { idx1 };
+                            if target_max < 0 { target_max = 0; }
+                            
+                            if scale > 0.0 {
+                                bounds_max[dim_index] = std::cmp::min(bounds_max[dim_index], target_max as u64);
+                            } else {
+                                bounds_min[dim_index] = std::cmp::max(bounds_min[dim_index], target_max as u64);
+                            }
+                        }
                     }
                 }
             }
