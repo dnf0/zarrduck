@@ -217,8 +217,8 @@ fn plot_heatmap(
         }
     }
 
-    let rows_count = 20;
-    let cols_count = 40;
+    let rows_count = 12;
+    let cols_count = 25;
 
     let bounds_query = format!(
         "SELECT min(\"{lat}\"), max(\"{lat}\"), min(\"{lon}\"), max(\"{lon}\") FROM \"{t}\"",
@@ -479,9 +479,12 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
     println!("\nDetected {} variable(s).", num_vars);
 
     let plot_options = match num_vars {
-        1 => vec!["Histogram (Distribution)", "Line Plot (Time Series)"],
-        _ => vec![
+        1 => vec![
             "Heatmap (2D Spatial)",
+            "Histogram (Distribution)",
+            "Line Plot (Time Series)",
+        ],
+        _ => vec![
             "Line Plot (Time Series)",
             "Histogram (Distribution)",
         ],

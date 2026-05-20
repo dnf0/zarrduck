@@ -109,15 +109,7 @@ Type "extracted"
 Sleep 1s
 Enter
 Sleep 2s
-Down 1
-Sleep 500ms
-Space
-Sleep 500ms
-Down 1
-Sleep 500ms
-Space
-Sleep 500ms
-Down 1
+Down 3
 Sleep 500ms
 Space
 Sleep 500ms
