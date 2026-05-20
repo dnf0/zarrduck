@@ -1051,11 +1051,14 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     return Err(eyre!("--api is required when using --output=json"));
                 }
                 
-                let providers = vec![
-                    "https://planetarycomputer.microsoft.com/api/stac/v1 - Microsoft Planetary Computer",
-                    "https://earth-search.aws.element84.com/v1 - Earth Search (Element84/AWS)",
-                    "https://api.pangeo-forge.org/stac/ - Pangeo Forge",
+                let mut providers = vec![
+                    "https://planetarycomputer.microsoft.com/api/stac/v1 - Microsoft Planetary Computer".to_string(),
+                    "https://earth-search.aws.element84.com/v1 - Earth Search (Element84/AWS)".to_string(),
+                    "https://api.pangeo-forge.org/stac/ - Pangeo Forge".to_string(),
                 ];
+                if let Ok(local_stac) = std::env::var("ZARRDUCK_LOCAL_STAC") {
+                    providers.push(local_stac);
+                }
                 
                 let mut select = inquire::Select::new("Select a STAC Provider:", providers);
                 select.scorer = &|input, _, string_value, _| {
