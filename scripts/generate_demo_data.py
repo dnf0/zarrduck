@@ -14,7 +14,9 @@ def main():
     if not os.path.exists(nc_path):
         print("Downloading real climate dataset from NOAA...")
         url = "https://downloads.psl.noaa.gov/Datasets/ncep.reanalysis.derived/surface/air.mon.mean.nc"
-        urllib.request.urlretrieve(url, nc_path)
+        temp_nc_path = nc_path + ".tmp"
+        urllib.request.urlretrieve(url, temp_nc_path)
+        shutil.move(temp_nc_path, nc_path)
 
     print("Converting NetCDF to Zarr...")
     ds = xr.open_dataset(nc_path, engine='netcdf4')

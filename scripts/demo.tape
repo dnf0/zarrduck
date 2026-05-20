@@ -11,7 +11,7 @@ Hide
 Type "cargo clean -p zarrduck -p duckdb_geozarr && cargo build -p zarrduck && cd extension && cargo duckdb-ext build --duckdb-version v1.5.2 -- --features loadable-extension && cd .."
 Enter
 Sleep 10s
-Type "pip3 install zarr numpy"
+Type "pip3 install -r requirements.txt"
 Enter
 Sleep 5s
 Type "python3 scripts/generate_demo_data.py"
