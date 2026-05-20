@@ -242,7 +242,7 @@ fn inject_s3_secret(conn: &Connection, s3_config: Option<&crate::config::S3Confi
 async fn main() -> EyreResult<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
-    let config = ZarrduckConfig::load().unwrap_or(ZarrduckConfig { output_format: None, default_out: None, s3: None });
+    let config = ZarrduckConfig::load().unwrap_or(ZarrduckConfig { output_format: None, default_out: None, local_stac: None, s3: None });
     
     let is_json = cli.output.as_ref().map(|o| *o == OutputFormat::Json)
         .unwrap_or_else(|| config.output_format.as_deref() == Some("json"));
@@ -1056,8 +1056,8 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     "https://earth-search.aws.element84.com/v1 - Earth Search (Element84/AWS)".to_string(),
                     "https://api.pangeo-forge.org/stac/ - Pangeo Forge".to_string(),
                 ];
-                if let Ok(local_stac) = std::env::var("ZARRDUCK_LOCAL_STAC") {
-                    providers.push(local_stac);
+                if let Some(local_stac) = &config.local_stac {
+                    providers.push(format!("{} - Local STAC (Env)", local_stac));
                 }
                 
                 let mut select = inquire::Select::new("Select a STAC Provider:", providers);

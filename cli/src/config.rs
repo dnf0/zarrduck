@@ -14,6 +14,7 @@ pub struct S3Config {
 pub struct ZarrduckConfig {
     pub output_format: Option<String>,
     pub default_out: Option<String>,
+    pub local_stac: Option<String>,
     pub s3: Option<S3Config>,
 }
 
