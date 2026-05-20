@@ -43,3 +43,18 @@ impl ZarrduckConfig {
         Ok(config)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_local_stac_from_env() {
+        std::env::set_var("ZARRDUCK_LOCAL_STAC", "http://test-local-stac:8080");
+        
+        let config = ZarrduckConfig::load().unwrap();
+        assert_eq!(config.local_stac.as_deref(), Some("http://test-local-stac:8080"));
+        
+        std::env::remove_var("ZARRDUCK_LOCAL_STAC");
+    }
+}

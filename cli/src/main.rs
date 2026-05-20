@@ -266,6 +266,18 @@ async fn main() -> EyreResult<()> {
     Ok(())
 }
 
+pub(crate) fn get_stac_providers(config: &ZarrduckConfig) -> Vec<String> {
+    let mut providers = vec![
+        "https://planetarycomputer.microsoft.com/api/stac/v1 - Microsoft Planetary Computer".to_string(),
+        "https://earth-search.aws.element84.com/v1 - Earth Search (Element84/AWS)".to_string(),
+        "https://api.pangeo-forge.org/stac/ - Pangeo Forge".to_string(),
+    ];
+    if let Some(local_stac) = &config.local_stac {
+        providers.push(format!("{} - Local STAC", local_stac));
+    }
+    providers
+}
+
 async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
     let resolved_output = cli.output.clone()
         .or_else(|| {
@@ -1051,14 +1063,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     return Err(eyre!("--api is required when using --output=json"));
                 }
                 
-                let mut providers = vec![
-                    "https://planetarycomputer.microsoft.com/api/stac/v1 - Microsoft Planetary Computer".to_string(),
-                    "https://earth-search.aws.element84.com/v1 - Earth Search (Element84/AWS)".to_string(),
-                    "https://api.pangeo-forge.org/stac/ - Pangeo Forge".to_string(),
-                ];
-                if let Some(local_stac) = &config.local_stac {
-                    providers.push(format!("{} - Local STAC", local_stac));
-                }
+                let providers = get_stac_providers(&config);
                 
                 let mut select = inquire::Select::new("Select a STAC Provider:", providers);
                 select.scorer = &|input, _, string_value, _| {
@@ -1395,4 +1400,31 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::ZarrduckConfig;
+
+    #[test]
+    fn test_local_stac_provider() {
+        let mut config = ZarrduckConfig {
+            output_format: None,
+            default_out: None,
+            local_stac: None,
+            s3: None,
+        };
+
+        // Without local_stac
+        let providers = get_stac_providers(&config);
+        assert_eq!(providers.len(), 3);
+        assert!(!providers.iter().any(|p| p.contains("Local STAC")));
+
+        // With local_stac
+        config.local_stac = Some("http://localhost:8080".to_string());
+        let providers = get_stac_providers(&config);
+        assert_eq!(providers.len(), 4);
+        assert_eq!(providers.last().unwrap(), "http://localhost:8080 - Local STAC");
+    }
 }
