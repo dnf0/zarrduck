@@ -62,19 +62,19 @@ mod plot; // ADD THIS
     Plot {
         /// The DuckDB database file
         db_path: String,
-        
+
         /// Type of plot (hist, heatmap, line)
         #[arg(long, value_enum)]
         plot_type: plot::PlotType,
-        
+
         /// The table to query
         #[arg(long, default_value = "extracted_data")]
         table: String,
-        
+
         /// The value column to aggregate (auto-detected if omitted)
         #[arg(long)]
         value: Option<String>,
-        
+
         /// Optional column to group by
         #[arg(long)]
         group_by: Option<String>,
@@ -120,7 +120,7 @@ use color_eyre::eyre::{eyre, WrapErr};
 fn detect_value_column(conn: &Connection, table: &str) -> Result<String> {
     let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))?;
     let mut rows = stmt.query([])?;
-    
+
     let mut columns = Vec::new();
     while let Some(row) = rows.next()? {
         let col_name: String = row.get(0)?;
@@ -129,7 +129,7 @@ fn detect_value_column(conn: &Connection, table: &str) -> Result<String> {
     }
 
     let val_col = columns.iter().find(|(_, lower)| {
-        !lower.contains("time") && !lower.contains("date") && 
+        !lower.contains("time") && !lower.contains("date") &&
         !lower.contains("lat") && lower != "y" &&
         !lower.contains("lon") && lower != "x" &&
         lower != "geom"
@@ -157,13 +157,13 @@ pub fn run_plot(
     }
 
     let conn = Connection::open(db_path)?;
-    
+
     let val_col = match value_column {
         Some(v) => v.to_string(),
         None => detect_value_column(&conn, table)?,
     };
 
-    println!("Plotting {} from table {} (Value: {})", 
+    println!("Plotting {} from table {} (Value: {})",
         format!("{:?}", plot_type).to_lowercase(), table, val_col);
 
     // Call specific plot functions here later
@@ -212,7 +212,7 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
              SELECT min(\"{v}\") as v_min, max(\"{v}\") as v_max FROM \"{t}\"
          ),
          bins AS (
-             SELECT 
+             SELECT
                  {g}
                  floor((\"{v}\" - v_min) / ((v_max - v_min) / 10.0)) as bin_idx,
                  count(*) as freq
@@ -230,7 +230,7 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
 
     // Since we don't know the exact schema of group_by ahead of time, we'll fetch as strings if present
     println!("Histogram rendering not fully implemented yet. Executed query: {}", query);
-    
+
     // In a real implementation, we'd collect results, find max frequency, and print bars.
     // Let's implement a basic version assuming no group_by for MVP to prove it works.
     let mut max_freq = 0;
@@ -315,7 +315,7 @@ fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
 
     let mut stmt = conn.prepare(&query)?;
     let mut rows = stmt.query([])?;
-    
+
     let mut data: Vec<f64> = Vec::new();
     while let Some(row) = rows.next()? {
         if let Ok(val) = row.get::<_, f64>(0) {
@@ -377,7 +377,7 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
     if group_by.is_some() {
          println!("Warning: group-by is ignored for spatial heatmaps.");
     }
-    
+
     // Attempt to find lat/lon columns
     let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))?;
     let mut rows = stmt.query([])?;
@@ -400,7 +400,7 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
             FROM \"{t}\"
         ),
         grid AS (
-            SELECT 
+            SELECT
                 floor((\"{lat}\" - min_lat) / ((max_lat - min_lat) / {rows_count}.0)) as row_idx,
                 floor((\"{lon}\" - min_lon) / ((max_lon - min_lon) / {cols_count}.0)) as col_idx,
                 avg(\"{v}\") as cell_val
@@ -416,7 +416,7 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
 
     let mut stmt = conn.prepare(&query)?;
     let mut rows = stmt.query([])?;
-    
+
     let mut grid_data = vec![vec![f64::NAN; cols_count]; rows_count];
     let mut global_min = f64::MAX;
     let mut global_max = f64::MIN;
@@ -425,7 +425,7 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
         let r: Option<f64> = row.get(0)?;
         let c: Option<f64> = row.get(1)?;
         let v: Option<f64> = row.get(2)?;
-        
+
         if let (Some(r), Some(c), Some(v)) = (r, c, v) {
             let r_idx = r.max(0.0).min((rows_count - 1) as f64) as usize;
             let c_idx = c.max(0.0).min((cols_count - 1) as f64) as usize;
@@ -437,7 +437,7 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
 
     // ASCII density characters
     let chars = ['.', ':', '-', '=', '+', '*', '#', '%', '@'];
-    
+
     println!("\nHeatmap of {} (Spatial):\n", val_col);
     for r in (0..rows_count).rev() { // Print top-to-bottom
         for c in 0..cols_count {

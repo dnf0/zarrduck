@@ -36,7 +36,7 @@ mod tests {
                 }
             }
         });
-        
+
         let meta = parse_geozarr_metadata(&attrs).unwrap();
         assert_eq!(meta.crs, Some("EPSG:4326".to_string()));
         let transform = meta.transform.unwrap();
@@ -82,23 +82,23 @@ pub struct GeoZarrMetadata {
 
 pub fn parse_geozarr_metadata(attrs: &Value) -> Option<GeoZarrMetadata> {
     let geozarr_val = attrs.get("geozarr")?;
-    
+
     let crs = geozarr_val.get("crs").and_then(|v| v.as_str()).map(|s| s.to_string());
-    
+
     let transform = geozarr_val.get("spatial_transform").and_then(|t| {
         let scale = t.get("scale")?.as_array()?
             .iter()
             .filter_map(|v| v.as_f64())
             .collect::<Vec<f64>>();
-            
+
         let translation = t.get("translation")?.as_array()?
             .iter()
             .filter_map(|v| v.as_f64())
             .collect::<Vec<f64>>();
-            
+
         Some(SpatialTransform { scale, translation })
     });
-    
+
     Some(GeoZarrMetadata { crs, transform })
 }
 ```
@@ -135,7 +135,7 @@ fn test_spatial_transform_coordinate_generation() {
         scale: vec![0.1, -0.1],
         translation: vec![-180.0, 90.0]
     };
-    
+
     assert_eq!(apply_transform(&transform, 0, 5), -180.0 + (5.0 * 0.1));
     assert_eq!(apply_transform(&transform, 1, 10), 90.0 + (10.0 * -0.1));
 }
@@ -179,7 +179,7 @@ pub struct ReadZarrBindData {
 Inside `ReadZarrVTab::bind`, parse it from the array metadata:
 ```rust
         let metadata = array.metadata();
-        
+
         let mut spatial_transform = None;
         if let zarrs::array::ArrayMetadata::V2(meta) = metadata {
             if let Some(geozarr_meta) = crate::metadata::parse_geozarr_metadata(&meta.attributes) {
@@ -214,7 +214,7 @@ Inside `ReadZarrVTab::func` in `extension/src/table_function.rs` where we yield 
                             if let Some(coord_array) = bind_data.1d_coords.get(dim_name) {
                                 let val = coord_array.get(global_index as usize).copied().unwrap_or(0.0);
                                 output.write::<f64>(idx, row_idx, val);
-                            } 
+                            }
                             // If spatial transform exists for this dimension
                             else if let Some(ref transform) = bind_data.spatial_transform {
                                 if dim_idx < transform.scale.len() {
@@ -424,7 +424,7 @@ fn test_geozarr_spatial_metadata() -> duckdb::Result<()> {
     // y_idx=0, x_idx=0 -> y: 90 + (0 * -10) = 90.0 | x: -180 + (0 * 10) = -180.0
     // y_idx=0, x_idx=1 -> y: 90 + (0 * -10) = 90.0 | x: -180 + (1 * 10) = -170.0
     // y_idx=1, x_idx=0 -> y: 90 + (1 * -10) = 80.0 | x: -180 + (0 * 10) = -180.0
-    
+
     let query_data = format!("SELECT y, x, value FROM read_zarr('{}') ORDER BY y DESC, x ASC", store_path.display());
     let mut stmt_data = conn.prepare(&query_data)?;
     let mut rows = stmt_data.query([])?;

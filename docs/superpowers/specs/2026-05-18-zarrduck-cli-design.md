@@ -14,7 +14,7 @@ The `zarrduck` CLI will be built using Rust's `clap` crate to ensure extensive, 
 ### 2.1 Discovery: `zarrduck info`
 - **Purpose:** Agent-friendly discovery of remote Zarr datasets.
 - **Input:** A Zarr URI (e.g., `s3://bucket/climate.zarr`).
-- **Output:** Clean JSON (or an ASCII table for humans) detailing the array shape, chunk shape, data types, and parsed GeoZarr CRS metadata. 
+- **Output:** Clean JSON (or an ASCII table for humans) detailing the array shape, chunk shape, data types, and parsed GeoZarr CRS metadata.
 
 ### 2.2 The Killer Feature: `zarrduck extract`
 - **Purpose:** Vector-Raster integration (Zonal Extraction). Extracts Zarr raster data constrained by vector polygons.

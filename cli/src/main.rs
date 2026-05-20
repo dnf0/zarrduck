@@ -1,13 +1,13 @@
 mod config;
-mod zarr_util;
 mod plot;
+mod zarr_util;
 use config::ZarrduckConfig;
 
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use color_eyre::eyre::{eyre, Result as EyreResult, WrapErr};
 use duckdb::{Connection, Result};
 use std::io::IsTerminal;
 use std::process::Command;
-use color_eyre::eyre::{eyre, WrapErr, Result as EyreResult};
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum OutputFormat {
@@ -104,11 +104,10 @@ enum Commands {
         /// The collection ID to search (e.g., era5-pds)
         #[arg(long)]
         collection: Option<String>,
-        
-        /// Bounding box (min_lon, min_lat, max_lon, max_lat)
+                /// Bounding box (min_lon, min_lat, max_lon, max_lat)
         #[arg(long, allow_hyphen_values = true)]
         bbox: Option<String>,
-        
+
         /// Datetime range (e.g., 2020-01-01T00:00:00Z/2020-12-31T23:59:59Z)
         #[arg(long)]
         datetime: Option<String>,
@@ -117,15 +116,14 @@ enum Commands {
     Resample {
         /// The input DuckDB file containing the 'extracted_data' table
         input_db: String,
-        
+
         /// The output DuckDB file to save the resampled data
         output_db: String,
-        
+
         /// The temporal frequency (e.g., month, year, day)
         #[arg(long)]
         freq: Option<String>,
-        
-        /// The aggregate function to apply (e.g., avg, sum, max)
+                /// The aggregate function to apply (e.g., avg, sum, max)
         #[arg(long)]
         agg: Option<String>,
     },
@@ -133,59 +131,77 @@ enum Commands {
     Plot {
         /// The DuckDB database file
         db_path: String,
-        
+
         /// Type of plot (hist, heatmap, line)
         #[arg(long, value_enum)]
-        plot_type: plot::PlotType,
-        
+        plot_type: Option<plot::PlotType>,
+
         /// The table to query
         #[arg(long, default_value = "extracted_data")]
         table: String,
-        
+
         /// The value column to aggregate (auto-detected if omitted)
         #[arg(long)]
         value: Option<String>,
-        
+
         /// Optional column to group by
         #[arg(long)]
         group_by: Option<String>,
     },
 }
 
-fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String, String, String, String, bool)> {
-    let mut stmt = conn.prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))
+fn detect_columns(
+    conn: &duckdb::Connection,
+    table: &str,
+) -> EyreResult<(String, String, String, String, bool)> {
+    let mut stmt = conn
+        .prepare(&format!("DESCRIBE \"{}\"", table.replace("\"", "\"\"")))
         .wrap_err_with(|| format!("Failed to describe table '{}'", table))?;
-    
+
     let mut rows = stmt.query([])?;
-    
+
     let mut columns = Vec::new();
     let mut time_is_numeric = false;
-    
+
     while let Some(row) = rows.next()? {
         let col_name: String = row.get(0)?;
         let col_type: String = row.get(1)?;
         let col_lower = col_name.to_lowercase();
         columns.push(col_lower.clone());
-        
+
         if (col_lower.contains("time") || col_lower.contains("date"))
-            && (col_type.contains("INT") || col_type.contains("DOUBLE") || col_type.contains("FLOAT"))
+            && (col_type.contains("INT")
+                || col_type.contains("DOUBLE")
+                || col_type.contains("FLOAT"))
         {
             time_is_numeric = true;
         }
     }
 
     // Heuristics
-    let time_col = columns.iter().find(|c| c.contains("time") || c.contains("date"))
-        .cloned().ok_or_else(|| eyre!("Could not automatically detect a time column"))?;
-        
-    let lat_col = columns.iter().find(|c| c.contains("lat") || c == &"y")
-        .cloned().ok_or_else(|| eyre!("Could not automatically detect a latitude column"))?;
-        
-    let lon_col = columns.iter().find(|c| c.contains("lon") || c == &"x")
-        .cloned().ok_or_else(|| eyre!("Could not automatically detect a longitude column"))?;
+    let time_col = columns
+        .iter()
+        .find(|c| c.contains("time") || c.contains("date"))
+        .cloned()
+        .ok_or_else(|| eyre!("Could not automatically detect a time column"))?;
 
-    let val_col = columns.iter().find(|&c| c != &time_col && c != &lat_col && c != &lon_col && c != "geom")
-        .cloned().ok_or_else(|| eyre!("Could not automatically detect a value column"))?;
+    let lat_col = columns
+        .iter()
+        .find(|c| c.contains("lat") || c == &"y")
+        .cloned()
+        .ok_or_else(|| eyre!("Could not automatically detect a latitude column"))?;
+
+    let lon_col = columns
+        .iter()
+        .find(|c| c.contains("lon") || c == &"x")
+        .cloned()
+        .ok_or_else(|| eyre!("Could not automatically detect a longitude column"))?;
+
+    let val_col = columns
+        .iter()
+        .find(|&c| c != &time_col && c != &lat_col && c != &lon_col && c != "geom")
+        .cloned()
+        .ok_or_else(|| eyre!("Could not automatically detect a value column"))?;
 
     Ok((time_col, lat_col, lon_col, val_col, time_is_numeric))
 }
@@ -193,46 +209,74 @@ fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String,
 fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
     let ext_name = "duckdb_geozarr.duckdb_extension";
 
-    let path1 = format!("./target/debug/{}", ext_name);
-    let path2 = format!("../target/debug/{}", ext_name);
+    let mut candidate_paths = vec![
+        std::path::PathBuf::from(format!("./target/debug/{}", ext_name)),
+        std::path::PathBuf::from(format!("../target/debug/{}", ext_name)),
+    ];
 
-    let ext_path = if std::path::Path::new(&path1).exists() {
-        path1
-    } else {
-        path2
-    };
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            candidate_paths.push(parent.join(ext_name));
+            if let Some(grandparent) = parent.parent() {
+                candidate_paths.push(grandparent.join(ext_name));
+            }
+        }
+    }
 
-    conn.execute(&format!("LOAD '{}'", ext_path), [])
-        .wrap_err_with(|| format!("Failed to load extension at {}", ext_path))?;
+    let ext_path = candidate_paths
+        .into_iter()
+        .find(|p| p.exists())
+        .unwrap_or_else(|| std::path::PathBuf::from(format!("../target/debug/{}", ext_name)));
+
+    let ext_path_str = ext_path.to_string_lossy().into_owned();
+
+    conn.execute(&format!("LOAD '{}'", ext_path_str), [])
+        .wrap_err_with(|| format!("Failed to load extension at {}", ext_path_str))?;
 
     Ok(())
 }
 
 fn setup_duckdb(s3_config: Option<&crate::config::S3Config>) -> EyreResult<Connection> {
-    let config = duckdb::Config::default().allow_unsigned_extensions()
+    let config = duckdb::Config::default()
+        .allow_unsigned_extensions()
         .wrap_err("Failed to configure unsigned extensions")?;
     let conn = Connection::open_in_memory_with_flags(config)
         .wrap_err("Failed to open in-memory DuckDB connection")?;
 
-    load_geozarr_extension(&conn)
-        .wrap_err("Failed to load geozarr extension")?;
+    load_geozarr_extension(&conn).wrap_err("Failed to load geozarr extension")?;
 
     inject_s3_secret(&conn, s3_config)?;
 
     Ok(conn)
 }
 
-fn inject_s3_secret(conn: &Connection, s3_config: Option<&crate::config::S3Config>) -> EyreResult<()> {
+fn inject_s3_secret(
+    conn: &Connection,
+    s3_config: Option<&crate::config::S3Config>,
+) -> EyreResult<()> {
     if let Some(s3) = s3_config {
-        if s3.access_key.is_some() || s3.secret_key.is_some() || s3.region.is_some() || s3.endpoint.is_some() {
+        if s3.access_key.is_some()
+            || s3.secret_key.is_some()
+            || s3.region.is_some()
+            || s3.endpoint.is_some()
+        {
             let mut parts = vec!["TYPE S3".to_string()];
-            if let Some(ak) = &s3.access_key { parts.push(format!("KEY_ID '{}'", ak.replace("'", "''"))); }
-            if let Some(sk) = &s3.secret_key { parts.push(format!("SECRET '{}'", sk.replace("'", "''"))); }
-            if let Some(r) = &s3.region { parts.push(format!("REGION '{}'", r.replace("'", "''"))); }
-            if let Some(e) = &s3.endpoint { parts.push(format!("ENDPOINT '{}'", e.replace("'", "''"))); }
-            
+            if let Some(ak) = &s3.access_key {
+                parts.push(format!("KEY_ID '{}'", ak.replace("'", "''")));
+            }
+            if let Some(sk) = &s3.secret_key {
+                parts.push(format!("SECRET '{}'", sk.replace("'", "''")));
+            }
+            if let Some(r) = &s3.region {
+                parts.push(format!("REGION '{}'", r.replace("'", "''")));
+            }
+            if let Some(e) = &s3.endpoint {
+                parts.push(format!("ENDPOINT '{}'", e.replace("'", "''")));
+            }
+
             let query = format!("CREATE SECRET ( {} )", parts.join(", "));
-            conn.execute(&query, []).wrap_err("Failed to inject S3 secret into DuckDB")?;
+            conn.execute(&query, [])
+                .wrap_err("Failed to inject S3 secret into DuckDB")?;
         }
     }
     Ok(())
@@ -244,9 +288,8 @@ async fn main() -> EyreResult<()> {
     let cli = Cli::parse();
     let config = ZarrduckConfig::load().unwrap_or(ZarrduckConfig { output_format: None, default_out: None, local_stac: None, s3: None });
     
-    let is_json = cli.output.as_ref().map(|o| *o == OutputFormat::Json)
-        .unwrap_or_else(|| config.output_format.as_deref() == Some("json"));
-    
+    let is_json = cli.output.as_ref().map(|o| *o == OutputFormat::Json)        .unwrap_or_else(|| config.output_format.as_deref() == Some("json"));
+
     if let Err(e) = run_cli(cli, config).await {
         if is_json {
             // Build error chain string
@@ -262,7 +305,7 @@ async fn main() -> EyreResult<()> {
             return Err(e);
         }
     }
-    
+
     Ok(())
 }
 
@@ -279,7 +322,9 @@ pub(crate) fn get_stac_providers(config: &ZarrduckConfig) -> Vec<String> {
 }
 
 async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
-    let resolved_output = cli.output.clone()
+    let resolved_output = cli
+        .output
+        .clone()
         .or_else(|| {
             config.output_format.as_deref().and_then(|s| match s {
                 "json" => Some(OutputFormat::Json),
@@ -288,26 +333,30 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             })
         })
         .unwrap_or(OutputFormat::Table);
-        
+
     // Update cli struct so nested commands can just use it
     cli.output = Some(resolved_output.clone());
 
     match cli.command {
         Commands::Info { uri } => {
-            let uri = zarr_util::resolve_zarr_uri(&uri, resolved_output == OutputFormat::Json).await?;
+            let uri =
+                zarr_util::resolve_zarr_uri(&uri, resolved_output == OutputFormat::Json).await?;
             let conn = setup_duckdb(config.s3.as_ref())?;
             let escaped_uri = uri.replace("'", "''");
-            let query = format!("SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')", escaped_uri);
-            
+            let query = format!(
+                "SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')",
+                escaped_uri
+            );
+
             let mut stmt = conn.prepare(&query)?;
             let mut rows = stmt.query([])?;
-            
+
             if let Some(row) = rows.next()? {
                 let array_shape: String = row.get(0)?;
                 let chunk_shape: String = row.get(1)?;
                 let data_type: String = row.get(2)?;
                 let crs: String = row.get(3)?;
-                
+
                 // NOTE: Use the OutputFormat enum you implemented in Task 1!
                 if resolved_output == OutputFormat::Json {
                     let json_out = serde_json::json!({
@@ -336,7 +385,6 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 .ok_or_else(|| eyre!("Output path not specified. Use --out or set default_out in config."))?;
             
             let skip_prompts = yes || !std::io::stdin().is_terminal() || resolved_output == OutputFormat::Json;
-
             // Overwrite protection
             if std::path::Path::new(&out_path).exists() {
                 if resolved_output == OutputFormat::Json {
@@ -344,32 +392,37 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 } else if yes {
                     std::fs::remove_file(&out_path).wrap_err_with(|| format!("Failed to delete existing file '{}'", out_path))?;
                 } else if !std::io::stdin().is_terminal() {
-                    return Err(color_eyre::eyre::eyre!("Output database '{}' already exists. Aborting to prevent overwrite in non-interactive mode. Use --yes to force.", out_path));
-                } else {
-                    let ans = inquire::Confirm::new(&format!("File '{}' already exists. Overwrite?", out_path))
-                        .with_default(false)
-                        .prompt()
-                        .wrap_err("Failed to read user input")?;
-                        
+                    return Err(color_eyre::eyre::eyre!("Output database '{}' already exists. Aborting to prevent overwrite in non-interactive mode. Use --yes to force.", out_path));                } else {
+                    let ans = inquire::Confirm::new(&format!(
+                        "File '{}' already exists. Overwrite?",
+                        out_path
+                    ))
+                    .with_default(false)
+                    .prompt()
+                    .wrap_err("Failed to read user input")?;
+
                     if !ans {
                         println!("Aborting extraction.");
                         return Ok(());
                     }
-                    
+
                     // User confirmed, so delete the file before opening it with DuckDB
-                    std::fs::remove_file(&out_path).wrap_err_with(|| format!("Failed to delete existing file '{}'", out_path))?;
+                    std::fs::remove_file(&out_path).wrap_err_with(|| {
+                        format!("Failed to delete existing file '{}'", out_path)
+                    })?;
                 }
             }
 
-            let db_config = duckdb::Config::default().allow_unsigned_extensions()
+            let db_config = duckdb::Config::default()
+                .allow_unsigned_extensions()
                 .wrap_err("Failed to configure unsigned extensions")?;
             let conn = Connection::open_with_flags(&out_path, db_config)
                 .wrap_err_with(|| format!("Failed to open database at {}", out_path))?;
-            
+
             // Load extensions
             load_geozarr_extension(&conn)?;
             inject_s3_secret(&conn, config.s3.as_ref())?;
-            
+
             // Install and load official spatial extension
             if resolved_output != OutputFormat::Json {
                 println!("Loading DuckDB spatial extension...");
@@ -421,24 +474,23 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     }
                 }
             }
-
             let spinner = if resolved_output != OutputFormat::Json {
                 let pb = indicatif::ProgressBar::with_draw_target(
-                    None, 
-                    indicatif::ProgressDrawTarget::stdout()
+                    None,
+                    indicatif::ProgressDrawTarget::stdout(),
                 );
                 pb.set_style(
                     indicatif::ProgressStyle::default_spinner()
                         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
                         .template("{spinner:.green} {msg}")
-                        .unwrap()
+                        .unwrap(),
                 );
                 pb.set_message("Extracting spatial data...");
                 Some(pb)
             } else {
                 None
             };
-            
+
             // The magic query: Create a table by joining the GeoZarr pixels that intersect the vector polygons
             let query = "CREATE OR REPLACE TABLE extracted_data AS 
                  SELECT z.*, v.* EXCLUDE (geom) 
@@ -448,35 +500,51 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             // Note: Since this is a blocking call, we run it in a blocking task so the tokio runtime can still tick the spinner if needed (though enable_steady_tick actually uses its own background thread).
             conn.execute(query, duckdb::params![zarr_uri, lon_min, lat_min, lon_max, lat_max, vector_path])
                 .wrap_err("Spatial extraction query failed")?;
-            
-            if let Some(pb) = spinner {
+                        if let Some(pb) = spinner {
                 pb.finish_and_clear();
                 println!("Extraction complete!");
             }
-            
+
             if resolved_output == OutputFormat::Json {
                 println!(r#"{{"status": "success", "db": "{}"}}"#, out_path);
             } else {
-                println!("Run `zarrduck shell {}` to explore the extracted data.", out_path);
+                println!(
+                    "Run `zarrduck shell {}` to explore the extracted data.",
+                    out_path
+                );
             }
         }
         Commands::Shell { db_path } => {
             let ext_name = "duckdb_geozarr.duckdb_extension";
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-            let path1 = cwd.join("target").join("debug").join(ext_name);
-            let path2 = cwd.parent().unwrap_or(&cwd).join("target").join("debug").join(ext_name);
-            
-            let ext_path = if path1.exists() {
-                path1.to_string_lossy().into_owned()
-            } else {
-                path2.to_string_lossy().into_owned()
-            };
-            
-            let init_commands = format!(
-                "LOAD '{}'; INSTALL spatial; LOAD spatial;", 
-                ext_path
-            );
-            
+
+            let mut candidate_paths = vec![
+                cwd.join("target").join("debug").join(ext_name),
+                cwd.parent()
+                    .unwrap_or(&cwd)
+                    .join("target")
+                    .join("debug")
+                    .join(ext_name),
+            ];
+
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(parent) = exe_path.parent() {
+                    candidate_paths.push(parent.join(ext_name));
+                    if let Some(grandparent) = parent.parent() {
+                        candidate_paths.push(grandparent.join(ext_name));
+                    }
+                }
+            }
+
+            let ext_path = candidate_paths
+                .into_iter()
+                .find(|p| p.exists())
+                .unwrap_or_else(|| cwd.join("target").join("debug").join(ext_name))
+                .to_string_lossy()
+                .into_owned();
+
+            let init_commands = format!("LOAD '{}'; INSTALL spatial; LOAD spatial;", ext_path);
+
             println!("Starting DuckDB shell...");
             let status = Command::new("duckdb")
                 .arg(&db_path)
@@ -484,11 +552,14 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 .arg("-cmd")
                 .arg(&init_commands)
                 .status();
-                
+
             match status {
-                Ok(s) if s.success() => {},
+                Ok(s) if s.success() => {}
                 Ok(s) => eprintln!("DuckDB shell exited with status: {}", s),
-                Err(e) => eprintln!("Failed to launch 'duckdb' CLI. Is it installed in your PATH? Error: {}", e),
+                Err(e) => eprintln!(
+                    "Failed to launch 'duckdb' CLI. Is it installed in your PATH? Error: {}",
+                    e
+                ),
             }
         }
         Commands::Export {
@@ -529,9 +600,10 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             }
 
             if !all_columns.contains(&value_column) {
-                return Err(
-                    eyre!("Value column '{}' not found in query results", value_column),
-                );
+                return Err(eyre!(
+                    "Value column '{}' not found in query results",
+                    value_column
+                ));
             }
 
             // 2. Pass 1: Infer Shape
@@ -664,12 +736,14 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             // 4. Setup Async Upload Workers
             println!("Pass 2: Streaming data...");
             let total_rows_query = format!("SELECT COUNT(*) FROM ({})", query);
-            let total_rows: u64 = _conn.query_row(&total_rows_query, [], |row| row.get(0)).unwrap_or(0);
-            
+            let total_rows: u64 = _conn
+                .query_row(&total_rows_query, [], |row| row.get(0))
+                .unwrap_or(0);
+
             let progress = if resolved_output != OutputFormat::Json && total_rows > 0 {
                 let pb = indicatif::ProgressBar::with_draw_target(
                     Some(total_rows),
-                    indicatif::ProgressDrawTarget::stdout()
+                    indicatif::ProgressDrawTarget::stdout(),
                 );
                 pb.set_style(
                     indicatif::ProgressStyle::default_bar()
@@ -760,7 +834,8 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             let chunk_len = chunk_shape
                 .iter()
                 .try_fold(1u64, |acc, &x| acc.checked_mul(x))
-                .ok_or_else(|| eyre!("Chunk volume overflow"))? as usize;
+                .ok_or_else(|| eyre!("Chunk volume overflow"))?
+                as usize;
 
             let bytes_per_element = match data_type {
                 zarrs::array::DataType::Float64
@@ -818,14 +893,15 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     {
                         let val: i64 = row.get(i)?;
                         if val < 0 {
-                            return Err(
-                                eyre!("Coordinates must be positive 0-based integer indices")
-                            );
+                            return Err(eyre!(
+                                "Coordinates must be positive 0-based integer indices"
+                            ));
                         }
                         if (val as u64) >= shape[i] {
                             return Err(eyre!(
                                 "Coordinate index {} exceeds maximum bound of dimension {}",
-                                val, shape[i]
+                                val,
+                                shape[i]
                             ));
                         }
                         let grid_idx = (val as u64) / chunk_dim;
@@ -1015,7 +1091,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     }
 
                     row_count += 1;
-                    
+
                     if let Some(ref pb) = progress {
                         if row_count % 10_000 == 0 {
                             pb.set_position(row_count);
@@ -1053,10 +1129,14 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             let bin_name = cmd.get_name().to_string();
             clap_complete::generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
         }
-        Commands::Search { api, collection, bbox, datetime } => {
+        Commands::Search {
+            api,
+            collection,
+            bbox,
+            datetime,
+        } => {
             let client = reqwest::Client::new();
-            
-            let selected_api = if let Some(a) = api {
+                        let selected_api = if let Some(a) = api {
                 a
             } else {
                 if cli.output == Some(OutputFormat::Json) {
@@ -1064,8 +1144,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 }
                 
                 let providers = get_stac_providers(&config);
-                
-                let mut select = inquire::Select::new("Select a STAC Provider:", providers);
+                                let mut select = inquire::Select::new("Select a STAC Provider:", providers);
                 select.scorer = &|input, _, string_value, _| {
                     let input = input.to_lowercase();
                     let val = string_value.to_lowercase();
@@ -1082,8 +1161,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             };
             
             let mut current_collection = collection.clone();
-            
-            loop {
+                        loop {
                 let selected_collection = if let Some(ref c) = current_collection {
                     c.clone()
                 } else {
@@ -1097,8 +1175,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                         .send()
                         .await
                         .wrap_err("Failed to fetch collections from STAC API")?;
-                        
-                    if !res.status().is_success() {
+                                            if !res.status().is_success() {
                         let status = res.status();
                         let text = res.text().await.unwrap_or_default();
                         return Err(eyre!("STAC API returned {}: {}", status, text));
@@ -1113,8 +1190,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                         for col in collections {
                             if let Some(id) = col.get("id").and_then(|id| id.as_str()) {
                                 let title = col.get("title").and_then(|t| t.as_str()).unwrap_or(id);
-                                let mut desc = col.get("description").and_then(|d| d.as_str()).unwrap_or("").replace('\n', " ");
-                                if desc.len() > 80 {
+                                let mut desc = col.get("description").and_then(|d| d.as_str()).unwrap_or("").replace('\n', " ");                                if desc.len() > 80 {
                                     desc.truncate(77);
                                     desc.push_str("...");
                                 }
@@ -1122,8 +1198,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                                 if desc.is_empty() {
                                     collection_options.push(format!("{} - {}", id, title));
                                 } else {
-                                    collection_options.push(format!("{} - {} ({})", id, title, desc));
-                                }
+                                    collection_options.push(format!("{} - {} ({})", id, title, desc));                                }
                                 collection_ids.push(id.to_string());
                             }
                         }
@@ -1132,8 +1207,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     if collection_ids.is_empty() {
                         return Err(eyre!("No collections found at {}", collections_url));
                     }
-                    
-                    if cli.output == Some(OutputFormat::Json) {
+                                        if cli.output == Some(OutputFormat::Json) {
                         let json_out = serde_json::json!({
                             "status": "success",
                             "collections": collection_ids
@@ -1143,8 +1217,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     }
                     
                     let mut select = inquire::Select::new("Select a STAC Collection to search:", collection_options)
-                        .with_page_size(10);
-                    select.scorer = &|input, _, string_value, _| {
+                        .with_page_size(10);                    select.scorer = &|input, _, string_value, _| {
                         let input = input.to_lowercase();
                         let val = string_value.to_lowercase();
                         if input.split_whitespace().all(|word| val.contains(word)) {
@@ -1158,8 +1231,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     // Extract just the ID part
                     selection.split(" - ").next().unwrap().to_string()
                 };
-                
-                let mut payload = serde_json::json!({
+                                let mut payload = serde_json::json!({
                     "collections": [selected_collection],
                     "limit": 10
                 });
@@ -1167,8 +1239,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 if let Some(ref b) = bbox {
                     let bbox_arr: Vec<f64> = b.split(',').map(|s| s.trim().parse::<f64>()).collect::<Result<Vec<_>, _>>().wrap_err("Failed to parse bbox coordinates as floats")?;
                     if bbox_arr.len() == 4 {
-                        payload.as_object_mut().unwrap().insert("bbox".to_string(), serde_json::json!(bbox_arr));
-                    } else {
+                        payload.as_object_mut().unwrap().insert("bbox".to_string(), serde_json::json!(bbox_arr));                    } else {
                         return Err(eyre!("bbox must be 4 comma-separated numbers (min_lon, min_lat, max_lon, max_lat)"));
                     }
                 }
@@ -1176,8 +1247,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 if let Some(ref dt) = datetime {
                     payload.as_object_mut().unwrap().insert("datetime".to_string(), serde_json::json!(dt));
                 }
-                
-                let mut search_api = selected_api.clone();
+                                let mut search_api = selected_api.clone();
                 if !search_api.ends_with("/search") {
                     search_api = format!("{}/search", search_api.trim_end_matches('/'));
                 }
@@ -1186,13 +1256,11 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     println!("Querying STAC API: {}", search_api);
                 }
                 
-                let res = client.post(&search_api)
-                    .json(&payload)
+                let res = client.post(&search_api)                    .json(&payload)
                     .send()
                     .await
                     .wrap_err("Failed to send request to STAC API")?;
-                    
-                if !res.status().is_success() {
+                                    if !res.status().is_success() {
                     let status = res.status();
                     let text = res.text().await.unwrap_or_default();
                     return Err(eyre!("STAC API returned {}: {}", status, text));
@@ -1202,8 +1270,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 
                 let mut found_uris = Vec::new();
                 let mut found_options = Vec::new();
-                
-                if let Some(features) = stac_response.get("features").and_then(|f| f.as_array()) {
+                                if let Some(features) = stac_response.get("features").and_then(|f| f.as_array()) {
                     for feature in features {
                         if let Some(assets) = feature.get("assets").and_then(|a| a.as_object()) {
                             for (_, asset) in assets {
@@ -1213,8 +1280,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                                     
                                     if is_zarr_type || is_zarr_href {
                                         let title = asset.get("title").and_then(|t| t.as_str()).unwrap_or(href);
-                                        let mut desc = asset.get("description").and_then(|d| d.as_str()).unwrap_or("").replace('\n', " ");
-                                        if desc.len() > 80 {
+                                        let mut desc = asset.get("description").and_then(|d| d.as_str()).unwrap_or("").replace('\n', " ");                                        if desc.len() > 80 {
                                             desc.truncate(77);
                                             desc.push_str("...");
                                         }
@@ -1222,8 +1288,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                                         if desc.is_empty() {
                                             found_options.push(format!("{} - {}", href, title));
                                         } else {
-                                            found_options.push(format!("{} - {} ({})", href, title, desc));
-                                        }
+                                            found_options.push(format!("{} - {} ({})", href, title, desc));                                        }
                                         found_uris.push(href.to_string());
                                     }
                                 }
@@ -1231,8 +1296,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                         }
                     }
                 }
-                
-                if cli.output == Some(OutputFormat::Json) {
+                                if cli.output == Some(OutputFormat::Json) {
                     let json_out = serde_json::json!({
                         "status": "success",
                         "uris": found_uris
@@ -1241,8 +1305,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     break;
                 } else {
                     if found_uris.is_empty() {
-                        println!("No Zarr URIs found in collection {}. Restarting selection loop...\n", selected_collection);
-                        current_collection = None;
+                        println!("No Zarr URIs found in collection {}. Restarting selection loop...\n", selected_collection);                        current_collection = None;
                         continue;
                     } else {
                         let selection = if found_options.len() == 1 {
@@ -1250,8 +1313,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                         } else {
                             let prompt_msg = format!("Found {} Zarr URIs. Select a dataset to use:", found_options.len());
                             let mut select = inquire::Select::new(&prompt_msg, found_options)
-                                .with_page_size(10);
-                            select.scorer = &|input, _, string_value, _| {
+                                .with_page_size(10);                            select.scorer = &|input, _, string_value, _| {
                                 let input = input.to_lowercase();
                                 let val = string_value.to_lowercase();
                                 if input.split_whitespace().all(|word| val.contains(word)) {
@@ -1269,8 +1331,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                         
                         println!("Selected Dataset: {}", resolved_uri);
                         println!("You can now extract this data using:");
-                        println!("zarrduck extract {} <your-vector-file.geojson>", resolved_uri);
-                        break;
+                        println!("zarrduck extract {} <your-vector-file.geojson>", resolved_uri);                        break;
                     }
                 }
             }
@@ -1297,54 +1358,64 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     .prompt()?
                     .to_string()
             };
-
             if !std::path::Path::new(&input_db).exists() {
                 return Err(eyre!("Input database '{}' does not exist.", input_db));
             }
 
             let input_conn = Connection::open(&input_db)
                 .wrap_err_with(|| format!("Failed to open input database '{}'", input_db))?;
-            
-            let (time_col, lat_col, lon_col, val_col, time_is_numeric) = detect_columns(&input_conn, "extracted_data")?;
-            
+
+            let (time_col, lat_col, lon_col, val_col, time_is_numeric) =
+                detect_columns(&input_conn, "extracted_data")?;
+
             if resolved_output != OutputFormat::Json {
-                println!("Detected schema: Time='{}' (numeric={}), Spatial='{}', '{}', Value='{}'", time_col, time_is_numeric, lat_col, lon_col, val_col);
+                println!(
+                    "Detected schema: Time='{}' (numeric={}), Spatial='{}', '{}', Value='{}'",
+                    time_col, time_is_numeric, lat_col, lon_col, val_col
+                );
             }
-            
+
             // Just close the input connection so we don't lock the file for the next step
             drop(input_conn);
 
             // Overwrite protection for output db
             if std::path::Path::new(&output_db).exists() {
                 if resolved_output == OutputFormat::Json {
-                    return Err(eyre!("Output database '{}' already exists. Aborting.", output_db));
+                    return Err(eyre!(
+                        "Output database '{}' already exists. Aborting.",
+                        output_db
+                    ));
                 } else {
-                    let ans = inquire::Confirm::new(&format!("File '{}' already exists. Overwrite?", output_db))
-                        .with_default(false)
-                        .prompt()
-                        .wrap_err("Failed to read user input")?;
-                        
+                    let ans = inquire::Confirm::new(&format!(
+                        "File '{}' already exists. Overwrite?",
+                        output_db
+                    ))
+                    .with_default(false)
+                    .prompt()
+                    .wrap_err("Failed to read user input")?;
+
                     if !ans {
                         println!("Aborting resampling.");
                         return Ok(());
                     }
-                    std::fs::remove_file(&output_db).wrap_err_with(|| format!("Failed to delete '{}'", output_db))?;
+                    std::fs::remove_file(&output_db)
+                        .wrap_err_with(|| format!("Failed to delete '{}'", output_db))?;
                 }
             }
 
             let conn = Connection::open(&output_db)
                 .wrap_err_with(|| format!("Failed to open output database '{}'", output_db))?;
-            
+
             let spinner = if resolved_output != OutputFormat::Json {
                 let pb = indicatif::ProgressBar::with_draw_target(
                     None,
-                    indicatif::ProgressDrawTarget::stdout()
+                    indicatif::ProgressDrawTarget::stdout(),
                 );
                 pb.set_style(
                     indicatif::ProgressStyle::default_spinner()
                         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
                         .template("{spinner:.green} {msg}")
-                        .unwrap()
+                        .unwrap(),
                 );
                 pb.set_message("Resampling time-series data...");
                 Some(pb)
@@ -1354,12 +1425,11 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             
             let allowed_aggs = ["sum", "avg", "min", "max", "count", "mean", "median", "mode", "stddev", "variance"];
             if !allowed_aggs.contains(&selected_agg.to_lowercase().as_str()) {
-                return Err(eyre!("Invalid aggregation function: '{}'. Allowed: {:?}", selected_agg, allowed_aggs));
-            }
+                return Err(eyre!("Invalid aggregation function: '{}'. Allowed: {:?}", selected_agg, allowed_aggs));            }
 
             conn.execute(&format!("ATTACH '{}' AS source_db", input_db), [])
                 .wrap_err("Failed to attach input database")?;
-                
+
             let time_expr = if time_is_numeric {
                 format!("to_timestamp(CAST({} AS BIGINT))", time_col)
             } else {
@@ -1367,8 +1437,8 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             };
 
             let query = format!(
-                "CREATE TABLE resampled_data AS 
-                 SELECT 
+                "CREATE TABLE resampled_data AS
+                 SELECT
                      date_trunc('{}', {}) as {},
                      {}, {},
                      {}({}) as value
@@ -1376,17 +1446,17 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                  GROUP BY 1, 2, 3",
                 selected_freq.replace("'", "''"), time_expr, time_col,
                 lat_col, lon_col,
-                selected_agg, val_col
-            );
-            
+                selected_agg, val_col            );
+
             // Note: Since this is a blocking call, we run it directly on this thread. The tokio runtime isn't heavily needed here since it's local.
-            conn.execute(&query, []).wrap_err("Resampling query failed")?;
-            
+            conn.execute(&query, [])
+                .wrap_err("Resampling query failed")?;
+
             if let Some(pb) = spinner {
                 pb.finish_and_clear();
                 println!("Resampling complete!");
             }
-            
+
             if resolved_output == OutputFormat::Json {
                 println!(r#"{{"status": "success", "db": "{}"}}"#, output_db);
             } else {
@@ -1394,8 +1464,20 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 println!("Run `zarrduck shell {}` to explore it.", output_db);
             }
         }
-        Commands::Plot { db_path, plot_type, table, value, group_by } => {
-            plot::run_plot(&db_path, plot_type, &table, value.as_deref(), group_by.as_deref())?;
+        Commands::Plot {
+            db_path,
+            plot_type,
+            table,
+            value,
+            group_by,
+        } => {
+            plot::run_plot(
+                &db_path,
+                plot_type,
+                &table,
+                value.as_deref(),
+                group_by.as_deref(),
+            )?;
         }
     }
 

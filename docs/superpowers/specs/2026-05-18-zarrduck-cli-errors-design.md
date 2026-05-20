@@ -25,7 +25,7 @@ Instead of simply bubbling up opaque library errors (like "DuckDB IO Error"), we
 The CLI supports an `--output=json` mode designed for LLM agents. `color-eyre` outputs highly formatted ANSI-colored ASCII art, which fundamentally breaks JSON parsing.
 
 ### 3.1 JSON Error Interception
-To ensure compatibility, we will wrap the command execution logic in a helper function (`run_cli() -> color_eyre::Result<()>`). 
+To ensure compatibility, we will wrap the command execution logic in a helper function (`run_cli() -> color_eyre::Result<()>`).
 Inside `main()`, we will match the result of `run_cli()`:
 - If `Ok(())`, exit normally.
 - If `Err(e)`:

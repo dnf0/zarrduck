@@ -23,14 +23,14 @@ Update the `Commands` enum in `cli/src/main.rs` to add the `Resample` variant:
     Resample {
         /// The input DuckDB file containing the 'extracted_data' table
         input_db: String,
-        
+
         /// The output DuckDB file to save the resampled data
         output_db: String,
-        
+
         /// The temporal frequency (e.g., month, year, day)
         #[arg(long)]
         freq: String,
-        
+
         /// The aggregate function to apply (e.g., avg, sum, max)
         #[arg(long)]
         agg: String,
@@ -72,9 +72,9 @@ Add a helper function to find columns based on known name patterns:
 fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String, String, String, String)> {
     let mut stmt = conn.prepare(&format!("DESCRIBE {}", table))
         .wrap_err_with(|| format!("Failed to describe table '{}'", table))?;
-    
+
     let mut rows = stmt.query([])?;
-    
+
     let mut columns = Vec::new();
     while let Some(row) = rows.next()? {
         let col_name: String = row.get(0)?;
@@ -84,10 +84,10 @@ fn detect_columns(conn: &duckdb::Connection, table: &str) -> EyreResult<(String,
     // Heuristics
     let time_col = columns.iter().find(|c| c.contains("time") || c.contains("date"))
         .cloned().ok_or_else(|| eyre!("Could not automatically detect a time column"))?;
-        
+
     let lat_col = columns.iter().find(|c| c.contains("lat") || c.contains("y"))
         .cloned().ok_or_else(|| eyre!("Could not automatically detect a latitude column"))?;
-        
+
     let lon_col = columns.iter().find(|c| c.contains("lon") || c.contains("x"))
         .cloned().ok_or_else(|| eyre!("Could not automatically detect a longitude column"))?;
 
@@ -109,13 +109,13 @@ In `Commands::Resample`:
 
             let input_conn = Connection::open(&input_db)
                 .wrap_err_with(|| format!("Failed to open input database '{}'", input_db))?;
-            
+
             let (time_col, lat_col, lon_col, val_col) = detect_columns(&input_conn, "extracted_data")?;
-            
+
             if resolved_output != OutputFormat::Json {
                 println!("Detected schema: Time='{}', Spatial='{}', '{}', Value='{}'", time_col, lat_col, lon_col, val_col);
             }
-            
+
             // Just close the input connection so we don't lock the file for the next step
             drop(input_conn);
         }
@@ -154,7 +154,7 @@ Append the following to the `Commands::Resample` match arm after `drop(input_con
                         .with_default(false)
                         .prompt()
                         .wrap_err("Failed to read user input")?;
-                        
+
                     if !ans {
                         println!("Aborting resampling.");
                         return Ok(());
@@ -165,7 +165,7 @@ Append the following to the `Commands::Resample` match arm after `drop(input_con
 
             let conn = Connection::open(&output_db)
                 .wrap_err_with(|| format!("Failed to open output database '{}'", output_db))?;
-            
+
             let spinner = if resolved_output != OutputFormat::Json {
                 let pb = indicatif::ProgressBar::new_spinner();
                 pb.set_style(
@@ -180,13 +180,13 @@ Append the following to the `Commands::Resample` match arm after `drop(input_con
             } else {
                 None
             };
-            
+
             conn.execute(&format!("ATTACH '{}' AS source_db", input_db), [])
                 .wrap_err("Failed to attach input database")?;
-                
+
             let query = format!(
-                "CREATE TABLE resampled_data AS 
-                 SELECT 
+                "CREATE TABLE resampled_data AS
+                 SELECT
                      date_trunc('{}', {}) as {},
                      {}, {},
                      {}({}) as value
@@ -196,13 +196,13 @@ Append the following to the `Commands::Resample` match arm after `drop(input_con
                 lat_col, lon_col,
                 agg, val_col
             );
-            
+
             conn.execute(&query, []).wrap_err("Resampling query failed")?;
-            
+
             if let Some(pb) = spinner {
                 pb.finish_with_message("Resampling complete!");
             }
-            
+
             if resolved_output == OutputFormat::Json {
                 println!(r#"{{"status": "success", "db": "{}"}}"#, output_db);
             } else {
