@@ -44,10 +44,6 @@ Type "mock"
 Sleep 1s
 Enter
 Sleep 2s
-Type "local"
-Sleep 1s
-Enter
-Sleep 2s
 Type "air_temp"
 Sleep 1s
 Enter
