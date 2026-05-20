@@ -1144,11 +1144,11 @@ impl VTab for PlanReadZarrVTab {
         let total_chunks_idx = bind_data.rank + 1; // 1 for value column + rank for coordinates
         let total_bytes_idx = bind_data.rank + 2;
 
-        for &col_idx in init_data.projected_columns.iter() {
+        for (chunk_idx, &col_idx) in init_data.projected_columns.iter().enumerate() {
             if col_idx == total_chunks_idx {
-                output.flat_vector(col_idx).as_mut_slice::<i64>()[0] = bind_data.total_chunks as i64;
+                output.flat_vector(chunk_idx).as_mut_slice::<i64>()[0] = bind_data.total_chunks as i64;
             } else if col_idx == total_bytes_idx {
-                output.flat_vector(col_idx).as_mut_slice::<i64>()[0] = bind_data.total_bytes as i64;
+                output.flat_vector(chunk_idx).as_mut_slice::<i64>()[0] = bind_data.total_bytes as i64;
             }
         }
         

@@ -329,8 +329,10 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             if std::path::Path::new(&out_path).exists() {
                 if resolved_output == OutputFormat::Json {
                     return Err(color_eyre::eyre::eyre!("Output database '{}' already exists. Aborting to prevent overwrite.", out_path));
-                } else if skip_prompts {
+                } else if yes {
                     std::fs::remove_file(&out_path).wrap_err_with(|| format!("Failed to delete existing file '{}'", out_path))?;
+                } else if !std::io::stdin().is_terminal() {
+                    return Err(color_eyre::eyre::eyre!("Output database '{}' already exists. Aborting to prevent overwrite in non-interactive mode. Use --yes to force.", out_path));
                 } else {
                     let ans = inquire::Confirm::new(&format!("File '{}' already exists. Overwrite?", out_path))
                         .with_default(false)
