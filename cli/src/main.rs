@@ -378,21 +378,19 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             conn.execute("LOAD spatial", []).wrap_err("Failed to load spatial extension")?;
             
             // Calculate the bounding box of the vector file to pass to read_zarr for spatial pushdown
-            let mut bbox_query = conn.prepare(&format!(
-                "SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e) FROM (SELECT ST_Extent(geom) as e FROM ST_Read('{}'))",
-                vector_path.replace("'", "''")
-            )).wrap_err("Failed to prepare bounding box query")?;
+            let mut bbox_query = conn.prepare(
+                "SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e) FROM (SELECT ST_Extent(geom) as e FROM ST_Read(?))"
+            ).wrap_err("Failed to prepare bounding box query")?;
 
-            let (lon_min, lat_min, lon_max, lat_max): (f64, f64, f64, f64) = bbox_query.query_row([], |row| {
+            let (lon_min, lat_min, lon_max, lat_max): (f64, f64, f64, f64) = bbox_query.query_row(duckdb::params![vector_path], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             }).wrap_err("Failed to compute bounding box from vector file")?;
 
-            let mut plan_query = conn.prepare(&format!(
-                "SELECT total_chunks, total_bytes FROM plan_read_zarr('{}', lon_min={}, lat_min={}, lon_max={}, lat_max={})",
-                zarr_uri.replace("'", "''"), lon_min, lat_min, lon_max, lat_max
-            )).wrap_err("Failed to prepare planning query")?;
+            let mut plan_query = conn.prepare(
+                "SELECT total_chunks, total_bytes FROM plan_read_zarr(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?)"
+            ).wrap_err("Failed to prepare planning query")?;
 
-            let (total_chunks, total_bytes): (u64, u64) = plan_query.query_row([], |row| {
+            let (total_chunks, total_bytes): (u64, u64) = plan_query.query_row(duckdb::params![zarr_uri, lon_min, lat_min, lon_max, lat_max], |row| {
                 let chunks: i64 = row.get(0)?;
                 let bytes: i64 = row.get(1)?;
                 Ok((chunks as u64, bytes as u64))

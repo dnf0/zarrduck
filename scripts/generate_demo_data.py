@@ -26,14 +26,13 @@ def main():
     # Optional: we can chunk it nicely
     ds = ds.chunk({'time': 12, 'lat': 73, 'lon': 144})
     
-    # Write to Zarr
-    ds.to_zarr(store_path, mode='w', consolidated=True)
-
     # Let's quickly ensure the arrays map well for zarrduck
     # We rename 'air' to 'air_temperature' so it matches the tape
     if 'air' in ds:
         ds = ds.rename({'air': 'air_temperature'})
-        ds.to_zarr(store_path, mode='w', consolidated=True)
+    
+    # Write to Zarr
+    ds.to_zarr(store_path, mode='w', consolidated=True)
 
     # Inject GeoZarr spatial metadata into the array attributes
     # The resolution for NCEP is 2.5 degrees.
