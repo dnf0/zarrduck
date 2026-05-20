@@ -23,4 +23,5 @@ rasciigraph = "0.3.0"
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.1"
+serial_test = "3.4.0"
 tempfile = "3.10"

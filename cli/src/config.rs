@@ -47,8 +47,10 @@ impl ZarrduckConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_parse_local_stac_from_env() {
         std::env::set_var("ZARRDUCK_LOCAL_STAC", "http://test-local-stac:8080");
         
