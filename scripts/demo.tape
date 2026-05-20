@@ -60,6 +60,8 @@ Show
 Sleep 1s
 Type "zarrduck extract climate_data.zarr/air_temperature scripts/demo_region.geojson --out analysis.duckdb"
 Enter
+Sleep 3s
+Enter
 Sleep 4s
 
 # Step 3: Temporal Resampling

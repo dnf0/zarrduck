@@ -365,6 +365,39 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             }).wrap_err("Failed to compute bounding box from vector file")?;
 
+            let mut plan_query = conn.prepare(&format!(
+                "SELECT total_chunks, total_bytes FROM plan_read_zarr('{}', lon_min={}, lat_min={}, lon_max={}, lat_max={})",
+                zarr_uri.replace("'", "''"), lon_min, lat_min, lon_max, lat_max
+            )).wrap_err("Failed to prepare planning query")?;
+
+            let (total_chunks, total_bytes): (u64, u64) = plan_query.query_row([], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            }).wrap_err("Failed to execute planning query")?;
+
+            if resolved_output != OutputFormat::Json {
+                // Estimate network speed at a conservative 25 MB/s
+                let estimated_seconds = total_bytes as f64 / (25.0 * 1024.0 * 1024.0);
+                
+                println!("\nExtraction Plan:");
+                println!("- Target Area: {} chunks", total_chunks);
+                println!("- Data Volume: {:.2} MB", total_bytes as f64 / 1_048_576.0);
+                if estimated_seconds < 60.0 {
+                    println!("- Estimated Time: {:.0} seconds (@ 25 MB/s)\n", estimated_seconds);
+                } else {
+                    println!("- Estimated Time: {:.1} minutes (@ 25 MB/s)\n", estimated_seconds / 60.0);
+                }
+
+                let ans = inquire::Confirm::new("Proceed with extraction?")
+                    .with_default(true)
+                    .prompt()
+                    .wrap_err("Failed to read user input")?;
+                    
+                if !ans {
+                    println!("Aborting extraction.");
+                    return Ok(());
+                }
+            }
+
             let spinner = if resolved_output != OutputFormat::Json {
                 let pb = indicatif::ProgressBar::with_draw_target(
                     None, 

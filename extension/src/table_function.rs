@@ -1056,6 +1056,94 @@ fn resolve_dimension_names(metadata: &ArrayMetadata, rank: usize) -> Vec<String>
     (0..rank).map(|i| format!("dim_{}", i)).collect()
 }
 
+pub struct PlanReadZarrBindData {
+    pub total_chunks: u64,
+    pub total_bytes: u64,
+}
+
+pub struct PlanReadZarrInitData {
+    pub done: std::sync::atomic::AtomicBool,
+}
+
+pub struct PlanReadZarrVTab;
+
+impl VTab for PlanReadZarrVTab {
+    type InitData = PlanReadZarrInitData;
+    type BindData = PlanReadZarrBindData;
+
+    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
+        ReadZarrVTab::parameters()
+    }
+
+    fn named_parameters() -> Option<Vec<(String, LogicalTypeHandle)>> {
+        ReadZarrVTab::named_parameters()
+    }
+
+    fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
+        // Reuse ReadZarrVTab logic to compute bounds
+        let read_bind = ReadZarrVTab::bind(bind)?;
+        
+        let rank = read_bind.shape.len();
+        let mut total_chunks = 1u64;
+        let mut chunk_volume = 1u64;
+        
+        for i in 0..rank {
+            let min_chunk = read_bind.bounds_min[i] / read_bind.chunk_shape[i];
+            let max_chunk = read_bind.bounds_max[i] / read_bind.chunk_shape[i];
+            
+            let num_chunks = max_chunk.saturating_sub(min_chunk).saturating_add(1);
+            total_chunks = total_chunks.saturating_mul(num_chunks);
+            chunk_volume = chunk_volume.saturating_mul(read_bind.chunk_shape[i]);
+        }
+        
+        let bytes_per_element = match read_bind.data_type {
+            DataType::Float64
+            | DataType::Int64
+            | DataType::UInt64 => 8,
+            DataType::Float32
+            | DataType::Int32
+            | DataType::UInt32 => 4,
+            DataType::Int16 | DataType::UInt16 => 2,
+            DataType::String => 64, // Estimate
+            _ => 1,
+        };
+        
+        let total_bytes = total_chunks.saturating_mul(chunk_volume).saturating_mul(bytes_per_element);
+        
+        bind.add_result_column("total_chunks", LogicalTypeId::UBigint.into());
+        bind.add_result_column("total_bytes", LogicalTypeId::UBigint.into());
+        
+        Ok(PlanReadZarrBindData {
+            total_chunks,
+            total_bytes,
+        })
+    }
+
+    fn init(_init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
+        Ok(PlanReadZarrInitData {
+            done: std::sync::atomic::AtomicBool::new(false),
+        })
+    }
+
+    fn func(
+        func: &duckdb::vtab::TableFunctionInfo<Self>,
+        output: &mut DataChunkHandle,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let init_data = func.get_init_data();
+        if init_data.done.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            output.set_len(0);
+            return Ok(());
+        }
+
+        let bind_data = func.get_bind_data();
+        output.flat_vector(0).as_mut_slice::<u64>()[0] = bind_data.total_chunks;
+        output.flat_vector(1).as_mut_slice::<u64>()[0] = bind_data.total_bytes;
+        output.set_len(1);
+        
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
