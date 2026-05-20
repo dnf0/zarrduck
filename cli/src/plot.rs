@@ -217,8 +217,26 @@ fn plot_heatmap(
         }
     }
 
-    let rows_count = 20;
-    let cols_count = 40;
+    let distinct_query = format!(
+        "SELECT count(distinct \"{lat}\"), count(distinct \"{lon}\") FROM \"{t}\"",
+        lat = lat_col.replace("\"", "\"\""),
+        lon = lon_col.replace("\"", "\"\""),
+        t = table.replace("\"", "\"\"")
+    );
+    let mut distinct_stmt = conn.prepare(&distinct_query)?;
+    let mut distinct_rows = distinct_stmt.query([])?;
+    let mut actual_rows = 12;
+    let mut actual_cols = 25;
+    if let Some(row) = distinct_rows.next()? {
+        let lat_count: i64 = row.get(0).unwrap_or(12);
+        let lon_count: i64 = row.get(1).unwrap_or(25);
+        actual_rows = lat_count as usize;
+        actual_cols = lon_count as usize;
+    }
+
+    // Cap dimensions to prevent blowing up the terminal
+    let rows_count = actual_rows.max(1).min(40);
+    let cols_count = actual_cols.max(1).min(80);
 
     let bounds_query = format!(
         "SELECT min(\"{lat}\"), max(\"{lat}\"), min(\"{lon}\"), max(\"{lon}\") FROM \"{t}\"",
@@ -313,7 +331,7 @@ fn plot_heatmap(
         } else if r == 0 {
             print!("{:>8.2} ┤ ", min_lat_bound);
         } else {
-            print!("           │ ");
+            print!("         │ ");
         }
 
         for val in grid_data[r].iter().take(cols_count) {
@@ -479,9 +497,12 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
     println!("\nDetected {} variable(s).", num_vars);
 
     let plot_options = match num_vars {
-        1 => vec!["Histogram (Distribution)", "Line Plot (Time Series)"],
-        _ => vec![
+        1 => vec![
             "Heatmap (2D Spatial)",
+            "Histogram (Distribution)",
+            "Line Plot (Time Series)",
+        ],
+        _ => vec![
             "Line Plot (Time Series)",
             "Histogram (Distribution)",
         ],
