@@ -95,3 +95,35 @@ Sleep 4s
 Type ".exit"
 Enter
 Sleep 2s
+
+# Step 5: Data Visualization
+Hide
+Type "printf '\033[1A\033[2K\n\033[1;36m# 5. Interactive data visualization\033[0m\n'"
+Enter
+Show
+Sleep 1s
+Type "zarrduck plot analysis.duckdb"
+Enter
+Sleep 2s
+Type "extracted"
+Sleep 1s
+Enter
+Sleep 2s
+Down 1
+Sleep 500ms
+Space
+Sleep 500ms
+Down 1
+Sleep 500ms
+Space
+Sleep 500ms
+Down 1
+Sleep 500ms
+Space
+Sleep 500ms
+Enter
+Sleep 2s
+Type "Heatmap"
+Sleep 1s
+Enter
+Sleep 5s
