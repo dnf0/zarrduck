@@ -1057,7 +1057,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
                     "https://api.pangeo-forge.org/stac/ - Pangeo Forge".to_string(),
                 ];
                 if let Some(local_stac) = &config.local_stac {
-                    providers.push(format!("{} - Local STAC (Env)", local_stac));
+                    providers.push(format!("{} - Local STAC", local_stac));
                 }
                 
                 let mut select = inquire::Select::new("Select a STAC Provider:", providers);
