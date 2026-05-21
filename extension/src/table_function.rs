@@ -639,6 +639,12 @@ impl VTab for ReadZarrVTab {
             chunk_bounds_max[i] = bind_data.bounds_max[i] / bind_data.chunk_shape[i];
         }
 
+        // Tell DuckDB how many threads can process this scan in parallel — one per chunk.
+        let num_chunks: u64 = (0..rank)
+            .map(|i| chunk_bounds_max[i].saturating_sub(chunk_bounds_min[i]) + 1)
+            .product();
+        _init.set_max_threads(num_chunks);
+
         let exhausted = bind_data.shape.contains(&0);
 
         Ok(ReadZarrInitData {

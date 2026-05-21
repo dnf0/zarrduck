@@ -25,6 +25,19 @@ Benchmarked against `xarray` + `shapely` on the [CMIP6 CESM2 historical surface 
 
 **Takeaway:** zarrduck matches or beats xarray when the Zarr store is chunked at a spatial granularity that aligns with query regions. For datasets with single global spatial chunks (common in CMIP6), xarray's coordinate-aware server-side slicing downloads less data.
 
+### Scan throughput: release build + parallel chunks
+
+The extension scales near-linearly with DuckDB's thread pool. Benchmarked on a 38 MB locally-chunked Zarr (79 chunks, 73×144 spatial grid):
+
+| Build | Threads | Time | Speedup |
+|---|---|---|---|
+| debug | 1 | 1,554 ms | 1× (baseline) |
+| release | 1 | 295 ms | 5.3× |
+| release | 4 | 82 ms | 19× |
+| release | 8 | 44 ms | **35×** |
+
+> Use a release build in production (`cargo build --release`). Each chunk is assigned to a separate DuckDB worker thread, so throughput scales with both CPU cores and I/O parallelism.
+
 ### Post-extraction analytics: zarrduck's sweet spot
 
 Once data is extracted into DuckDB (221,760 rows, California CMIP6), subsequent SQL queries are near-instant and compose freely with other DuckDB tables — no IPC or Python overhead:
