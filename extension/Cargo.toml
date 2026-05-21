@@ -17,7 +17,8 @@ bytemuck = "1.19.0"
 duckdb = { version = "1.10502.0", features = ["bundled", "vtab", "buildtime_bindgen"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0"
-zarrs = { version = "0.16.4", features = ["http"] }
+zarrs = { version = "0.16.4", default-features = false, features = ["blosc", "gzip", "crc32c", "zstd", "sharding", "transpose", "ndarray"] }
+ureq = { version = "2", features = ["tls"] }
 url = "2.5.0"
 
 [dev-dependencies]

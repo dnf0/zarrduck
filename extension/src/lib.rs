@@ -1,3 +1,4 @@
+pub mod http_store;
 pub mod metadata;
 pub mod metadata_vtab;
 pub mod table_function;

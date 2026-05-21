@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex};
 use zarrs::array::{ArrayMetadata, DataType};
 use zarrs::array_subset::ArraySubset;
 use zarrs::storage::ReadableStorageTraits;
-
 pub fn resolve_store(
     path: &str,
 ) -> std::result::Result<Arc<dyn ReadableStorageTraits>, Box<dyn std::error::Error>> {
@@ -28,9 +27,7 @@ pub fn resolve_store(
             path.to_string()
         };
 
-        #[allow(deprecated)]
-        let store = zarrs::storage::store::HTTPStore::new(&http_url)?;
-        Ok(Arc::new(store))
+        Ok(Arc::new(crate::http_store::SyncHttpStore::new(&http_url)?))
     } else {
         let canonical_path =
             std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {}", e))?;
@@ -129,12 +126,50 @@ macro_rules! dispatch_yield_loop {
                     strides[d] = strides[d + 1] * subset_shape[d + 1];
                 }
 
-                // zarrs handles codec-level partial reads (Blosc sub-block, HTTP byte-range, etc.)
-                let chunk_subset = ArraySubset::new_with_start_shape(subset_start, subset_shape.clone())
-                    .map_err(|e| format!("Invalid chunk subset: {}", e))?;
-                let elements = $bind_data.array
-                    .retrieve_chunk_subset_elements::<$rust_type>(&$local_state.assigned_grid, &chunk_subset)
-                    .map_err(|e| format!("zarrs read error: {}", e))?;
+                let elements: Vec<$rust_type> = if $bind_data.is_remote {
+                    // Remote store: read the full chunk in one request then filter
+                    // in memory. This avoids issuing thousands of byte-range
+                    // requests (one per Blosc block) which saturates cloud connections.
+                    let full = $bind_data.array
+                        .retrieve_chunk_elements::<$rust_type>(&$local_state.assigned_grid)
+                        .map_err(|e| format!("zarrs read error: {}", e))?;
+                    // Compute chunk strides for C-order indexing
+                    let actual_chunk_shape: Vec<u64> = (0..rank).map(|d| {
+                        let chunk_start = $local_state.assigned_grid[d] * $bind_data.chunk_shape[d];
+                        let chunk_end_inc = chunk_start + $bind_data.chunk_shape[d] - 1;
+                        let actual_end = $bind_data.shape[d].min(chunk_end_inc + 1);
+                        actual_end - chunk_start
+                    }).collect();
+                    let mut chunk_strides = vec![1u64; rank];
+                    for d in (0..rank - 1).rev() {
+                        chunk_strides[d] = chunk_strides[d + 1] * actual_chunk_shape[d + 1];
+                    }
+                    let total: u64 = subset_shape.iter().product();
+                    let mut out = Vec::with_capacity(total as usize);
+                    // Odometer iteration over the subset in C-order
+                    let mut idx = subset_start.clone();
+                    for _ in 0..total {
+                        let flat: u64 = (0..rank).map(|d| idx[d] * chunk_strides[d]).sum();
+                        out.push(full[flat as usize].clone());
+                        // Increment odometer (innermost last)
+                        for d in (0..rank).rev() {
+                            idx[d] += 1;
+                            if idx[d] < subset_start[d] + subset_shape[d] {
+                                break;
+                            }
+                            idx[d] = subset_start[d];
+                        }
+                    }
+                    out
+                } else {
+                    // Local store: use zarrs' partial decoder (Blosc sub-block
+                    // partial reads — efficient because there's no network RTT).
+                    let chunk_subset = ArraySubset::new_with_start_shape(subset_start, subset_shape.clone())
+                        .map_err(|e| format!("Invalid chunk subset: {}", e))?;
+                    $bind_data.array
+                        .retrieve_chunk_subset_elements::<$rust_type>(&$local_state.assigned_grid, &chunk_subset)
+                        .map_err(|e| format!("zarrs read error: {}", e))?
+                };
 
                 if elements.is_empty() {
                     continue;
@@ -261,6 +296,11 @@ pub struct ReadZarrBindData {
     pub fill_value_bytes: Option<Vec<u8>>,
     pub array: std::sync::Arc<zarrs::array::Array<dyn zarrs::storage::ReadableStorageTraits>>,
     pub spatial_transform: Option<crate::metadata::SpatialTransform>,
+    /// True when the store is remote (HTTP/S3). For remote stores we read full
+    /// chunks in one request rather than using the Blosc partial decoder, which
+    /// would otherwise issue thousands of byte-range requests and saturate the
+    /// connection pool.
+    pub is_remote: bool,
 }
 
 pub enum ChunkBuffer {
@@ -330,6 +370,8 @@ impl VTab for ReadZarrVTab {
         }
 
         let path = bind.get_parameter(0).to_string();
+        let is_remote = path.starts_with("s3://") || path.starts_with("abfs://")
+            || path.starts_with("http://") || path.starts_with("https://");
 
         let store_arc = resolve_store(&path)?;
         let array = zarrs::array::Array::open(Arc::clone(&store_arc), "/")
@@ -639,6 +681,7 @@ impl VTab for ReadZarrVTab {
             fill_value_bytes,
             array: std::sync::Arc::new(array),
             spatial_transform: spatial_transform.clone(),
+            is_remote,
         })
     }
 
@@ -800,11 +843,40 @@ impl VTab for ReadZarrVTab {
                             strides[d] = strides[d + 1] * subset_shape[d + 1];
                         }
 
-                        let chunk_subset = ArraySubset::new_with_start_shape(subset_start, subset_shape.clone())
-                            .map_err(|e| format!("Invalid chunk subset: {}", e))?;
-                        let elements = bind_data.array
-                            .retrieve_chunk_subset_elements::<String>(&local_state.assigned_grid, &chunk_subset)
-                            .map_err(|e| format!("zarrs read error: {}", e))?;
+                        let elements: Vec<String> = if bind_data.is_remote {
+                            let full = bind_data.array
+                                .retrieve_chunk_elements::<String>(&local_state.assigned_grid)
+                                .map_err(|e| format!("zarrs read error: {}", e))?;
+                            let actual_chunk_shape: Vec<u64> = (0..rank).map(|d| {
+                                let chunk_start = local_state.assigned_grid[d] * bind_data.chunk_shape[d];
+                                let chunk_end_inc = chunk_start + bind_data.chunk_shape[d] - 1;
+                                let actual_end = bind_data.shape[d].min(chunk_end_inc + 1);
+                                actual_end - chunk_start
+                            }).collect();
+                            let mut chunk_strides = vec![1u64; rank];
+                            for d in (0..rank - 1).rev() {
+                                chunk_strides[d] = chunk_strides[d + 1] * actual_chunk_shape[d + 1];
+                            }
+                            let total: u64 = subset_shape.iter().product();
+                            let mut out = Vec::with_capacity(total as usize);
+                            let mut idx = subset_start.clone();
+                            for _ in 0..total {
+                                let flat: u64 = (0..rank).map(|d| idx[d] * chunk_strides[d]).sum();
+                                out.push(full[flat as usize].clone());
+                                for d in (0..rank).rev() {
+                                    idx[d] += 1;
+                                    if idx[d] < subset_start[d] + subset_shape[d] { break; }
+                                    idx[d] = subset_start[d];
+                                }
+                            }
+                            out
+                        } else {
+                            let chunk_subset = ArraySubset::new_with_start_shape(subset_start, subset_shape.clone())
+                                .map_err(|e| format!("Invalid chunk subset: {}", e))?;
+                            bind_data.array
+                                .retrieve_chunk_subset_elements::<String>(&local_state.assigned_grid, &chunk_subset)
+                                .map_err(|e| format!("zarrs read error: {}", e))?
+                        };
 
                         if elements.is_empty() { continue; }
 
@@ -1271,28 +1343,15 @@ mod tests {
         };
         let local_state = LocalState {
             assigned_grid: vec![0, 0, 0],
-            local_chunk_cursor: 0,
+            element_cursor: 0,
             current_chunk_buffer: None,
             projected_columns: vec![0, 1, 2],
+            subset_global_starts: vec![],
+            subset_shape: vec![],
+            subset_strides: vec![],
         };
         assert_eq!(global_state.current_chunk_grid, vec![0, 0, 0]);
-        assert_eq!(local_state.local_chunk_cursor, 0);
-    }
-
-    #[test]
-    fn test_calculate_global_indices() {
-        let chunk_shape = vec![10, 10, 10];
-        let chunk_grid = vec![2, 0, 1]; // We are in chunk [2, 0, 1]
-
-        // Test the first element in the chunk
-        let indices = calculate_global_indices(0, &chunk_shape, &chunk_grid);
-        assert_eq!(indices, vec![20, 0, 10]);
-
-        // Test the 15th element (index 14). Since shape is [10, 10, 10],
-        // index 14 is z=0, y=1, x=4 locally.
-        // Global should be z=20, y=1, x=14
-        let indices = calculate_global_indices(14, &chunk_shape, &chunk_grid);
-        assert_eq!(indices, vec![20, 1, 14]);
+        assert_eq!(local_state.element_cursor, 0);
     }
 
     #[test]

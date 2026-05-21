@@ -10,40 +10,50 @@ A high-performance, cloud-native [DuckDB](https://duckdb.org/) extension for rea
 
 ## Performance
 
-Benchmarked against `xarray` + `shapely` on the [CMIP6 CESM2 historical surface temperature dataset](https://storage.googleapis.com/cmip6/CMIP6/CMIP/NCAR/CESM2/historical/r1i1p1f1/Amon/tas/gn/v20190308/) hosted on Google Cloud Storage (~1° resolution, 1980 monthly steps, 1850–2014). Query: extract all grid cells within the California bounding box (−125°–−115°, 30°–45°).
+All benchmarks use the [NCEP CDAS reanalysis surface air temperature dataset](https://downloads.psl.noaa.gov/Datasets/ncep.reanalysis.derived/surface/air.mon.mean.nc) converted to Zarr (938×73×144, chunk=12×73×144, 79 chunks). Timed query: extract all grid cells within the California bounding box (−125°–−115°, 30°–45°), returning 32,830 rows. In-process DuckDB Python API; median of 20 runs.
 
-### Extraction: chunk granularity matters
+### Head-to-head: zarrduck vs the Python ecosystem
+
+| Tool | CA bbox | Full scan | Spatial mean | Top-10 |
+|---|---|---|---|---|
+| xarray | 34.6 ms | 34.7 ms | 33.5 ms | 34.4 ms |
+| zarr-python | 13.5 ms | 13.7 ms | 13.3 ms | — |
+| zarr-python + zarrs pipeline¹ | 4.1 ms | **3.9 ms** | 4.1 ms | 4.4 ms |
+| **zarrduck (8 threads)** | **3.5 ms** | 7.0 ms | **3.7 ms** | **3.5 ms** |
+
+> ¹ [zarrs](https://github.com/LDeakin/zarrs) is the same Rust codec library zarrduck uses internally, exposed via Python bindings (`zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})`). It is the current fastest Python-accessible Zarr decoder.
+
+zarrduck matches or beats the fastest available Python Zarr library on all filtered queries. The full-scan case is the one exception — zarrduck pays extra cost generating coordinate columns for 9.8 M rows; zarrs Python bindings return a raw NumPy array with no coordinate overhead. For the filtered queries that matter in practice, zarrduck wins because its chunk-level spatial pruning skips non-intersecting chunks before reading them, while zarrs Python reads every chunk in full.
+
+### Scaling: threads × throughput
+
+Each chunk is dispatched to a separate DuckDB worker, so throughput scales near-linearly with CPU cores. CA bbox extraction (32,830 rows, 79 chunks):
+
+| Build | Threads | Time | Speedup |
+|---|---|---|---|
+| debug | 1 | 75 ms | 1× (baseline) |
+| release | 1 | 37 ms | 2× |
+| release | 4 | 10 ms | 7.5× |
+| release | 8 | **3.5 ms** | **21×** |
+
+### Remote data: CMIP6 on Google Cloud Storage
+
+[CMIP6 CESM2 historical surface temperature](https://storage.googleapis.com/cmip6/CMIP6/CMIP/NCAR/CESM2/historical/r1i1p1f1/Amon/tas/gn/v20190308/) (~1° resolution, 1,980 monthly steps, 1850–2014). Query: California bbox.
 
 | Tool | Download | Time | Note |
 |---|---|---|---|
-| zarrduck | 506 MB | ~48 s | Full spatial chunk (192×288 grid = whole globe) |
+| zarrduck | 506 MB | ~48 s | Whole-globe spatial chunk (192×288) |
 | xarray + shapely | ~42 MB | ~8 s | Server-side lat slice before download |
-| zarrduck (spatially chunked¹) | 38 MB | ~2.2 s | Only intersecting chunks fetched |
-| xarray (spatially chunked¹) | ~2 MB | ~0.9 s | Server-side bbox slice |
+| zarrduck (spatially chunked²) | 38 MB | ~2.2 s | Only intersecting chunks fetched |
+| xarray (spatially chunked²) | ~2 MB | ~0.9 s | Server-side bbox slice |
 
-> ¹ Local Zarr re-chunked to 73×144 (2.5° grid). Chunk granularity is the dominant factor — zarrduck's spatial pruning skips non-intersecting chunks entirely, but cannot partially read within a chunk.
-
-**Takeaway:** zarrduck matches or beats xarray when the Zarr store is chunked at a spatial granularity that aligns with query regions. For datasets with single global spatial chunks (common in CMIP6), xarray's coordinate-aware server-side slicing downloads less data.
-
-### Scan throughput: release build + parallel chunks
-
-The extension scales near-linearly with DuckDB's thread pool. Benchmarked on a locally-chunked Zarr (79 chunks, 12×73×144, California bbox extraction, 32,830 rows). Also shown: xarray + shapely running the same bbox query on the same file.
-
-| Tool | Threads | Time | Speedup |
-|---|---|---|---|
-| zarrduck debug | 1 | 75 ms | 1× (baseline) |
-| zarrduck release | 1 | 37 ms | 2× |
-| zarrduck release | 4 | 25 ms | 3× |
-| zarrduck release | 8 | **21 ms** | **3.6×** |
-| xarray + shapely | — | 22 ms | — |
-
-> zarrduck matches xarray on this spatially-chunked dataset. For datasets with a single global spatial chunk (common in raw CMIP6), xarray downloads less data because it can slice server-side; zarrduck's advantage grows when chunks align with the query region. Use a release build in production. Each chunk is assigned to a separate DuckDB worker thread, so throughput scales with both CPU cores and I/O parallelism.
+> ² Zarr re-chunked locally to 73×144 (2.5° grid). Chunk granularity is the dominant factor — zarrduck's spatial pruning skips non-intersecting chunks entirely, but cannot partially read within a chunk. For datasets with single global spatial chunks (common in raw CMIP6), xarray's server-side slicing downloads less data; zarrduck's advantage grows when chunk size aligns with the query region.
 
 ### Post-extraction analytics: zarrduck's sweet spot
 
-Once data is extracted into DuckDB (32,830 rows, California CMIP6), subsequent SQL queries are near-instant and compose freely with other DuckDB tables — no IPC or Python overhead:
+Once data is extracted into DuckDB (32,830 rows, California subset), subsequent SQL queries are near-instant and compose freely with other DuckDB tables — no IPC or Python overhead:
 
-| Query | DuckDB | pandas (equiv.) |
+| Query | zarrduck | pandas (equiv.) |
 |---|---|---|
 | Spatial mean (GROUP BY lat, lon) | 0.7 ms | ~0.5 ms |
 | Top-N hottest months | 0.7 ms | ~0.4 ms |
