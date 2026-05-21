@@ -153,7 +153,10 @@ macro_rules! dispatch_yield_loop {
             };
 
             let total = buffer.len();
-            let batch_size = (total - $local_state.element_cursor).min(2048);
+            // Cap to remaining output-vector space so we can pack rows from multiple
+            // chunks into a single DuckDB call (reduces scheduler overhead for small
+            // valid-element-per-chunk queries like tight spatial bbox filters).
+            let batch_size = (total - $local_state.element_cursor).min(2048 - valid_rows);
 
             // Write coordinate columns. Global coord for element at flat position `pos` in
             // dim `d` = global_starts[d] + (pos / strides[d]) % subset_shape[d].
@@ -224,7 +227,9 @@ macro_rules! dispatch_yield_loop {
                 $local_state.current_chunk_buffer = None;
             }
 
-            if valid_rows > 0 { break; }
+            // Yield to DuckDB only when the output vector is full; otherwise keep
+            // filling from the next chunk to minimise scheduler round-trips.
+            if valid_rows >= 2048 { break; }
         }
 
         $output.set_len(valid_rows);
@@ -816,7 +821,7 @@ impl VTab for ReadZarrVTab {
                     };
 
                     let total = buffer.len();
-                    let batch_size = (total - local_state.element_cursor).min(2048);
+                    let batch_size = (total - local_state.element_cursor).min(2048 - valid_rows);
 
                     for dim in 0..rank {
                         if local_state.projected_columns.contains(&dim) {
@@ -880,7 +885,7 @@ impl VTab for ReadZarrVTab {
                         local_state.current_chunk_buffer = None;
                     }
 
-                    if valid_rows > 0 { break; }
+                    if valid_rows >= 2048 { break; }
                 }
 
                 output.set_len(valid_rows);
