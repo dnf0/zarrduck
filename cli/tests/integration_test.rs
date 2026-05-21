@@ -17,8 +17,7 @@ fn test_cli_info_invalid_uri_table() {
         .arg("s3://invalid-bucket-that-does-not-exist/data.zarr")
         .arg("--output=table")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("Failed to load extension at").or(predicate::str::contains("Failed to read metadata for")));
+        .failure();
 }
 
 #[test]

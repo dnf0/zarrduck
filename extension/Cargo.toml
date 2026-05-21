@@ -5,7 +5,7 @@ edition = "2021"
 build = "build.rs"
 
 [lib]
-name = "geozarr"
+name = "duckdb_geozarr"
 crate-type = ["cdylib", "rlib"]
 
 [features]
@@ -15,10 +15,11 @@ loadable-extension = ["duckdb/loadable-extension", "duckdb/vtab-loadable"]
 [dependencies]
 bytemuck = "1.19.0"
 duckdb = { version = "1.10502.0", features = ["bundled", "vtab", "buildtime_bindgen"] }
-opendal = { version = "0.48", features = ["services-s3", "services-http"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0"
-zarrs = { version = "0.16.4", features = ["opendal", "async"] }
+zarrs = { version = "0.16.4", default-features = false, features = ["blosc", "gzip", "crc32c", "zstd", "sharding", "transpose", "ndarray"] }
+ureq = { version = "2", features = ["tls"] }
+url = "2.5.0"
 
 [dev-dependencies]
 duckdb = { version = "1.10502.0", features = ["bundled", "vtab", "buildtime_bindgen"] }

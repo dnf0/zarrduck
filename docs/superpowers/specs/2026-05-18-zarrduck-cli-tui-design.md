@@ -14,15 +14,15 @@ We will add the following crates to `cli/Cargo.toml`:
 - `inquire`: For rendering interactive prompts.
 
 ### 2.1 Progress Feedback (`indicatif`)
-- **Extraction Command (`zarrduck extract`)**: 
-  - DuckDB's spatial join executes as a single blocking call. 
+- **Extraction Command (`zarrduck extract`)**:
+  - DuckDB's spatial join executes as a single blocking call.
   - We will spawn a background thread with an `indicatif::ProgressBar::new_spinner()` displaying a message like `"🔄 Performing spatial extraction..."`.
   - The spinner will animate while the query runs and will be cleared/finished with a success message when the query completes.
 - **Export Command (`zarrduck export`)**:
   - The export streams data chunk-by-chunk. We will replace the print statements with an `indicatif::ProgressBar` that increments as chunks are processed, giving the user a true percentage-based progress bar.
 
 ### 2.2 Interactive Prompts (`inquire`)
-- **Extraction Overwrite Protection**: 
+- **Extraction Overwrite Protection**:
   - Before executing the `extract` command, we will check if the target `--out` file already exists.
   - If it does, we will use `inquire::Confirm` to prompt: `? File '<name>.duckdb' already exists. Overwrite? [y/N]`.
   - If the user declines, the CLI exits gracefully.

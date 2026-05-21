@@ -1,6 +1,9 @@
-use serde::Deserialize;
-use figment::{Figment, providers::{Format, Toml, Env}};
 use directories::ProjectDirs;
+use figment::{
+    providers::{Env, Format, Toml},
+    Figment,
+};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct S3Config {
@@ -14,6 +17,7 @@ pub struct S3Config {
 pub struct ZarrduckConfig {
     pub output_format: Option<String>,
     pub default_out: Option<String>,
+    pub local_stac: Option<String>,
     pub s3: Option<S3Config>,
 }
 
@@ -30,7 +34,9 @@ impl ZarrduckConfig {
         }
 
         // Local config
-        let local_config = std::env::current_dir().unwrap_or_default().join(".zarrduck.toml");
+        let local_config = std::env::current_dir()
+            .unwrap_or_default()
+            .join(".zarrduck.toml");
         if local_config.exists() {
             figment = figment.merge(Toml::file(local_config));
         }
@@ -40,5 +46,28 @@ impl ZarrduckConfig {
         let config: ZarrduckConfig = figment.extract()?;
 
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    struct EnvGuard(&'static str);
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            std::env::remove_var(self.0);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_parse_local_stac_from_env() {
+        std::env::set_var("ZARRDUCK_LOCAL_STAC", "http://test-local-stac:8080");
+        let _guard = EnvGuard("ZARRDUCK_LOCAL_STAC");
+        
+        let config = ZarrduckConfig::load().unwrap();
+        assert_eq!(config.local_stac.as_deref(), Some("http://test-local-stac:8080"));
     }
 }

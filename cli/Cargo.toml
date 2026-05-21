@@ -18,8 +18,10 @@ inquire = "0.7"
 figment = { version = "0.10", features = ["toml", "env"] }
 directories = "5.0"
 reqwest = { version = "0.12", features = ["json"] }
+rasciigraph = "0.3.0"
 
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.1"
+serial_test = "3.4.0"
 tempfile = "3.10"

@@ -1,0 +1,4 @@
+zarr
+numpy
+xarray
+netCDF4

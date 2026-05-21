@@ -3,7 +3,7 @@
 **Date:** 2026-05-19
 
 ## 1. Context & Purpose
-Following Phase 1 (STAC Discovery) of the Zarrduck Future Roadmap, Phase 2 focuses on Temporal Analytics. Geospatial data extracted from Zarr stores is almost always multi-dimensional, with time being a critical axis. 
+Following Phase 1 (STAC Discovery) of the Zarrduck Future Roadmap, Phase 2 focuses on Temporal Analytics. Geospatial data extracted from Zarr stores is almost always multi-dimensional, with time being a critical axis.
 
 Currently, users must manually write complex DuckDB SQL using window functions or `date_trunc` to aggregate this data (e.g., converting daily temperature grids into monthly averages). The purpose of this sub-project is to introduce a high-level `zarrduck resample` command that automates this temporal aggregation, leaning into our "High-Level Automation" philosophy.
 
@@ -13,7 +13,7 @@ We will add a new `resample` subcommand to the `zarrduck` CLI.
 
 ### 2.1 The `resample` Command
 - **Purpose:** Temporally aggregate extracted GeoZarr data.
-- **Input:** 
+- **Input:**
   - `<input_db>`: A local DuckDB file (typically the output of `zarrduck extract`).
   - `<output_db>`: A target DuckDB file for the aggregated results.
   - `--freq`: The temporal frequency for the aggregation (e.g., `month`, `year`, `day`).
@@ -33,13 +33,13 @@ Using the detected columns, the CLI generates and executes an optimized aggregat
 
 ```sql
 ATTACH '<input_db>' AS source_db;
-CREATE OR REPLACE TABLE resampled_data AS 
-SELECT 
+CREATE OR REPLACE TABLE resampled_data AS
+SELECT
     date_trunc('<freq>', <time_col>) as time,
-    <lat_col>, 
-    <lon_col>, 
-    <agg_func>(<value_col>) as value 
-FROM source_db.extracted_data 
+    <lat_col>,
+    <lon_col>,
+    <agg_func>(<value_col>) as value
+FROM source_db.extracted_data
 GROUP BY 1, 2, 3;
 ```
 

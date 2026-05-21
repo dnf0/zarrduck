@@ -48,7 +48,7 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 #[derive(Subcommand)]
 enum Commands {
     // ... existing commands ...
-    
+
     /// Generate shell completion scripts
     Completions {
         /// The shell to generate completions for
@@ -79,7 +79,7 @@ git commit -m "feat: add clap_complete dependency and Completions subcommand"
 
 - [ ] **Step 1: Implement `Completions` match arm**
 
-In `cli/src/main.rs` inside the `run_cli` function's `match cli.command` block, add the implementation for `Completions`. 
+In `cli/src/main.rs` inside the `run_cli` function's `match cli.command` block, add the implementation for `Completions`.
 
 ```rust
         Commands::Completions { shell } => {
