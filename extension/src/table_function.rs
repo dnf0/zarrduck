@@ -156,7 +156,9 @@ macro_rules! dispatch_yield_loop {
 
                 let mut out_of_bounds = false;
                 for dim in 0..rank {
-                    if global_coords[dim] > $bind_data.bounds_max[dim] {
+                    if global_coords[dim] > $bind_data.bounds_max[dim]
+                        || global_coords[dim] < $bind_data.bounds_min[dim]
+                    {
                         out_of_bounds = true;
                         break;
                     }
@@ -557,17 +559,30 @@ impl VTab for ReadZarrVTab {
                 let normalize_query = |v: f64| -> f64 {
                     if lon_0_360_dims.contains(&dim_index) && v < 0.0 { v + 360.0 } else { v }
                 };
+                let is_ascending = coord_vals.first()
+                    .zip(coord_vals.last())
+                    .map_or(true, |(f, l)| f <= l);
                 if let Some(min_val) = min_val_opt {
-                    let (translated_min, _) = crate::table_function::translate_filter(
+                    let (t_min, t_max) = crate::table_function::translate_filter(
                         coord_vals, ">=", normalize_query(min_val), bounds_min[dim_index], bounds_max[dim_index]
                     );
-                    bounds_min[dim_index] = std::cmp::max(bounds_min[dim_index], translated_min);
+                    if is_ascending {
+                        bounds_min[dim_index] = std::cmp::max(bounds_min[dim_index], t_min);
+                    } else {
+                        // Descending: "value >= min_val" maps to lower array indices
+                        bounds_max[dim_index] = std::cmp::min(bounds_max[dim_index], t_max);
+                    }
                 }
                 if let Some(max_val) = max_val_opt {
-                    let (_, translated_max) = crate::table_function::translate_filter(
+                    let (t_min, t_max) = crate::table_function::translate_filter(
                         coord_vals, "<=", normalize_query(max_val), bounds_min[dim_index], bounds_max[dim_index]
                     );
-                    bounds_max[dim_index] = std::cmp::min(bounds_max[dim_index], translated_max);
+                    if is_ascending {
+                        bounds_max[dim_index] = std::cmp::min(bounds_max[dim_index], t_max);
+                    } else {
+                        // Descending: "value <= max_val" maps to higher array indices
+                        bounds_min[dim_index] = std::cmp::max(bounds_min[dim_index], t_min);
+                    }
                 }
             } else if let Some(ref transform) = spatial_transform {
                 if dim_index < transform.scale.len() {
@@ -814,7 +829,9 @@ impl VTab for ReadZarrVTab {
 
                         let mut out_of_bounds = false;
                         for (dim, &global_coord) in global_coords.iter().enumerate().take(rank) {
-                            if global_coord > bind_data.bounds_max[dim] {
+                            if global_coord > bind_data.bounds_max[dim]
+                                || global_coord < bind_data.bounds_min[dim]
+                            {
                                 out_of_bounds = true;
                                 break;
                             }

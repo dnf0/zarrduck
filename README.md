@@ -27,29 +27,29 @@ Benchmarked against `xarray` + `shapely` on the [CMIP6 CESM2 historical surface 
 
 ### Scan throughput: release build + parallel chunks
 
-The extension scales near-linearly with DuckDB's thread pool. Benchmarked on a 38 MB locally-chunked Zarr (79 chunks, 73×144 spatial grid):
+The extension scales near-linearly with DuckDB's thread pool. Benchmarked on a locally-chunked Zarr (79 chunks, 12×73×144, California bbox extraction, 32,830 rows):
 
 | Build | Threads | Time | Speedup |
 |---|---|---|---|
-| debug | 1 | 1,554 ms | 1× (baseline) |
-| release | 1 | 295 ms | 5.3× |
-| release | 4 | 82 ms | 19× |
-| release | 8 | 44 ms | **35×** |
+| debug | 1 | 1,472 ms | 1× (baseline) |
+| release | 1 | 313 ms | 4.7× |
+| release | 4 | 99 ms | 14.9× |
+| release | 8 | 65 ms | **22.6×** |
 
 > Use a release build in production (`cargo build --release`). Each chunk is assigned to a separate DuckDB worker thread, so throughput scales with both CPU cores and I/O parallelism.
 
 ### Post-extraction analytics: zarrduck's sweet spot
 
-Once data is extracted into DuckDB (221,760 rows, California CMIP6), subsequent SQL queries are near-instant and compose freely with other DuckDB tables — no IPC or Python overhead:
+Once data is extracted into DuckDB (32,830 rows, California CMIP6), subsequent SQL queries are near-instant and compose freely with other DuckDB tables — no IPC or Python overhead:
 
 | Query | DuckDB | pandas (equiv.) |
 |---|---|---|
-| Spatial mean (GROUP BY lat, lon) | 3 ms | ~4 ms + IPC |
-| Top-N hottest months | 1.2 ms | ~6 ms + IPC |
-| Decadal trend | 1.2 ms | ~4 ms + IPC |
-| Monthly anomaly | 2 ms | ~3 ms + IPC |
+| Spatial mean (GROUP BY lat, lon) | 0.7 ms | ~0.5 ms |
+| Top-N hottest months | 0.7 ms | ~0.4 ms |
+| Decadal trend | 0.7 ms | ~3.6 ms |
+| Monthly anomaly | 0.8 ms | ~0.3 ms |
 
-Overall scan rate: **~209 M rows/s** on extracted data. The extraction cost is paid once; every subsequent query is free in DuckDB's vectorized engine.
+Overall scan rate: **~174 M rows/s** on extracted data. The extraction cost is paid once; every subsequent query is free in DuckDB's vectorized engine.
 
 ## Why DuckDB GeoZarr?
 
