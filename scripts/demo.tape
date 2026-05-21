@@ -6,19 +6,15 @@ Set Height 800
 Set TypingSpeed 50ms
 Set Theme "Dracula"
 
-# Build the project to ensure the binary is fresh before recording
 Hide
-Type "cargo clean -p zarrduck -p duckdb_geozarr && cargo build -p zarrduck && cd extension && cargo duckdb-ext build --duckdb-version v1.5.2 -- --features loadable-extension && cd .."
-Enter
-Sleep 10s
-Type "pip3 install -r requirements.txt"
-Enter
-Sleep 5s
-Type "export ZARRDUCK_LOCAL_STAC='http://localhost:8080 - Local Demo Catalog'"
-Enter
 Type "export PATH=$PWD/target/debug:$PATH"
 Enter
 Type "rm -f *.duckdb"
+Enter
+Type "python3 scripts/mock_stac.py 8080 &"
+Enter
+Sleep 1s
+Type "export ZARRDUCK_LOCAL_STAC='http://localhost:8080 - Local Demo Catalog'"
 Enter
 Type "clear"
 Enter
@@ -46,17 +42,17 @@ Sleep 1s
 Enter
 Sleep 4s
 
-# Step 2: Zonal Extraction (streaming directly from Google Cloud Storage)
+# Step 2: Zonal Extraction
 Hide
 Type "printf '\033[1A\033[2K\n\033[1;36m# 2. Extract and join spatial data\033[0m\n'"
 Enter
 Show
 Sleep 1s
-Type "zarrduck extract https://storage.googleapis.com/cmip6/CMIP6/CMIP/NCAR/CESM2/historical/r1i1p1f1/Amon/tas/gn/v20190308/tas scripts/demo_region.geojson --out analysis.duckdb"
+Type "zarrduck extract climate_data.zarr/air_temperature scripts/demo_region.geojson --out analysis.duckdb"
 Enter
 Sleep 3s
 Enter
-Sleep 8s
+Sleep 4s
 
 # Step 3: Temporal Resampling
 Hide
