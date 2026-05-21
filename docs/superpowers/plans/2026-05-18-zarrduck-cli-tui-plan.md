@@ -48,12 +48,12 @@ In `cli/src/main.rs`, update the `Extract` arm before `let config = duckdb::Conf
                         .with_default(false)
                         .prompt()
                         .wrap_err("Failed to read user input")?;
-                        
+
                     if !ans {
                         println!("Aborting extraction.");
                         return Ok(());
                     }
-                    
+
                     // User confirmed, so delete the file before opening it with DuckDB
                     std::fs::remove_file(&out).wrap_err_with(|| format!("Failed to delete existing file '{}'", out))?;
                 }
@@ -101,20 +101,20 @@ In `cli/src/main.rs` inside the `Extract` match arm, replace the `println!("Extr
             } else {
                 None
             };
-            
+
             // The magic query: Create a table by joining the GeoZarr pixels that intersect the vector polygons
             let query = format!(
                 "CREATE OR REPLACE TABLE extracted_data AS \n                 SELECT z.*, v.* EXCLUDE (geom) \n                 FROM read_zarr('{}') z, ST_Read('{}') v \n                 WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))",
                 zarr_uri.replace("'", "''"), vector_path.replace("'", "''")
             );
-            
+
             // Note: Since this is a blocking call, we run it in a blocking task so the tokio runtime can still tick the spinner if needed (though enable_steady_tick actually uses its own background thread).
             conn.execute(&query, []).wrap_err("Spatial extraction query failed")?;
-            
+
             if let Some(pb) = spinner {
                 pb.finish_with_message("Extraction complete!");
             }
-            
+
             if cli.output == OutputFormat::Json {
 ```
 
@@ -156,7 +156,7 @@ In `cli/src/main.rs` inside the `Export` match arm, after `println!("Pass 2: Str
 ```rust
             let total_rows_query = format!("SELECT COUNT(*) FROM ({})", query);
             let total_rows: u64 = _conn.query_row(&total_rows_query, [], |row| row.get(0)).unwrap_or(0);
-            
+
             let progress = if cli.output != OutputFormat::Json && total_rows > 0 {
                 let pb = indicatif::ProgressBar::new(total_rows);
                 pb.set_style(
@@ -179,7 +179,7 @@ Inside the `stream_result` closure, replace the `println!("Streamed {} rows...",
                     // ... existing eviction check ...
 
                     row_count += 1;
-                    
+
                     if let Some(ref pb) = progress {
                         if row_count % 10_000 == 0 {
                             pb.set_position(row_count);

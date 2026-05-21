@@ -35,7 +35,7 @@ mod tests {
                 }
             }
         });
-        
+
         let meta = parse_geozarr_metadata(&attrs).unwrap();
         assert_eq!(meta.crs, Some("EPSG:4326".to_string()));
         let transform = meta.transform.unwrap();
@@ -53,7 +53,7 @@ mod tests {
                 }
             }
         });
-        
+
         let meta = parse_geozarr_metadata(&attrs).unwrap();
         assert_eq!(meta.crs, None);
         let transform = meta.transform.unwrap();
@@ -74,7 +74,7 @@ mod tests {
                 }
             }
         });
-        
+
         let meta = parse_geozarr_metadata(&attrs);
         assert!(meta.is_none());
     }
@@ -84,7 +84,7 @@ mod tests {
         let attrs = json!({
             "geozarr": {}
         });
-        
+
         let meta = parse_geozarr_metadata(&attrs).unwrap();
         assert_eq!(meta.crs, None);
         assert!(meta.transform.is_none());

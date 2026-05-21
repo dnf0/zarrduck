@@ -30,7 +30,7 @@ This returns a single row containing columns like `array_shape`, `chunk_shape`, 
 
 ### Spatial Affine Transforms
 
-When scanning a table, the extension parses GeoZarr `spatial` metadata (affine transformations). For dimensions mapped to a spatial transform, the extension automatically performs the math (`translation + index * scale`) on the fly. 
+When scanning a table, the extension parses GeoZarr `spatial` metadata (affine transformations). For dimensions mapped to a spatial transform, the extension automatically performs the math (`translation + index * scale`) on the fly.
 
 This means you can query `lon` and `lat` directly as projected geographic coordinates rather than dealing with raw integer grid indices.
 

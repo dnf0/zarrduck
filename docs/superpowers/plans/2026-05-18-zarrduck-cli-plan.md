@@ -146,14 +146,14 @@ Add a function to initialize an in-memory DuckDB connection and load our extensi
 ```rust
 fn setup_duckdb() -> Result<Connection, Box<dyn std::error::Error>> {
     let conn = Connection::open_in_memory()?;
-    
+
     // We need to construct the path to our compiled extension
     let ext_path = if cfg!(target_os = "windows") {
         "../target/debug/geozarr.duckdb_extension"
     } else {
         "../target/debug/libgeozarr.duckdb_extension"
     };
-    
+
     conn.execute("SET allow_unsigned_extensions = true", [])?;
     conn.execute(&format!("LOAD '{}'", ext_path), [])?;
     Ok(conn)
@@ -168,16 +168,16 @@ Inside the `Commands::Info` match block:
         Commands::Info { uri } => {
             let conn = setup_duckdb()?;
             let query = format!("SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')", uri);
-            
+
             let mut stmt = conn.prepare(&query)?;
             let mut rows = stmt.query([])?;
-            
+
             if let Some(row) = rows.next()? {
                 let array_shape: String = row.get(0)?;
                 let chunk_shape: String = row.get(1)?;
                 let data_type: String = row.get(2)?;
                 let crs: String = row.get(3)?;
-                
+
                 if cli.output == "json" {
                     let json_out = serde_json::json!({
                         "uri": uri,
@@ -228,7 +228,7 @@ Inside the `Commands::Extract` match block. We will create a local `.duckdb` dat
 ```rust
         Commands::Extract { zarr_uri, vector_path, out } => {
             let conn = Connection::open(&out)?;
-            
+
             // Load extensions
             conn.execute("SET allow_unsigned_extensions = true", [])?;
             let ext_path = if cfg!(target_os = "windows") {
@@ -237,23 +237,23 @@ Inside the `Commands::Extract` match block. We will create a local `.duckdb` dat
                 "../target/debug/libgeozarr.duckdb_extension"
             };
             conn.execute(&format!("LOAD '{}'", ext_path), [])?;
-            
+
             // Install and load official spatial extension
             println!("Loading DuckDB spatial extension...");
             conn.execute("INSTALL spatial", [])?;
             conn.execute("LOAD spatial", [])?;
-            
+
             println!("Extracting data... This may take a while depending on the bounding box.");
-            
+
             // The magic query: Create a table by joining the GeoZarr pixels that intersect the vector polygons
             let query = format!(
-                "CREATE TABLE extracted_data AS 
-                 SELECT z.*, v.* EXCLUDE (geom) 
-                 FROM read_zarr('{}') z, ST_Read('{}') v 
+                "CREATE TABLE extracted_data AS
+                 SELECT z.*, v.* EXCLUDE (geom)
+                 FROM read_zarr('{}') z, ST_Read('{}') v
                  WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))",
                 zarr_uri, vector_path
             );
-            
+
             match conn.execute(&query, []) {
                 Ok(_) => {
                     if cli.output == "json" {
@@ -301,19 +301,19 @@ Inside the `Commands::Shell` match block. We will spawn the actual `duckdb` bina
             } else {
                 "../target/debug/libgeozarr.duckdb_extension"
             };
-            
+
             let init_commands = format!(
-                "SET allow_unsigned_extensions = true; LOAD '{}'; INSTALL spatial; LOAD spatial;", 
+                "SET allow_unsigned_extensions = true; LOAD '{}'; INSTALL spatial; LOAD spatial;",
                 ext_path
             );
-            
+
             println!("Starting DuckDB shell...");
             let status = Command::new("duckdb")
                 .arg(&db_path)
                 .arg("-cmd")
                 .arg(&init_commands)
                 .status();
-                
+
             match status {
                 Ok(s) if s.success() => {},
                 Ok(s) => eprintln!("DuckDB shell exited with status: {}", s),

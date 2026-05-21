@@ -39,7 +39,7 @@ A user running Zsh would execute:
 `zarrduck completions zsh > ~/.zfunc/_zarrduck`
 
 ## 5. Agent & Output Format Constraints
-The global `--output` flag (which defaults to `table` but can be `json`) is technically available on all commands. However, the `completions` command's sole purpose is to output raw shell script text. 
+The global `--output` flag (which defaults to `table` but can be `json`) is technically available on all commands. However, the `completions` command's sole purpose is to output raw shell script text.
 
 Therefore, if the `completions` command is invoked, the CLI will bypass any JSON wrapping logic and directly stream the raw shell script to standard output, ensuring the piped output remains valid shell code regardless of the global output format setting.
 

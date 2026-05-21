@@ -165,7 +165,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
             })
         })
         .unwrap_or(OutputFormat::Table);
-        
+
     // Update cli struct so nested commands can just use it
     cli.output = Some(resolved_output.clone());
 
@@ -179,10 +179,10 @@ async fn main() -> EyreResult<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
     let config = ZarrduckConfig::load().unwrap_or_else(|_| ZarrduckConfig { output_format: None, default_out: None, s3: None });
-    
+
     let is_json = cli.output.as_ref().map(|o| *o == OutputFormat::Json)
         .unwrap_or_else(|| config.output_format.as_deref() == Some("json"));
-    
+
     if let Err(e) = run_cli(cli, config).await {
 // ... existing error logic
 ```
@@ -194,7 +194,7 @@ In the `Extract` match block, resolve `out`:
         Commands::Extract { zarr_uri, vector_path, out } => {
             let out_path = out.or(config.default_out)
                 .ok_or_else(|| eyre!("Output path not specified. Use --out or set default_out in config."))?;
-            
+
             // Overwrite protection
             if std::path::Path::new(&out_path).exists() {
                 if resolved_output == OutputFormat::Json {
@@ -204,12 +204,12 @@ In the `Extract` match block, resolve `out`:
                         .with_default(false)
                         .prompt()
                         .wrap_err("Failed to read user input")?;
-                        
+
                     if !ans {
                         println!("Aborting extraction.");
                         return Ok(());
                     }
-                    
+
                     std::fs::remove_file(&out_path).wrap_err_with(|| format!("Failed to delete existing file '{}'", out_path))?;
                 }
             }
@@ -252,12 +252,12 @@ fn setup_duckdb(s3_config: Option<&crate::config::S3Config>) -> EyreResult<Conne
         .wrap_err("Failed to configure unsigned extensions")?;
     let conn = Connection::open_in_memory_with_flags(config)
         .wrap_err("Failed to open in-memory DuckDB connection")?;
-    
+
     load_geozarr_extension(&conn)
         .wrap_err("Failed to load geozarr extension")?;
-        
+
     inject_s3_secret(&conn, s3_config)?;
-    
+
     Ok(conn)
 }
 
@@ -269,7 +269,7 @@ fn inject_s3_secret(conn: &Connection, s3_config: Option<&crate::config::S3Confi
             if let Some(sk) = &s3.secret_key { parts.push(format!("SECRET '{}'", sk.replace("'", "''"))); }
             if let Some(r) = &s3.region { parts.push(format!("REGION '{}'", r.replace("'", "''"))); }
             if let Some(e) = &s3.endpoint { parts.push(format!("ENDPOINT '{}'", e.replace("'", "''"))); }
-            
+
             let query = format!("CREATE SECRET ( {} )", parts.join(", "));
             conn.execute(&query, []).wrap_err("Failed to inject S3 secret into DuckDB")?;
         }

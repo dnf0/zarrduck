@@ -61,9 +61,9 @@ Update the top-level `main()`:
 async fn main() -> EyreResult<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
-    
+
     let is_json = cli.output == OutputFormat::Json;
-    
+
     if let Err(e) = run_cli(cli).await {
         if is_json {
             // Build error chain string
@@ -79,7 +79,7 @@ async fn main() -> EyreResult<()> {
             return Err(e);
         }
     }
-    
+
     Ok(())
 }
 ```
@@ -89,7 +89,7 @@ async fn main() -> EyreResult<()> {
 Inside `run_cli`, replace any `Box<dyn std::error::Error>` returns with `EyreResult`.
 For the `Commands::Export` block, change:
 ```rust
-// from: 
+// from:
 // let stream_result: Result<(), Box<dyn std::error::Error>> = (|| {
 // to:
 let stream_result: EyreResult<()> = (|| {
@@ -122,16 +122,16 @@ Update `setup_duckdb` to return `EyreResult`:
 fn setup_duckdb() -> EyreResult<Connection> {
     let conn = Connection::open_in_memory()
         .wrap_err("Failed to open in-memory DuckDB connection")?;
-        
+
     let ext_path = if cfg!(target_os = "windows") {
         "../target/debug/geozarr.duckdb_extension"
     } else {
         "../target/debug/libgeozarr.duckdb_extension"
     };
-    
+
     load_geozarr_extension(&conn)
         .wrap_err_with(|| format!("Failed to load geozarr extension from {}", ext_path))?;
-        
+
     Ok(conn)
 }
 ```
@@ -171,26 +171,26 @@ Update connection and spatial load:
                 .wrap_err("Failed to configure unsigned extensions")?;
             let conn = Connection::open_with_flags(&out, config)
                 .wrap_err_with(|| format!("Failed to open database at {}", out))?;
-            
+
             load_geozarr_extension(&conn)?;
-            
+
             if cli.output != OutputFormat::Json {
                 println!("Loading DuckDB spatial extension...");
             }
             conn.execute("INSTALL spatial", []).wrap_err("Failed to install spatial extension")?;
             conn.execute("LOAD spatial", []).wrap_err("Failed to load spatial extension")?;
-            
+
             if cli.output != OutputFormat::Json {
                 println!("Extracting data... This may take a while depending on the bounding box.");
             }
-            
+
             let query = format!(
                 "CREATE OR REPLACE TABLE extracted_data AS \n                 SELECT z.*, v.* EXCLUDE (geom) \n                 FROM read_zarr('{}') z, ST_Read('{}') v \n                 WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))",
                 zarr_uri.replace("'", "''"), vector_path.replace("'", "''")
             );
-            
+
             conn.execute(&query, []).wrap_err("Spatial extraction query failed")?;
-            
+
             if cli.output == OutputFormat::Json {
                 println!(r#"{{"status": "success", "db": "{}"}}"#, out);
             } else {
