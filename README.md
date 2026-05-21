@@ -27,16 +27,17 @@ Benchmarked against `xarray` + `shapely` on the [CMIP6 CESM2 historical surface 
 
 ### Scan throughput: release build + parallel chunks
 
-The extension scales near-linearly with DuckDB's thread pool. Benchmarked on a locally-chunked Zarr (79 chunks, 12×73×144, California bbox extraction, 32,830 rows):
+The extension scales near-linearly with DuckDB's thread pool. Benchmarked on a locally-chunked Zarr (79 chunks, 12×73×144, California bbox extraction, 32,830 rows). Also shown: xarray + shapely running the same bbox query on the same file.
 
-| Build | Threads | Time | Speedup |
+| Tool | Threads | Time | Speedup |
 |---|---|---|---|
-| debug | 1 | 1,472 ms | 1× (baseline) |
-| release | 1 | 313 ms | 4.7× |
-| release | 4 | 99 ms | 14.9× |
-| release | 8 | 65 ms | **22.6×** |
+| zarrduck debug | 1 | 75 ms | 1× (baseline) |
+| zarrduck release | 1 | 37 ms | 2× |
+| zarrduck release | 4 | 25 ms | 3× |
+| zarrduck release | 8 | **21 ms** | **3.6×** |
+| xarray + shapely | — | 22 ms | — |
 
-> Use a release build in production (`cargo build --release`). Each chunk is assigned to a separate DuckDB worker thread, so throughput scales with both CPU cores and I/O parallelism.
+> zarrduck matches xarray on this spatially-chunked dataset. For datasets with a single global spatial chunk (common in raw CMIP6), xarray downloads less data because it can slice server-side; zarrduck's advantage grows when chunks align with the query region. Use a release build in production. Each chunk is assigned to a separate DuckDB worker thread, so throughput scales with both CPU cores and I/O parallelism.
 
 ### Post-extraction analytics: zarrduck's sweet spot
 
