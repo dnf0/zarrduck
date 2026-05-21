@@ -69,7 +69,17 @@ fn test_cli_resample_missing_input() {
         .arg("--output=json")
         .assert()
         .failure()
-        .stdout(predicate::str::contains(
-            "Input database 'missing_input.duckdb' does not exist",
-        ));
+        .stdout(predicate::str::contains("Input database 'missing_input.duckdb' does not exist"));
+}
+
+#[test]
+fn test_cli_ingest_missing_input() {
+    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    cmd.arg("ingest")
+        .arg("missing_input.nc")
+        .arg("s3://bucket/out.zarr")
+        .arg("--output=json")
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("Input file 'missing_input.nc' does not exist"));
 }
