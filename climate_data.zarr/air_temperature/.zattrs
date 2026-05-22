@@ -1,0 +1,43 @@
+{
+    "_ARRAY_DIMENSIONS": [
+        "time",
+        "lat",
+        "lon"
+    ],
+    "actual_range": [
+        -73.7800064086914,
+        42.14595031738281
+    ],
+    "add_offset": 0.0,
+    "dataset": "NCEP Reanalysis Derived Products",
+    "geozarr": {
+        "spatial_reference": {
+            "crs": "EPSG:4326"
+        },
+        "spatial_transform": {
+            "scale": [
+                1.0,
+                -2.5,
+                2.5
+            ],
+            "translation": [
+                0.0,
+                90.0,
+                -180.0
+            ]
+        }
+    },
+    "level_desc": "0.995 sigma",
+    "long_name": "Monthly Mean Air Temperature at sigma level 0.995",
+    "missing_value": -9.969209968386869e+36,
+    "parent_stat": "Individual Obs",
+    "precision": 1,
+    "scale_factor": 1.0,
+    "statistic": "Mean",
+    "units": "degC",
+    "valid_range": [
+        -2000.0,
+        2000.0
+    ],
+    "var_desc": "Air Temperature"
+}

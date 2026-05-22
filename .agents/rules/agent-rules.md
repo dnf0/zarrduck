@@ -1,6 +1,6 @@
-<!-- agent-rules@0_42_0 objective=general language=python strictness=balanced repo_name=duckdb_geozarr -->
+<!-- agent-rules@0_42_5 objective=general language=python,rust strictness=balanced repo_name=zarrduck -->
 
-# duckdb_geozarr Antigravity Guidance
+# zarrduck Antigravity Guidance
 
 Provider target: Antigravity
 

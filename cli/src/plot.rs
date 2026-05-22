@@ -191,6 +191,33 @@ fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
     Ok(())
 }
 
+fn detect_grid_bounds(
+    conn: &Connection,
+    table: &str,
+    lat_col: &str,
+    lon_col: &str,
+) -> Result<(f64, f64, f64, f64)> {
+    let bounds_query = format!(
+        "SELECT min(\"{lat}\"), max(\"{lat}\"), min(\"{lon}\"), max(\"{lon}\") FROM \"{t}\"",
+        lat = lat_col.replace("\"", "\"\""),
+        lon = lon_col.replace("\"", "\"\""),
+        t = table.replace("\"", "\"\"")
+    );
+    let mut bounds_stmt = conn.prepare(&bounds_query)?;
+    let mut bounds_rows = bounds_stmt.query([])?;
+    let mut min_lat = 0.0;
+    let mut max_lat = 0.0;
+    let mut min_lon = 0.0;
+    let mut max_lon = 0.0;
+    if let Some(row) = bounds_rows.next()? {
+        min_lat = row.get(0).unwrap_or(0.0);
+        max_lat = row.get(1).unwrap_or(0.0);
+        min_lon = row.get(2).unwrap_or(0.0);
+        max_lon = row.get(3).unwrap_or(0.0);
+    }
+    Ok((min_lat, max_lat, min_lon, max_lon))
+}
+
 fn plot_heatmap(
     conn: &Connection,
     table: &str,
@@ -235,27 +262,11 @@ fn plot_heatmap(
     }
 
     // Cap dimensions to prevent blowing up the terminal
-    let rows_count = actual_rows.max(1).min(40);
-    let cols_count = actual_cols.max(1).min(80);
+    let rows_count = actual_rows.clamp(1, 40);
+    let cols_count = actual_cols.clamp(1, 80);
 
-    let bounds_query = format!(
-        "SELECT min(\"{lat}\"), max(\"{lat}\"), min(\"{lon}\"), max(\"{lon}\") FROM \"{t}\"",
-        lat = lat_col.replace("\"", "\"\""),
-        lon = lon_col.replace("\"", "\"\""),
-        t = table.replace("\"", "\"\"")
-    );
-    let mut bounds_stmt = conn.prepare(&bounds_query)?;
-    let mut bounds_rows = bounds_stmt.query([])?;
-    let mut min_lat_bound = 0.0;
-    let mut max_lat_bound = 0.0;
-    let mut min_lon_bound = 0.0;
-    let mut max_lon_bound = 0.0;
-    if let Some(row) = bounds_rows.next()? {
-        min_lat_bound = row.get(0).unwrap_or(0.0);
-        max_lat_bound = row.get(1).unwrap_or(0.0);
-        min_lon_bound = row.get(2).unwrap_or(0.0);
-        max_lon_bound = row.get(3).unwrap_or(0.0);
-    }
+    let (min_lat_bound, max_lat_bound, min_lon_bound, max_lon_bound) =
+        detect_grid_bounds(conn, table, &lat_col, &lon_col)?;
 
     let query = format!(
         "WITH bounds AS (
@@ -299,6 +310,35 @@ fn plot_heatmap(
         }
     }
 
+    draw_heatmap(
+        val_col,
+        rows_count,
+        cols_count,
+        &grid_data,
+        min_lat_bound,
+        max_lat_bound,
+        min_lon_bound,
+        max_lon_bound,
+        global_min,
+        global_max,
+    );
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_heatmap(
+    val_col: &str,
+    rows_count: usize,
+    cols_count: usize,
+    grid_data: &[Vec<f64>],
+    min_lat_bound: f64,
+    max_lat_bound: f64,
+    min_lon_bound: f64,
+    max_lon_bound: f64,
+    global_min: f64,
+    global_max: f64,
+) {
     // ANSI Truecolor mapping from blue to red
     let get_color = |t: f64| -> String {
         let colors = [
@@ -397,50 +437,40 @@ fn plot_heatmap(
         }
         println!();
     }
+}
 
+pub struct PlotConfig {
+    pub plot_type: PlotType,
+    pub table: String,
+    pub value_column: String,
+    pub group_by: Option<String>,
+}
+
+pub fn render_plot(conn: &Connection, config: &PlotConfig) -> Result<()> {
+    match config.plot_type {
+        PlotType::Hist => plot_hist(
+            conn,
+            &config.table,
+            &config.value_column,
+            config.group_by.as_deref(),
+        )?,
+        PlotType::Heatmap => plot_heatmap(
+            conn,
+            &config.table,
+            &config.value_column,
+            config.group_by.as_deref(),
+        )?,
+        PlotType::Line => plot_line(
+            conn,
+            &config.table,
+            &config.value_column,
+            config.group_by.as_deref(),
+        )?,
+    }
     Ok(())
 }
 
-pub fn run_plot(
-    db_path: &str,
-    plot_type: Option<PlotType>,
-    table: &str,
-    value_column: Option<&str>,
-    group_by: Option<&str>,
-) -> Result<()> {
-    if !std::path::Path::new(db_path).exists() {
-        return Err(eyre!("Database '{}' does not exist.", db_path));
-    }
-
-    let conn = Connection::open(db_path)?;
-
-    // If plot_type is provided, run non-interactively
-    if let Some(pt) = plot_type {
-        let val_col = match value_column {
-            Some(v) => v.to_string(),
-            None => detect_value_column(&conn, table)?,
-        };
-
-        println!(
-            "Plotting {} from table {} (Value: {})",
-            format!("{:?}", pt).to_lowercase(),
-            table,
-            val_col
-        );
-
-        match pt {
-            PlotType::Hist => plot_hist(&conn, table, &val_col, group_by)?,
-            PlotType::Heatmap => plot_heatmap(&conn, table, &val_col, group_by)?,
-            PlotType::Line => plot_line(&conn, table, &val_col, group_by)?,
-        }
-        return Ok(());
-    }
-
-    // Otherwise, run interactive wizard
-    run_wizard(&conn, table)
-}
-
-fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
+pub fn collect_wizard_config(conn: &Connection, default_table: &str) -> Result<Option<PlotConfig>> {
     println!("Launching Interactive Plot Wizard...\n");
 
     // 1. Select Table
@@ -483,7 +513,7 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
 
     if selected_vars.is_empty() {
         println!("No variables selected. Exiting.");
-        return Ok(());
+        return Ok(None);
     }
 
     // Extract just the column names
@@ -502,10 +532,7 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
             "Histogram (Distribution)",
             "Line Plot (Time Series)",
         ],
-        _ => vec![
-            "Line Plot (Time Series)",
-            "Histogram (Distribution)",
-        ],
+        _ => vec!["Line Plot (Time Series)", "Histogram (Distribution)"],
     };
 
     let selected_plot_str = Select::new("Choose plot type:", plot_options)
@@ -524,30 +551,71 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
             "Plot type '{}' is not fully implemented yet in the renderer. Exiting.",
             selected_plot_str
         );
-        return Ok(());
+        return Ok(None);
     };
 
     // Determine value column (pick the last selected variable as a heuristic)
     let val_col = var_names
         .last()
-        .expect("var_names is guaranteed to be non-empty");
+        .expect("var_names is guaranteed to be non-empty")
+        .to_string();
+    Ok(Some(PlotConfig {
+        plot_type,
+        table: selected_table,
+        value_column: val_col,
+        group_by: None,
+    }))
+}
 
-    println!("\nExecuting generated command:");
-    println!(
-        "zarrduck plot <db> --plot-type {} --table {} --value {}\n",
-        format!("{:?}", plot_type).to_lowercase(),
-        selected_table,
-        val_col
-    );
-
-    // Delegate to existing rendering functions
-    match plot_type {
-        PlotType::Hist => plot_hist(conn, &selected_table, val_col, None)?,
-        PlotType::Heatmap => plot_heatmap(conn, &selected_table, val_col, None)?,
-        PlotType::Line => plot_line(conn, &selected_table, val_col, None)?,
+pub fn run_plot(
+    db_path: &str,
+    plot_type: Option<PlotType>,
+    table: &str,
+    value_column: Option<&str>,
+    group_by: Option<&str>,
+) -> Result<()> {
+    if !std::path::Path::new(db_path).exists() {
+        return Err(eyre!("Database '{}' does not exist.", db_path));
     }
 
-    Ok(())
+    let conn = Connection::open(db_path)?;
+
+    let config = if let Some(pt) = plot_type {
+        let val_col = match value_column {
+            Some(v) => v.to_string(),
+            None => detect_value_column(&conn, table)?,
+        };
+
+        println!(
+            "Plotting {} from table {} (Value: {})",
+            format!("{:?}", pt).to_lowercase(),
+            table,
+            val_col
+        );
+
+        PlotConfig {
+            plot_type: pt,
+            table: table.to_string(),
+            value_column: val_col,
+            group_by: group_by.map(|s| s.to_string()),
+        }
+    } else {
+        match collect_wizard_config(&conn, table)? {
+            Some(c) => {
+                println!("\nExecuting generated command:");
+                println!(
+                    "zarrduck plot <db> --plot-type {} --table {} --value {}\n",
+                    format!("{:?}", c.plot_type).to_lowercase(),
+                    c.table,
+                    c.value_column
+                );
+                c
+            }
+            None => return Ok(()),
+        }
+    };
+
+    render_plot(&conn, &config)
 }
 
 #[cfg(test)]

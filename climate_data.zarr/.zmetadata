@@ -1,0 +1,171 @@
+{
+    "metadata": {
+        ".zattrs": {
+            "Conventions": "COARDS",
+            "NCO": "20121012",
+            "References": "http://www.psl.noaa.gov/data/gridded/data.ncep.reanalysis.derived.html",
+            "dataset_title": "NCEP-NCAR Reanalysis 1",
+            "description": "Data from NCEP initialized reanalysis (4x/day).  These are the 0.9950 sigma level values",
+            "history": "Thu May  4 20:11:16 2000: ncrcat -d time,0,623 /Datasets/ncep.reanalysis.derived/surface/air.mon.mean.nc air.mon.mean.nc\nThu May  4 18:11:50 2000: ncrcat -d time,0,622 /Datasets/ncep.reanalysis.derived/surface/air.mon.mean.nc ./surface/air.mon.mean.nc\nMon Jul  5 23:47:18 1999: ncrcat ./air.mon.mean.nc /Datasets/ncep.reanalysis.derived/surface/air.mon.mean.nc /dm/dmwork/nmc.rean.ingest/combinedMMs/surface/air.mon.mean.nc\n/home/hoop/crdc/cpreanjuke2farm/cpreanjuke2farm Mon Oct 23 21:04:20 1995 from air.sfc.gauss.85.nc\ncreated 95/03/13 by Hoop (netCDF2.3)\nConverted to chunked, deflated non-packed NetCDF4 2014/09",
+            "platform": "Model",
+            "title": "monthly mean air.sig995 from the NCEP Reanalysis"
+        },
+        ".zgroup": {
+            "zarr_format": 2
+        },
+        "air_temperature/.zarray": {
+            "chunks": [
+                12,
+                73,
+                144
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 5,
+                "cname": "lz4",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "<f4",
+            "fill_value": "NaN",
+            "filters": null,
+            "order": "C",
+            "shape": [
+                938,
+                73,
+                144
+            ],
+            "zarr_format": 2
+        },
+        "air_temperature/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "time",
+                "lat",
+                "lon"
+            ],
+            "actual_range": [
+                -73.7800064086914,
+                42.14595031738281
+            ],
+            "add_offset": 0.0,
+            "dataset": "NCEP Reanalysis Derived Products",
+            "level_desc": "0.995 sigma",
+            "long_name": "Monthly Mean Air Temperature at sigma level 0.995",
+            "missing_value": -9.969209968386869e+36,
+            "parent_stat": "Individual Obs",
+            "precision": 1,
+            "scale_factor": 1.0,
+            "statistic": "Mean",
+            "units": "degC",
+            "valid_range": [
+                -2000.0,
+                2000.0
+            ],
+            "var_desc": "Air Temperature"
+        },
+        "lat/.zarray": {
+            "chunks": [
+                73
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 5,
+                "cname": "lz4",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "<f4",
+            "fill_value": "NaN",
+            "filters": null,
+            "order": "C",
+            "shape": [
+                73
+            ],
+            "zarr_format": 2
+        },
+        "lat/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "lat"
+            ],
+            "actual_range": [
+                90.0,
+                -90.0
+            ],
+            "axis": "Y",
+            "long_name": "Latitude",
+            "standard_name": "latitude",
+            "units": "degrees_north"
+        },
+        "lon/.zarray": {
+            "chunks": [
+                144
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 5,
+                "cname": "lz4",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "<f4",
+            "fill_value": "NaN",
+            "filters": null,
+            "order": "C",
+            "shape": [
+                144
+            ],
+            "zarr_format": 2
+        },
+        "lon/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "lon"
+            ],
+            "actual_range": [
+                0.0,
+                357.5
+            ],
+            "axis": "X",
+            "long_name": "Longitude",
+            "standard_name": "longitude",
+            "units": "degrees_east"
+        },
+        "time/.zarray": {
+            "chunks": [
+                938
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 5,
+                "cname": "lz4",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "<f8",
+            "fill_value": "NaN",
+            "filters": null,
+            "order": "C",
+            "shape": [
+                938
+            ],
+            "zarr_format": 2
+        },
+        "time/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "time"
+            ],
+            "actual_range": [
+                1297320.0,
+                1981824.0
+            ],
+            "avg_period": "0000-01-00 00:00:00",
+            "axis": "T",
+            "calendar": "proleptic_gregorian",
+            "delta_t": "0000-01-00 00:00:00",
+            "long_name": "Time",
+            "prev_avg_period": "0000-00-01 00:00:00",
+            "standard_name": "time",
+            "units": "hours since 1800-01-01"
+        }
+    },
+    "zarr_consolidated_format": 1
+}

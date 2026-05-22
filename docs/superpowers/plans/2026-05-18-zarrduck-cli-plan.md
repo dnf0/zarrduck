@@ -4,7 +4,7 @@
 
 **Goal:** Rename the CLI to `zarrduck` and implement a suite of agent-friendly commands (`info`, `extract`, `shell`) that abstract away complex spatial SQL operations.
 
-**Architecture:** We will use `clap` to structure the multi-command CLI. The CLI will act as a wrapper around an embedded DuckDB connection. It will install and load necessary extensions (`duckdb_geozarr`, `spatial`), construct the complex SQL for metadata fetching or spatial joins, execute it, and format the output (either as human-readable tables or agent-friendly JSON).
+**Architecture:** We will use `clap` to structure the multi-command CLI. The CLI will act as a wrapper around an embedded DuckDB connection. It will install and load necessary extensions (`zarrduck`, `spatial`), construct the complex SQL for metadata fetching or spatial joins, execute it, and format the output (either as human-readable tables or agent-friendly JSON).
 
 **Tech Stack:** Rust, `clap`, `tokio`, `duckdb`, `serde_json`
 

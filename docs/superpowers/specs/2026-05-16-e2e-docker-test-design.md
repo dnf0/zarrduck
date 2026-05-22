@@ -4,7 +4,7 @@
 **Status:** Approved
 
 ## 1. Purpose & Context
-We need a heavier, end-to-end performance test that validates the `duckdb_geozarr` extension under realistic conditions. This test will use Docker Compose to orchestrate Zarr array generation via Python and query execution via DuckDB, isolating the runtime environment. The performance results will be automatically appended to any open Pull Request via a Git hook.
+We need a heavier, end-to-end performance test that validates the `zarrduck` extension under realistic conditions. This test will use Docker Compose to orchestrate Zarr array generation via Python and query execution via DuckDB, isolating the runtime environment. The performance results will be automatically appended to any open Pull Request via a Git hook.
 
 ## 2. Architecture: Multi-Service Compose
 The testing infrastructure will live in the `e2e/` directory and consist of:

@@ -58,7 +58,7 @@ pub use table_function::ReadZarrVTab;
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `cargo test -p duckdb_geozarr metadata`
+Run: `cargo test -p zarrduck metadata`
 Expected: FAIL (cannot find function `parse_geozarr_metadata`)
 
 - [ ] **Step 4: Write minimal implementation**
@@ -105,7 +105,7 @@ pub fn parse_geozarr_metadata(attrs: &Value) -> Option<GeoZarrMetadata> {
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `cargo test -p duckdb_geozarr metadata`
+Run: `cargo test -p zarrduck metadata`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -143,7 +143,7 @@ fn test_spatial_transform_coordinate_generation() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p duckdb_geozarr table_function::tests::test_spatial_transform_coordinate_generation`
+Run: `cargo test -p zarrduck table_function::tests::test_spatial_transform_coordinate_generation`
 Expected: FAIL (cannot find function `apply_transform`)
 
 - [ ] **Step 3: Write minimal implementation**
@@ -232,7 +232,7 @@ Inside `ReadZarrVTab::func` in `extension/src/table_function.rs` where we yield 
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `cargo test -p duckdb_geozarr`
+Run: `cargo test -p zarrduck`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -355,7 +355,7 @@ impl VTab for ReadZarrMetadataVTab {
 
 - [ ] **Step 3: Run compilation check**
 
-Run: `cargo build -p duckdb_geozarr`
+Run: `cargo build -p zarrduck`
 Expected: SUCCESS
 
 - [ ] **Step 4: Commit**
@@ -445,7 +445,7 @@ fn test_geozarr_spatial_metadata() -> duckdb::Result<()> {
 
 - [ ] **Step 2: Run tests**
 
-Run: `cargo test -p duckdb_geozarr test_geozarr_spatial_metadata`
+Run: `cargo test -p zarrduck test_geozarr_spatial_metadata`
 Expected: PASS
 
 - [ ] **Step 3: Commit**

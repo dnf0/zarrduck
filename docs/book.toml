@@ -2,11 +2,11 @@
 authors = ["Climate X"]
 language = "en"
 src = "src"
-title = "DuckDB GeoZarr Documentation"
+title = "Zarrduck Documentation"
 
 [build]
 build-dir = "book"
 
 [output.html]
-git-repository-url = "https://github.com/dnf0/duckdb_geozarr"
-edit-url-template = "https://github.com/dnf0/duckdb_geozarr/edit/main/docs/src/{path}"
+git-repository-url = "https://github.com/dnf0/zarrduck"
+edit-url-template = "https://github.com/dnf0/zarrduck/edit/main/docs/src/{path}"

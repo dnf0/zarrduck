@@ -17,11 +17,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_name: duckdb_geozarr-linux-amd64.duckdb_extension
+            artifact_name: zarrduck-linux-amd64.duckdb_extension
           - os: macos-latest
-            artifact_name: duckdb_geozarr-macos-arm64.duckdb_extension
+            artifact_name: zarrduck-macos-arm64.duckdb_extension
           - os: windows-latest
-            artifact_name: duckdb_geozarr-windows-amd64.duckdb_extension
+            artifact_name: zarrduck-windows-amd64.duckdb_extension
 
     steps:
       - uses: actions/checkout@v4
@@ -49,8 +49,8 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            cargo build --package duckdb_geozarr --release
-            cargo duckdb-ext package --library-path target/release/geozarr.dll --extension-path target/release/${{ matrix.artifact_name }} --extension-version v0.1.0 --duckdb-platform windows_amd64 --duckdb-version v1.10502.0
+            cargo build --package zarrduck_extension --release
+            cargo duckdb-ext package --library-path target/release/zarrduck.dll --extension-path target/release/${{ matrix.artifact_name }} --extension-version v0.1.0 --duckdb-platform windows_amd64 --duckdb-version v1.10502.0
           else
             cargo duckdb-ext build -- --release
           fi

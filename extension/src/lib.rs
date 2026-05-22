@@ -1,9 +1,8 @@
-pub mod http_store;
-pub mod metadata;
 pub mod metadata_vtab;
 pub mod table_function;
+pub mod vector_writer;
 pub use metadata_vtab::ReadZarrMetadataVTab;
-pub use table_function::{ReadZarrVTab, PlanReadZarrVTab};
+pub use table_function::{PlanReadZarrVTab, ReadZarrVTab};
 
 #[cfg(feature = "loadable-extension")]
 #[duckdb::duckdb_entrypoint_c_api]

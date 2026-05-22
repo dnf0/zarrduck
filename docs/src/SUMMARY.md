@@ -8,3 +8,4 @@
 - [How-To Guides](./how_to.md)
 - [Performance Metrics](./metrics.md)
 - [Architecture](./architecture.md)
+- [Development Guide](./development.md)

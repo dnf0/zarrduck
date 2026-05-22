@@ -137,7 +137,7 @@ zarrduck extract s3://my-bucket/climate.zarr ./my_region.geojson --out analysis.
 ```
 
 ### Analytics: `shell`
-Drop into an interactive DuckDB REPL pre-loaded with the `spatial` and `duckdb_geozarr` extensions.
+Drop into an interactive DuckDB REPL pre-loaded with the `spatial` and `zarrduck` extensions.
 
 ```bash
 zarrduck shell analysis.duckdb

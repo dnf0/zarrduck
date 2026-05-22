@@ -2,8 +2,6 @@ use duckdb::core::{DataChunkHandle, Inserter, LogicalTypeHandle, LogicalTypeId};
 use duckdb::vtab::{BindInfo, InitInfo, VTab};
 use duckdb::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use zarrs::storage::store::FilesystemStore;
 
 pub struct MetadataBindData {
     pub shape: String,
@@ -28,8 +26,8 @@ impl VTab for ReadZarrMetadataVTab {
 
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
         let path = bind.get_parameter(0).to_string();
-        let store = Arc::new(FilesystemStore::new(path).map_err(|e| e.to_string())?);
-        let array = zarrs::array::Array::open(store, "/").map_err(|e| e.to_string())?;
+        let store = geozarr_core::store::resolve_sync_store(&path).map_err(|e| e.to_string())?;
+        let array = zarrs::array::Array::open(store.store, "/").map_err(|e| e.to_string())?;
 
         let shape = format!("{:?}", array.shape());
         let chunk_shape = format!(
@@ -45,7 +43,7 @@ impl VTab for ReadZarrMetadataVTab {
         let metadata = array.metadata();
         if let zarrs::array::ArrayMetadata::V2(meta) = metadata {
             // Note: Use serde_json::Value::Object(meta.attributes.clone()) here!
-            if let Some(geozarr) = crate::metadata::parse_geozarr_metadata(
+            if let Some(geozarr) = geozarr_core::metadata::parse_geozarr_metadata(
                 &serde_json::Value::Object(meta.attributes.clone()),
             ) {
                 if let Some(c) = geozarr.crs {
@@ -54,7 +52,7 @@ impl VTab for ReadZarrMetadataVTab {
             }
         } else if let zarrs::array::ArrayMetadata::V3(meta) = metadata {
             // Note: Use serde_json::Value::Object(meta.attributes.clone()) here!
-            if let Some(geozarr) = crate::metadata::parse_geozarr_metadata(
+            if let Some(geozarr) = geozarr_core::metadata::parse_geozarr_metadata(
                 &serde_json::Value::Object(meta.attributes.clone()),
             ) {
                 if let Some(c) = geozarr.crs {

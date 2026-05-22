@@ -3,8 +3,8 @@ use duckdb::{Connection, Result};
 #[test]
 fn test_plan_read_zarr() -> Result<()> {
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<duckdb_geozarr::ReadZarrVTab>("read_zarr")?;
-    conn.register_table_function::<duckdb_geozarr::PlanReadZarrVTab>("plan_read_zarr")?;
+    conn.register_table_function::<zarrduck::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<zarrduck::PlanReadZarrVTab>("plan_read_zarr")?;
 
     let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let store_path = temp_dir.path().join("test_plan.zarr");
@@ -44,8 +44,8 @@ fn test_plan_read_zarr() -> Result<()> {
 #[test]
 fn test_plan_read_zarr_bounding_box_and_types() -> Result<()> {
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<duckdb_geozarr::ReadZarrVTab>("read_zarr")?;
-    conn.register_table_function::<duckdb_geozarr::PlanReadZarrVTab>("plan_read_zarr")?;
+    conn.register_table_function::<zarrduck::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<zarrduck::PlanReadZarrVTab>("plan_read_zarr")?;
 
     let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let store_path = temp_dir.path().join("test_plan_bbox.zarr");
@@ -75,14 +75,24 @@ fn test_plan_read_zarr_bounding_box_and_types() -> Result<()> {
 
     // Create 1D coordinate arrays to allow bounding box filtering
     // lat: 0 to 49
-    let lat_builder = ArrayBuilder::new(vec![50], DataType::Float64, vec![50].try_into().unwrap(), FillValue::from(0.0f64));
+    let lat_builder = ArrayBuilder::new(
+        vec![50],
+        DataType::Float64,
+        vec![50].try_into().unwrap(),
+        FillValue::from(0.0f64),
+    );
     let lat_array = lat_builder.build(Arc::clone(&store), "/lat").unwrap();
     lat_array.store_metadata().unwrap();
     let lat_data: Vec<f64> = (0..50).map(|x| x as f64).collect();
     lat_array.store_chunk_elements(&[0], &lat_data).unwrap();
 
     // lon: 0 to 49
-    let lon_builder = ArrayBuilder::new(vec![50], DataType::Float64, vec![50].try_into().unwrap(), FillValue::from(0.0f64));
+    let lon_builder = ArrayBuilder::new(
+        vec![50],
+        DataType::Float64,
+        vec![50].try_into().unwrap(),
+        FillValue::from(0.0f64),
+    );
     let lon_array = lon_builder.build(Arc::clone(&store), "/lon").unwrap();
     lon_array.store_metadata().unwrap();
     let lon_data: Vec<f64> = (0..50).map(|x| x as f64).collect();
@@ -95,7 +105,10 @@ fn test_plan_read_zarr_bounding_box_and_types() -> Result<()> {
     // chunk volume = 25 elements. bytes per element = 2.
     // chunk bytes = 50 bytes.
     // total_bytes = 3 * 50 = 150 bytes.
-    let query = format!("SELECT * FROM plan_read_zarr('{}', lat_min=10, lat_max=24, lon_min=5, lon_max=9)", store_path.display());
+    let query = format!(
+        "SELECT * FROM plan_read_zarr('{}', lat_min=10, lat_max=24, lon_min=5, lon_max=9)",
+        store_path.display()
+    );
     let mut stmt = conn.prepare(&query)?;
     let mut rows = stmt.query([])?;
 

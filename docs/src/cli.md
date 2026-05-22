@@ -34,7 +34,7 @@ zarrduck resample analysis.duckdb monthly.duckdb --freq month --agg avg
 ```
 
 ### Analytics: `shell`
-Drop into an interactive DuckDB REPL pre-loaded with the `spatial` and `duckdb_geozarr` extensions.
+Drop into an interactive DuckDB REPL pre-loaded with the `spatial` and `zarrduck` extensions.
 
 ```bash
 zarrduck shell monthly.duckdb

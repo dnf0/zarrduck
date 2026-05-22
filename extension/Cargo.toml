@@ -1,11 +1,11 @@
 [package]
-name = "duckdb_geozarr"
+name = "zarrduck_extension"
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
 
 [lib]
-name = "duckdb_geozarr"
+name = "zarrduck"
 crate-type = ["cdylib", "rlib"]
 
 [features]
@@ -13,8 +13,9 @@ default = []
 loadable-extension = ["duckdb/loadable-extension", "duckdb/vtab-loadable"]
 
 [dependencies]
+geozarr_core = { path = "../geozarr_core" }
 bytemuck = "1.19.0"
-duckdb = { version = "1.10502.0", features = ["bundled", "vtab", "buildtime_bindgen"] }
+duckdb = { version = "=1.10502.0", features = ["bundled", "vtab", "buildtime_bindgen"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0"
 zarrs = { version = "0.16.4", default-features = false, features = ["blosc", "gzip", "crc32c", "zstd", "sharding", "transpose", "ndarray"] }
@@ -22,5 +23,5 @@ ureq = { version = "2", features = ["tls"] }
 url = "2.5.0"
 
 [dev-dependencies]
-duckdb = { version = "1.10502.0", features = ["bundled", "vtab", "buildtime_bindgen"] }
+duckdb = { version = "=1.10502.0", features = ["bundled", "vtab", "buildtime_bindgen"] }
 tempfile = "3.10"

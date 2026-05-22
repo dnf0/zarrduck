@@ -140,7 +140,7 @@ Update it to explicitly handle strings:
 ```
 
 - [ ] **Step 3: Run test to verify it passes**
-Run: `cargo check -p duckdb_geozarr`
+Run: `cargo check -p zarrduck`
 Expected: PASS.
 
 - [ ] **Step 4: Commit**
