@@ -35,6 +35,9 @@ enum Commands {
     Info {
         /// The Zarr array URI
         uri: String,
+        /// Pins for dimensions (e.g. --pin time=0)
+        #[arg(long, value_name = "DIM=INDEX", action = clap::ArgAction::Append)]
+        pin: Vec<String>,
     },
     /// Extract Zarr data intersecting with vector polygons
     Extract {
@@ -48,6 +51,9 @@ enum Commands {
         /// Bypass confirmation prompts
         #[arg(short = 'y', long)]
         yes: bool,
+        /// Pins for dimensions (e.g. --pin time=0)
+        #[arg(long, value_name = "DIM=INDEX", action = clap::ArgAction::Append)]
+        pin: Vec<String>,
     },
     /// Open an interactive DuckDB shell loaded with the data
     Shell {
@@ -134,6 +140,10 @@ enum Commands {
         /// Optional column to group by
         #[arg(long)]
         group_by: Option<String>,
+
+        /// Pins for dimensions (e.g. --pin time=0)
+        #[arg(long, value_name = "DIM=INDEX", action = clap::ArgAction::Append)]
+        pin: Vec<String>,
     },
     /// Convert legacy spatial files (NetCDF, GeoTIFF, CSV) to GeoZarr
     Ingest {
@@ -215,20 +225,22 @@ async fn execute_command(
     config: ZarrduckConfig,
 ) -> EyreResult<()> {
     match command {
-        Commands::Info { uri } => {
-            commands::info::run_info(uri, &resolved_output, &config).await?;
+        Commands::Info { uri, pin } => {
+            commands::info::run_info(uri, pin, &resolved_output, &config).await?;
         }
         Commands::Extract {
             zarr_uri,
             vector_path,
             out,
             yes,
+            pin,
         } => {
             commands::extract::run_extract(
                 zarr_uri,
                 vector_path,
                 out,
                 yes,
+                pin,
                 &resolved_output,
                 &config,
             )
@@ -306,6 +318,7 @@ async fn execute_command(
             table,
             value,
             group_by,
+            pin,
         } => {
             plot::run_plot(
                 &db_path,
@@ -313,6 +326,7 @@ async fn execute_command(
                 &table,
                 value.as_deref(),
                 group_by.as_deref(),
+                pin,
             )?;
         }
     }

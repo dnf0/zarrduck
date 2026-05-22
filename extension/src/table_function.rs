@@ -84,8 +84,9 @@ impl VTab for ReadZarrVTab {
             ("lat_max".to_string(), LogicalTypeId::Double.into()),
             ("lon_min".to_string(), LogicalTypeId::Double.into()),
             ("lon_max".to_string(), LogicalTypeId::Double.into()),
-            ("time_min".to_string(), LogicalTypeId::Double.into()), // Can be cast to timestamp later if needed
+            ("time_min".to_string(), LogicalTypeId::Double.into()),
             ("time_max".to_string(), LogicalTypeId::Double.into()),
+            ("pins".to_string(), LogicalTypeId::Varchar.into()),
         ])
     }
 
@@ -106,7 +107,7 @@ impl VTab for ReadZarrVTab {
             bind.add_result_column(&name, type_id.into());
         }
 
-        let mut constraints = HashMap::new();
+        let mut bounds = HashMap::new();
         for name in &dataset.dim_names {
             let min_param_name = format!("{}_min", name);
             let max_param_name = format!("{}_max", name);
@@ -117,9 +118,23 @@ impl VTab for ReadZarrVTab {
             let max_val_opt = bind
                 .get_named_parameter(&max_param_name)
                 .and_then(|v| v.to_string().parse::<f64>().ok());
-            constraints.insert(name.clone(), (min_val_opt, max_val_opt));
+            bounds.insert(name.clone(), (min_val_opt, max_val_opt));
         }
 
+        let mut pins = HashMap::new();
+        if let Some(pins_val) = bind.get_named_parameter("pins") {
+            let pins_str = pins_val.to_string();
+            for pair in pins_str.split(',') {
+                let mut parts = pair.splitn(2, '=');
+                if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
+                    if let Ok(idx) = v.trim().parse::<u64>() {
+                        pins.insert(k.trim().to_string(), idx);
+                    }
+                }
+            }
+        }
+
+        let constraints = geozarr_core::query_planner::QueryConstraints { bounds, pins };
         let (bounds_min, bounds_max) = dataset.compute_bounds(&constraints);
 
         Ok(ReadZarrBindData {

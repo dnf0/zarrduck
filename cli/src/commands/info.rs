@@ -6,15 +6,17 @@ use color_eyre::eyre::{eyre, Result as EyreResult};
 
 pub async fn run_info(
     uri: String,
+    pin: Vec<String>,
     resolved_output: &OutputFormat,
     config: &ZarrduckConfig,
 ) -> EyreResult<()> {
     let uri = ui::prompt_zarr_uri(&uri, *resolved_output == OutputFormat::Json).await?;
     let conn = duckdb_utils::setup_duckdb(config.s3.as_ref())?;
     let escaped_uri = uri.replace('\'', "''");
+    let pins_str = duckdb_utils::format_pins(&pin);
     let query = format!(
-        "SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')",
-        escaped_uri
+        "SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}'{})",
+        escaped_uri, pins_str
     );
 
     let mut stmt = conn.prepare(&query)?;

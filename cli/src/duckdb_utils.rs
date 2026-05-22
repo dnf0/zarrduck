@@ -153,3 +153,27 @@ pub fn inject_s3_secret(conn: &Connection, s3_config: Option<&S3Config>) -> Eyre
     }
     Ok(())
 }
+
+pub fn format_pins(pins: &[String]) -> String {
+    if pins.is_empty() {
+        String::new()
+    } else {
+        format!(", pins := '{}'", pins.join(","))
+    }
+}
+
+pub fn format_pins_where(pins: &[String]) -> String {
+    if pins.is_empty() {
+        String::new()
+    } else {
+        let conditions: Vec<String> = pins.iter().map(|p| {
+            let parts: Vec<&str> = p.splitn(2, '=').collect();
+            if parts.len() == 2 {
+                format!("\"{}\" = {}", parts[0], parts[1])
+            } else {
+                p.to_string() // Fallback if invalid format
+            }
+        }).collect();
+        format!(" WHERE {}", conditions.join(" AND "))
+    }
+}
