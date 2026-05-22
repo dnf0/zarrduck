@@ -4,7 +4,7 @@
 **Status:** Approved
 
 ## 1. Purpose & Context
-With the core Zarr reading and parameter-based bounds pruning fully operational, `duckdb_geozarr` is functionally complete. However, to achieve bleeding-edge performance on massive datasets, we will implement three distinct performance optimizations targeting CPU utilization, memory bandwidth, and I/O wait times.
+With the core Zarr reading and parameter-based bounds pruning fully operational, `zarrduck` is functionally complete. However, to achieve bleeding-edge performance on massive datasets, we will implement three distinct performance optimizations targeting CPU utilization, memory bandwidth, and I/O wait times.
 
 ## 2. Optimization 1: Projection Pushdown (Column Pruning)
 When DuckDB executes a query like `SELECT SUM(value) FROM read_zarr(...)`, it only needs the `value` column. Generating physical coordinates for `lat`, `lon`, and `time` is wasted work.

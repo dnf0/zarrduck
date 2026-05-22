@@ -1,6 +1,6 @@
 # Performance Metrics
 
-The DuckDB GeoZarr extension is engineered specifically to eliminate the traditional bottlenecks associated with querying N-dimensional arrays over the network.
+The Zarrduck extension is engineered specifically to eliminate the traditional bottlenecks associated with querying N-dimensional arrays over the network.
 
 ## Architectural Advantages
 

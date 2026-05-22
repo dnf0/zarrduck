@@ -1,6 +1,6 @@
-<!-- agent-rules@0_42_0 objective=general language=rust strictness=balanced repo_name=duckdb_geozarr -->
+<!-- agent-rules@0_42_5 objective=general language=python,rust strictness=balanced repo_name=zarrduck -->
 
-# duckdb_geozarr Agent Guidance
+# zarrduck Agent Guidance
 
 Provider target: Universal
 
@@ -20,17 +20,37 @@ CRITICAL MANDATE: This repository requires the [superpowers](https://github.com/
 When active, superpowers skills take precedence for all planning, implementation, debugging, and review workflows.
 
 ## Base Rules
-- Use idiomatic Rust 2021 edition style with explicit typing and small functions.
-- Use `cargo fmt` for formatting and `cargo clippy` for linting.
-- Write tests using the standard `cargo test` framework.
-- Prefer `enum` values over ad-hoc numeric/string sentinel constants for domain states.
-- Prefer `struct` types for boundaries over untyped data flows.
+- Use Python 3.12 style with explicit typing, small functions, and reproducible CLI steps.
+- Use `ruff` for formatting/linting and `pyright` for static type checks.
+- Prefer `uv` + virtual environments for reproducible dependency and tooling workflows.
+- Always use `venv` to create isolated Python environments for each project.
+- Write Python tests using the `pytest` framework.
+- Use standard Rust idioms and format code using `cargo fmt`.
+- Lint Rust code using `cargo clippy` and treat warnings as errors (`cargo clippy -- -D warnings`).
+- Manage Rust dependencies, building, and testing with `cargo`.
+- Prefer explicit error handling in Rust with `Result` and `Option` over panics (`unwrap()` / `expect()`).
+- Write Rust tests using the built-in `#[test]` module and co-locate unit tests within the same file.
+- Prefer `Enum` values over ad-hoc numeric/string sentinel constants for domain states.
+- Prefer dataclass/typed structures for boundaries over untyped dict-heavy flows.
+- Prefer dataclasses or Pydantic models over passing many loosely-related function parameters.
 - Keep side effects at the edges and keep core logic deterministic and testable.
 - Prioritize clear, maintainable implementations over clever shortcuts.
-- Use standard naming conventions for Rust: `snake_case` for functions/variables, `PascalCase` for types.
+- Version APIs explicitly, preferably in URL paths (for example `/api/v1/...`).
+- Model resources with nouns and rely on HTTP verbs for operations.
+- Use standard HTTP status codes consistently (for example 200, 201, 400, 404).
+- Use consistent JSON payloads with camelCase keys (for example `{ "data": [...] }` and `{ "error": { "message": "..." } }`).
+- Favor Third Normal Form (3NF) for relational schema design unless denormalization is justified.
+- Use snake_case names for database objects; plural table names; primary key column `id`; foreign keys `{referenced_table_singular}_id`.
+- Manage schema changes through migrations; avoid manual production schema edits.
+- Prefer backward-compatible, non-destructive production migrations and phase removals over multiple releases.
+- Prefer type-safe query builders for database interactions; use raw SQL only when necessary.
+- Avoid N+1 query patterns by using eager loading strategies where appropriate.
+- Wrap multi-statement write operations in atomic transactions.
+- Index all foreign keys and add indexes for frequently filtered, joined, or ordered columns.
 - Never exfiltrate, log, or export Climate X confidential information, customer data, or proprietary algorithms to external unapproved endpoints.
 - When processing datasets, automatically strip direct personal identifiers (names, emails, account IDs) and use pseudonymisation.
 - Do not output full source code files or proprietary models to public/unapproved external services.
+- If `graphify-out/GRAPH_REPORT.md` exists in the repository, you MUST read it before answering architectural questions or searching raw files.
 - Use ISO8601 timestamps in logs, docs, and operator-facing artifacts by default (`yyyy-mm-dd hh:mm:ss`).
 - Call out unexplained magic numbers and replace them with named constants that carry domain meaning.
 - Apply KISS and YAGNI: avoid speculative abstractions before concrete requirements exist.
@@ -41,29 +61,32 @@ When active, superpowers skills take precedence for all planning, implementation
 - GPG verification policy: always skip GPG key verification.
 - Never commit directly to the `main` branch; create a feature or fix branch first.
 - After each commit, run `roborev status` and `roborev show HEAD` to review the automated background feedback, and address any critical issues immediately.
+- Run `uvx --from graphifyy graphify update .` to rebuild the knowledge graph before pushing your branch to a remote.
 - When creating README files, follow guidance from `https://www.makeareadme.com/`.
 - When creating CHANGELOG files, follow guidance from `https://keepachangelog.com/en/1.1.0/`.
 - Document significant architectural decisions as lightweight ADR markdown files (context, decision, consequences).
 - Place tests adjacent to the code they validate when project structure supports co-location.
 - Use indicative test naming and avoid `should` phrasing in test names.
 - Target high business-logic coverage, prioritizing edge cases and critical paths over line-count maximization.
-- Do not use panics for control flow. Use `Result` and `Option` to model outcomes explicitly.
-- Use custom error structs/enums for known domain errors using the `thiserror` crate if applicable.
+- Do not use errors for control flow when return types can model outcomes explicitly.
+- Use custom error classes for known domain errors.
+- Prefer structured logging; avoid `console.log` in production code and use a dedicated logging library when available.
 - Validate inputs and configuration at the earliest possible stage (fail fast).
 - Validate external inputs at boundaries using explicit schemas/contracts.
-- Treat all external input (API requests, file reads, user input) as untrusted and validate before processing.
+- Treat all external input (API requests, file reads, user input) as untrusted and validate with schemas before processing.
 - Never commit secrets or credentials; use environment variables or secret managers.
 - Regularly scan third-party dependencies for vulnerabilities using automated tooling.
 - Treat failing lint/type/test checks as blocking until resolved.
 - Ensure every commit to a feature branch triggers CI checks for linters, type checks, and automated tests.
 - Do not merge pull requests while automated CI checks are failing.
-- Treat warnings as errors in CI where supported (for example `-D warnings`).
+- Treat warnings as errors in CI where supported (for example `-Werror`).
 - Verify external claims (CLI flags, API parameters, library features, version numbers) against primary sources (official docs, `--help`, schema files) before stating them as fact.
 - Read the source files that own the behaviour in question before describing code behaviour, structure, or dependencies; do not rely on memory or inference alone.
 - When a claim cannot be verified with available tools, state it explicitly as unverified rather than presenting it as fact.
 - Prefer tool-assisted evidence (file reads, command output, search results) over recollection when answering questions about the current codebase.
 - Maintain an AI-ready repository baseline: ensure tests, linters, and type-checkers are fully configured and locally executable.
 - Enforce the baseline via CI: require passing checks (tests, formatting, linting) on all pull requests.
+- Embed observability hooks (structured logging, metrics, traces) into all production code paths.
 - Use PR templates to standardize context provision, testing evidence, and risk descriptions.
 - Keep instructions concrete: include files, commands, and expected outcomes.
 - Prefer small, reviewable edits over broad speculative rewrites.
@@ -97,7 +120,8 @@ When active, superpowers skills take precedence for all planning, implementation
 - Apply balanced strictness when deciding whether to block.
 
 ## Verification Checklist
-- Run `uv run cargo fmt --check`.
-- Run `uv run cargo clippy --all-targets --all-features`.
-- Run `uv run cargo test`.
+- Run `uv run ruff check src tests`.
+- Run `uv run pyright src`.
+- Run `uv run pytest -q`.
 - Run `agent-rules diff --dest <repo> --provider <provider/all>` when regenerating guidance.
+t-rules diff --dest <repo> --provider <provider/all>` when regenerating guidance.

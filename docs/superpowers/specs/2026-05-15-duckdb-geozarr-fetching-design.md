@@ -4,7 +4,7 @@
 **Status:** Approved
 
 ## 1. Purpose & Context
-Following the implementation of dynamic schema generation, the `duckdb_geozarr` extension needs to fetch actual data from the Zarr store and yield it to DuckDB's execution engine. DuckDB processes data in batches (DataChunks) of up to 2048 rows. Zarr arrays are stored in multi-dimensional chunks that are usually much larger. The challenge is streaming this data without loading the entire array into memory at once, and efficiently flattening the N-dimensional data into 1D vectors.
+Following the implementation of dynamic schema generation, the `zarrduck` extension needs to fetch actual data from the Zarr store and yield it to DuckDB's execution engine. DuckDB processes data in batches (DataChunks) of up to 2048 rows. Zarr arrays are stored in multi-dimensional chunks that are usually much larger. The challenge is streaming this data without loading the entire array into memory at once, and efficiently flattening the N-dimensional data into 1D vectors.
 
 ## 2. Architecture: The Chunk Cursor
 

@@ -1,6 +1,6 @@
 # Exporting to Zarr (geozarr-cli)
 
-While the DuckDB GeoZarr extension is designed for high-performance **reads** directly within the database engine, exporting relational data back out into N-dimensional Zarr arrays requires a different approach.
+While the Zarrduck extension is designed for high-performance **reads** directly within the database engine, exporting relational data back out into N-dimensional Zarr arrays requires a different approach.
 
 Due to the architectural limitations of DuckDB extensions (which cannot safely inspect `ClientContext` to orchestrate multi-pass analytical scans), we have built a **Companion CLI Tool** called `geozarr-cli`.
 

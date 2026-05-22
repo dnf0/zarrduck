@@ -1,12 +1,12 @@
-# DuckDB GeoZarr
+# Zarrduck
 
 A high-performance, cloud-native [DuckDB](https://duckdb.org/) extension for reading and writing N-dimensional [Zarr](https://zarr.readthedocs.io/) and GeoZarr arrays directly as flat relational tables.
 
 ![Zarrduck End-to-End Demo](docs/src/demo.gif)
 
-[![Semantic Release](https://github.com/dnf0/duckdb_geozarr/actions/workflows/release.yaml/badge.svg)](https://github.com/dnf0/duckdb_geozarr/actions/workflows/release.yaml)
+[![Semantic Release](https://github.com/dnf0/zarrduck/actions/workflows/release.yaml/badge.svg)](https://github.com/dnf0/zarrduck/actions/workflows/release.yaml)
 
-📖 **[Read the Full Documentation here!](https://dnf0.github.io/duckdb_geozarr/)**
+📖 **[Read the Full Documentation here!](https://dnf0.github.io/zarrduck/)**
 
 ## Performance
 
@@ -62,7 +62,7 @@ Once data is extracted into DuckDB (32,830 rows, California subset), subsequent 
 
 Overall scan rate: **~174 M rows/s** on extracted data. The extraction cost is paid once; every subsequent query is free in DuckDB's vectorized engine.
 
-## Why DuckDB GeoZarr?
+## Why Zarrduck?
 
 Geospatial and climate data are frequently stored in Zarr format because it enables efficient, chunked, and compressed storage of multi-dimensional arrays (like Time × Latitude × Longitude). However, querying this data traditionally required loading it into Python (via `xarray` or `zarr-python`) before performing analytics, introducing massive IPC (Inter-Process Communication) and memory overhead.
 
@@ -81,14 +81,14 @@ This project bridges the gap with two tools:
 
 ## Quick Start (Reading)
 
-Download the `.duckdb_extension` binary for your platform from the [Releases page](https://github.com/dnf0/duckdb_geozarr/releases), or build it from source.
+Download the `.duckdb_extension` binary for your platform from the [Releases page](https://github.com/dnf0/zarrduck/releases), or build it from source.
 
 ```sql
 -- Allow unsigned extensions
 SET allow_unsigned_extensions = true;
 
 -- Load the extension
-LOAD '/path/to/duckdb_geozarr.duckdb_extension';
+LOAD '/path/to/zarrduck_extension.duckdb_extension';
 
 -- Query a remote Zarr array, aggregating over a specific spatial bounding box
 SELECT
@@ -129,16 +129,17 @@ zarrduck shell monthly.duckdb
 ## Development
 
 The project is structured as a Cargo workspace:
-- `extension/`: The core DuckDB loadable extension.
-- `cli/`: The companion `geozarr-cli` export tool.
+- `geozarr_core/`: The deep, pure Rust domain model handling Zarr metadata, coordinate projection, bounds validation, and types. Free from sink-specific (e.g., DuckDB) or UI dependencies.
+- `extension/`: The core DuckDB loadable extension, acting as a thin C-API adapter over `geozarr_core`.
+- `cli/`: The companion `zarrduck` extraction and analysis tool, acting as a command router.
 
 To build both:
 ```bash
-git clone https://github.com/dnf0/duckdb_geozarr.git
-cd duckdb_geozarr
+git clone https://github.com/dnf0/zarrduck.git
+cd zarrduck
 cargo build --release
 ```
 
 ## Documentation
 
-Full documentation on installation, advanced spatial pruning, and architecture details can be found at [dnf0.github.io/duckdb_geozarr/](https://dnf0.github.io/duckdb_geozarr/).
+Full documentation on installation, advanced spatial pruning, and architecture details can be found at [dnf0.github.io/zarrduck/](https://dnf0.github.io/zarrduck/).

@@ -1,0 +1,15 @@
+[package]
+name = "geozarr_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zarrs = { version = "0.16.4", features = ["opendal", "async"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ureq = "2"
+opendal = { version = "0.48", features = ["services-s3", "services-http", "services-fs"] }
+tokio = { version = "1.0", features = ["sync", "rt", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread"] }

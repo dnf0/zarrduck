@@ -1,0 +1,10 @@
+{
+    "Conventions": "COARDS",
+    "NCO": "20121012",
+    "References": "http://www.psl.noaa.gov/data/gridded/data.ncep.reanalysis.derived.html",
+    "dataset_title": "NCEP-NCAR Reanalysis 1",
+    "description": "Data from NCEP initialized reanalysis (4x/day).  These are the 0.9950 sigma level values",
+    "history": "Thu May  4 20:11:16 2000: ncrcat -d time,0,623 /Datasets/ncep.reanalysis.derived/surface/air.mon.mean.nc air.mon.mean.nc\nThu May  4 18:11:50 2000: ncrcat -d time,0,622 /Datasets/ncep.reanalysis.derived/surface/air.mon.mean.nc ./surface/air.mon.mean.nc\nMon Jul  5 23:47:18 1999: ncrcat ./air.mon.mean.nc /Datasets/ncep.reanalysis.derived/surface/air.mon.mean.nc /dm/dmwork/nmc.rean.ingest/combinedMMs/surface/air.mon.mean.nc\n/home/hoop/crdc/cpreanjuke2farm/cpreanjuke2farm Mon Oct 23 21:04:20 1995 from air.sfc.gauss.85.nc\ncreated 95/03/13 by Hoop (netCDF2.3)\nConverted to chunked, deflated non-packed NetCDF4 2014/09",
+    "platform": "Model",
+    "title": "monthly mean air.sig995 from the NCEP Reanalysis"
+}

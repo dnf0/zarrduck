@@ -11,4 +11,4 @@ RUN ARCH=$(uname -m); \
     unzip duckdb.zip && \
     rm duckdb.zip
 
-CMD ["sh", "-c", "/usr/bin/time -o /app/e2e_benchmark.txt -v ./duckdb -unsigned -c \"LOAD '/app/target_docker/release/libduckdb_geozarr.so'; SELECT SUM(value) FROM read_zarr('/data/test.zarr');\""]
+CMD ["sh", "-c", "/usr/bin/time -o /app/e2e_benchmark.txt -v ./duckdb -unsigned -c \"LOAD '/app/target_docker/release/libzarrduck.so'; SELECT SUM(value) FROM read_zarr('/data/test.zarr');\""]

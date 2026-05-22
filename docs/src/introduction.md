@@ -1,6 +1,6 @@
 # Introduction
 
-Welcome to the **DuckDB GeoZarr** extension!
+Welcome to the **Zarrduck** extension!
 
 ![Zarrduck End-to-End Demo](demo.gif)
 
@@ -23,7 +23,7 @@ This traditional workflow introduces massive I/O overhead, memory duplication, a
 
 ## The Solution: Native Streaming
 
-The **DuckDB GeoZarr** extension bridges this gap natively. It allows DuckDB to treat a remote Zarr array on S3 exactly like a local Parquet file or CSV.
+The **Zarrduck** extension bridges this gap natively. It allows DuckDB to treat a remote Zarr array on S3 exactly like a local Parquet file or CSV.
 
 Instead of pre-processing the data in Python, you simply write SQL:
 

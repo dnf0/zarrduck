@@ -1,0 +1,51 @@
+use crate::config::ZarrduckConfig;
+use crate::duckdb_utils;
+use crate::ui;
+use crate::OutputFormat;
+use color_eyre::eyre::{eyre, Result as EyreResult};
+
+pub async fn run_info(
+    uri: String,
+    resolved_output: &OutputFormat,
+    config: &ZarrduckConfig,
+) -> EyreResult<()> {
+    let uri = ui::prompt_zarr_uri(&uri, *resolved_output == OutputFormat::Json).await?;
+    let conn = duckdb_utils::setup_duckdb(config.s3.as_ref())?;
+    let escaped_uri = uri.replace('\'', "''");
+    let query = format!(
+        "SELECT array_shape, chunk_shape, data_type, crs FROM read_zarr_metadata('{}')",
+        escaped_uri
+    );
+
+    let mut stmt = conn.prepare(&query)?;
+    let mut rows = stmt.query([])?;
+
+    if let Some(row) = rows.next()? {
+        let array_shape: String = row.get(0)?;
+        let chunk_shape: String = row.get(1)?;
+        let data_type: String = row.get(2)?;
+        let crs: String = row.get(3)?;
+
+        if *resolved_output == OutputFormat::Json {
+            let json_out = serde_json::json!({
+                "uri": uri,
+                "array_shape": array_shape,
+                "chunk_shape": chunk_shape,
+                "data_type": data_type,
+                "crs": crs
+            });
+            println!("{}", json_out);
+        } else {
+            println!("GeoZarr Dataset Info:");
+            println!("URI: {}", uri);
+            println!("Shape: {}", array_shape);
+            println!("Chunks: {}", chunk_shape);
+            println!("Type: {}", data_type);
+            println!("CRS: {}", crs);
+        }
+    } else {
+        return Err(eyre!("Failed to read metadata for {}", uri));
+    }
+
+    Ok(())
+}

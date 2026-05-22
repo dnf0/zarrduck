@@ -4,7 +4,7 @@
 **Status:** Approved
 
 ## 1. Purpose & Context
-Currently, the `duckdb_geozarr` extension processes chunks strictly sequentially. Because it holds a global `Mutex` across the entire `func` table function execution, DuckDB's multi-threaded worker pool is bottlenecked; all threads queue up waiting for the lock, resulting in a single thread performing all network I/O and processing. This design unlocks full parallel scanning by simulating DuckDB's `local_init` (Thread-Local State) which is currently unavailable in the `duckdb-rs` bindings.
+Currently, the `zarrduck` extension processes chunks strictly sequentially. Because it holds a global `Mutex` across the entire `func` table function execution, DuckDB's multi-threaded worker pool is bottlenecked; all threads queue up waiting for the lock, resulting in a single thread performing all network I/O and processing. This design unlocks full parallel scanning by simulating DuckDB's `local_init` (Thread-Local State) which is currently unavailable in the `duckdb-rs` bindings.
 
 ## 2. Architecture: Simulated Thread-Local State
 We will separate the state into two distinct domains: a "Global Dispatcher" and "Local Processing Buffers".

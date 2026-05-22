@@ -1,6 +1,6 @@
 # Architecture Deep Dive
 
-The DuckDB GeoZarr extension is designed with a heavy focus on network I/O optimization, memory safety, and lock-free concurrency. It relies on the [zarrs](https://crates.io/crates/zarrs) crate for core Zarr decoding and the [opendal](https://crates.io/crates/opendal) crate for cloud storage abstraction.
+The Zarrduck extension is designed with a heavy focus on network I/O optimization, memory safety, and lock-free concurrency. It relies on the [zarrs](https://crates.io/crates/zarrs) crate for core Zarr decoding and the [opendal](https://crates.io/crates/opendal) crate for cloud storage abstraction.
 
 ## Conceptual Model: From Zarr to DuckDB
 
@@ -15,15 +15,15 @@ graph TD
         M[Metadata<br>.zattrs / zarr.json]
     end
 
-    subgraph DuckDB GeoZarr Extension
+    subgraph geozarr_core (Pure Rust Domain Model)
         M -.-> |Parse Spatial/CRS| T[Coordinate Transformer<br>Scale & Translation]
         Z --> |Stream Compressed Chunks| D[Decompressor & Chunk Buffer]
-        D --> |Iterate Elements| E[Row Generator]
+        D --> |Iterate Elements| E[GeoZarrScanner]
         T -.-> |Apply Math| E
     end
 
-    subgraph DuckDB Execution Engine
-        E --> |Yield DataChunks| R[(Flat Relational Table)]
+    subgraph Zarrduck Extension (C-API Adapter)
+        E --> |Yield ZarrBatches| R[(Flat Relational Table)]
     end
 
     R --> |time, lat, lon, value| SQL[SQL Queries<br>SELECT, GROUP BY, WHERE]

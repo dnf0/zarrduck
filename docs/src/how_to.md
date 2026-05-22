@@ -1,6 +1,6 @@
 # How-To Guides
 
-This section provides practical, step-by-step examples for common data science and engineering workflows using the DuckDB GeoZarr extension.
+This section provides practical, step-by-step examples for common data science and engineering workflows using the Zarrduck extension.
 
 ## How to extract a specific geographic region (Bounding Box)
 

@@ -1,4 +1,4 @@
-# DuckDB GeoZarr Extension Design (`duckdb_geozarr`)
+# DuckDB GeoZarr Extension Design (`zarrduck`)
 
 **Date:** 2026-05-15
 

@@ -4,7 +4,7 @@ use std::path::Path;
 #[test]
 fn test_new_data_types() -> Result<()> {
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<duckdb_geozarr::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<zarrduck::ReadZarrVTab>("read_zarr")?;
 
     // We don't set GEOZARR_ALLOW_PATH dynamically to avoid race conditions in parallel tests.
     // Instead, the tests will be run with GEOZARR_ALLOW_PATH set for the whole test process
@@ -72,8 +72,8 @@ fn test_new_data_types() -> Result<()> {
 #[test]
 fn test_read_zarr_function_compiles() {
     let candidate_paths = vec![
-        "../target/debug/duckdb_geozarr.duckdb_extension",
-        "target/debug/duckdb_geozarr.duckdb_extension",
+        "../target/debug/zarrduck_extension.duckdb_extension",
+        "target/debug/zarrduck_extension.duckdb_extension",
     ];
 
     // We just verify the extension file was successfully packaged by `cargo duckdb-ext build`.
@@ -87,12 +87,10 @@ fn test_read_zarr_function_compiles() {
     );
 }
 
-#[test]
-fn test_read_zarr_schema() -> Result<()> {
-    let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<duckdb_geozarr::ReadZarrVTab>("read_zarr")?;
+fn setup_mock_zarr() -> Result<(duckdb::Connection, tempfile::TempDir, std::path::PathBuf)> {
+    let conn = duckdb::Connection::open_in_memory()?;
+    conn.register_table_function::<zarrduck::ReadZarrVTab>("read_zarr")?;
 
-    // Create a temporary zarr store inside target to avoid VFS bypass checks on /var
     let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let store_path = temp_dir.path().join("test.zarr");
 
@@ -108,7 +106,6 @@ fn test_read_zarr_schema() -> Result<()> {
         FillValue::from(0.0f32),
     );
 
-    // Add _ARRAY_DIMENSIONS metadata
     let mut attributes = serde_json::Map::new();
     attributes.insert(
         "_ARRAY_DIMENSIONS".to_string(),
@@ -119,7 +116,6 @@ fn test_read_zarr_schema() -> Result<()> {
     let array = builder.build(Arc::clone(&store), "/").unwrap();
     array.store_metadata().unwrap();
 
-    // Create a 1D physical coordinate array for `lat`
     let lat_builder = ArrayBuilder::new(
         vec![20],
         DataType::Float32,
@@ -128,11 +124,9 @@ fn test_read_zarr_schema() -> Result<()> {
     );
     let lat_array = lat_builder.build(Arc::clone(&store), "/lat").unwrap();
     lat_array.store_metadata().unwrap();
-    // Write physical values to the lat array (e.g. 45.0, 46.0, ...)
     let lat_data: Vec<f32> = (0..20).map(|i| 45.0 + i as f32).collect();
     lat_array.store_chunk_elements(&[0], &lat_data).unwrap();
 
-    // Write actual data to the main array so we can verify sums
     let mut val = 0.0f32;
     for t_c in 0..2 {
         for l_c in 0..4 {
@@ -149,10 +143,13 @@ fn test_read_zarr_schema() -> Result<()> {
         }
     }
 
-    let query = format!("SELECT * FROM read_zarr('{}')", store_path.display());
-    let _stmt = conn.prepare(&query).expect("Prepare failed");
+    Ok((conn, temp_dir, store_path))
+}
 
-    // Use an actual query to get the columns if column_names fails
+#[test]
+fn test_schema_basic_types() -> Result<()> {
+    let (conn, _temp_dir, store_path) = setup_mock_zarr()?;
+
     let query_info = format!(
         "DESCRIBE SELECT * FROM read_zarr('{}')",
         store_path.display()
@@ -166,67 +163,69 @@ fn test_read_zarr_schema() -> Result<()> {
         column_names.push(col_name);
     }
 
-    println!("Columns: {:?}", column_names);
     assert_eq!(column_names, vec!["time", "lat", "value"]);
 
-    // Verify the schema changed to DOUBLE for `lat`
     let mut info_stmt = conn.prepare(&query_info)?;
     let mut rows = info_stmt.query([])?;
 
     let mut column_types = Vec::new();
     while let Some(row) = rows.next()? {
-        let col_type: String = row.get(1)?; // Column type is the second field in DESCRIBE
+        let col_type: String = row.get(1)?;
         column_types.push(col_type);
     }
-    // `time` has no array, so BIGINT. `lat` has array, so DOUBLE. `value` is FLOAT.
     assert_eq!(column_types, vec!["BIGINT", "DOUBLE", "FLOAT"]);
 
-    // Verify actual physical coordinate is yielded
     let max_lat: f64 = conn.query_row(
         &format!("SELECT max(lat) FROM read_zarr('{}')", store_path.display()),
         [],
         |row| row.get(0),
     )?;
-    assert_eq!(max_lat, 64.0); // 45.0 + 19.0
+    assert_eq!(max_lat, 64.0);
 
     let count: i64 = conn.query_row(
         &format!("SELECT count(*) FROM read_zarr('{}')", store_path.display()),
         [],
         |row| row.get(0),
     )?;
-    // The array has shape [10, 20], so total elements is 200
     assert_eq!(count, 200);
 
-    // Test that named parameters compile and execute and filter down the rows
+    Ok(())
+}
+
+#[test]
+fn test_schema_named_parameters() -> Result<()> {
+    let (conn, _temp_dir, store_path) = setup_mock_zarr()?;
+
     let query_params = format!(
         "SELECT count(*) FROM read_zarr('{}', lat_min := 50.0, lat_max := 55.0)",
         store_path.display()
     );
     let mut stmt_params = conn.prepare(&query_params)?;
     let count_params: i64 = stmt_params.query_row([], |row| row.get(0))?;
-    // lat goes from 45.0 to 64.0 (20 elements).
-    // 50.0 to 55.0 covers indices 5 through 10.
-    // Chunk shape is 5. So it fetches chunks 1 and 2.
-    // Chunks 1 and 2 cover indices 5 through 14.
-    // The table function now prunes rows exceeding bounds_max (index 10), so it yields 6 elements (5 through 10).
-    // The other dimension (time) is length 10.
-    // Total expected rows yielded: 10 * 6 = 60.
     assert_eq!(count_params, 60);
 
-    // Test Projection Pushdown: Aggregation without coordinate columns
+    Ok(())
+}
+
+#[test]
+fn test_schema_projection_pushdown_value() -> Result<()> {
+    let (conn, _temp_dir, store_path) = setup_mock_zarr()?;
+
     let query_proj = format!(
         "SELECT SUM(value) FROM read_zarr('{}')",
         store_path.display()
     );
     let mut stmt_proj = conn.prepare(&query_proj)?;
-    // If projection pushdown fails, this might panic or return bad data
     let sum_val: f64 = stmt_proj.query_row([], |row| row.get(0))?;
-    println!("Total sum: {}", sum_val);
-    assert_eq!(sum_val, 19900.0); // sum(0..=199)
+    assert_eq!(sum_val, 19900.0);
 
-    // Test SQL NULL Mapping
-    // The very first element inserted was 0.0, which matches the FillValue.
-    // Therefore, count(value) should be 199 (since NULLs are not counted).
+    Ok(())
+}
+
+#[test]
+fn test_schema_null_mapping() -> Result<()> {
+    let (conn, _temp_dir, store_path) = setup_mock_zarr()?;
+
     let query_null = format!(
         "SELECT count(value) FROM read_zarr('{}')",
         store_path.display()
@@ -235,18 +234,27 @@ fn test_read_zarr_schema() -> Result<()> {
     let non_null_count: i64 = stmt_null.query_row([], |row| row.get(0))?;
     assert_eq!(non_null_count, 199);
 
-    // Test Projection Pushdown: Aggregation without value column
+    Ok(())
+}
+
+#[test]
+fn test_schema_projection_pushdown_coord() -> Result<()> {
+    let (conn, _temp_dir, store_path) = setup_mock_zarr()?;
+
     let query_coord_proj = format!("SELECT SUM(lat) FROM read_zarr('{}')", store_path.display());
     let mut stmt_coord_proj = conn.prepare(&query_coord_proj)?;
     let sum_lat: f64 = stmt_coord_proj.query_row([], |row| row.get(0))?;
-    // lat goes from 45.0 to 64.0. The sum of 45..64 is 1090.
-    // Since there are 10 time intervals, the total sum is 1090 * 10 = 10900.
     assert_eq!(sum_lat, 10900.0);
 
-    // Test Corrupted Chunk Bytes Error Handling
-    // We truncate chunk [0, 0] so it's too small for the expected data type
+    Ok(())
+}
+
+#[test]
+fn test_schema_corrupted_chunk() -> Result<()> {
+    let (conn, _temp_dir, store_path) = setup_mock_zarr()?;
+
     let chunk_path = store_path.join("c").join("0").join("0");
-    std::fs::write(&chunk_path, vec![0u8; 1]).unwrap(); // Write a 1-byte chunk file
+    std::fs::write(&chunk_path, vec![0u8; 1]).unwrap();
     let query_corrupt = format!(
         "SELECT SUM(value) FROM read_zarr('{}')",
         store_path.display()
@@ -255,7 +263,6 @@ fn test_read_zarr_schema() -> Result<()> {
     let result = stmt_corrupt.query_row([], |row| row.get::<_, f64>(0));
     assert!(result.is_err());
     let err_str = result.unwrap_err().to_string();
-    println!("Corrupted chunk error: {}", err_str);
     assert!(err_str.contains("zarrs read error"));
 
     Ok(())
@@ -264,8 +271,8 @@ fn test_read_zarr_schema() -> Result<()> {
 #[test]
 fn test_geozarr_spatial_metadata() -> duckdb::Result<()> {
     let conn = duckdb::Connection::open_in_memory()?;
-    conn.register_table_function::<duckdb_geozarr::ReadZarrVTab>("read_zarr")?;
-    conn.register_table_function::<duckdb_geozarr::metadata_vtab::ReadZarrMetadataVTab>(
+    conn.register_table_function::<zarrduck::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<zarrduck::metadata_vtab::ReadZarrMetadataVTab>(
         "read_zarr_metadata",
     )?;
 

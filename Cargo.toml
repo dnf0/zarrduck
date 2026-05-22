@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "extension",
-    "cli"
+    "cli",
+    "geozarr_core"
 ]
 resolver = "2"
