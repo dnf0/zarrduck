@@ -37,7 +37,7 @@ fn detect_value_column(conn: &Connection, table: &str) -> Result<String> {
     Ok(val_col)
 }
 
-fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&str>) -> Result<()> {
+fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&str>, pin: &[String]) -> Result<()> {
     let group_select = if let Some(g) = group_by {
         format!("\"{}\",", g)
     } else {
@@ -50,9 +50,11 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
         "GROUP BY 1"
     };
 
+    let where_clause = crate::duckdb_utils::format_pins_where(pin);
+
     let query = format!(
         "WITH stats AS (
-             SELECT min(\"{v}\") as v_min, max(\"{v}\") as v_max FROM \"{t}\"
+             SELECT min(\"{v}\") as v_min, max(\"{v}\") as v_max FROM \"{t}\" {where_clause}
          ),
          bins AS (
              SELECT
@@ -60,13 +62,16 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
                  COALESCE(floor((\"{v}\" - v_min) / NULLIF((v_max - v_min) / 10.0, 0)), 0) as bin_idx,
                  count(*) as freq
              FROM \"{t}\", stats
+             {where_clause_with_and}
              {gb}
          )
          SELECT {g} bin_idx, freq FROM bins ORDER BY {g} bin_idx",
         v = val_col.replace("\"", "\"\""),
         t = table.replace("\"", "\"\""),
         g = group_select,
-        gb = group_by_clause
+        gb = group_by_clause,
+        where_clause = where_clause,
+        where_clause_with_and = if where_clause.is_empty() { String::new() } else { where_clause.replace("WHERE", "WHERE ") } // wait, if it's "FROM table, stats", the JOIN condition is implicit cross join. We just need to add the where condition on table columns.
     );
 
     let mut stmt = conn.prepare(&query)?;
@@ -130,7 +135,7 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
     Ok(())
 }
 
-fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&str>) -> Result<()> {
+fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&str>, pin: &[String]) -> Result<()> {
     if group_by.is_some() {
         println!("Warning: group-by is not yet supported for line plots in this MVP. Showing overall line.");
     }
@@ -148,11 +153,14 @@ fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
         }
     }
 
+    let where_clause = crate::duckdb_utils::format_pins_where(pin);
+
     let query = format!(
-        "SELECT \"{v}\" FROM \"{t}\" ORDER BY \"{time}\"",
+        "SELECT \"{v}\" FROM \"{t}\" {where_clause} ORDER BY \"{time}\"",
         v = val_col.replace("\"", "\"\""),
         t = table.replace("\"", "\"\""),
-        time = time_col.replace("\"", "\"\"")
+        time = time_col.replace("\"", "\"\""),
+        where_clause = where_clause
     );
 
     let mut stmt = conn.prepare(&query)?;
@@ -196,12 +204,14 @@ fn detect_grid_bounds(
     table: &str,
     lat_col: &str,
     lon_col: &str,
+    where_clause: &str,
 ) -> Result<(f64, f64, f64, f64)> {
     let bounds_query = format!(
-        "SELECT min(\"{lat}\"), max(\"{lat}\"), min(\"{lon}\"), max(\"{lon}\") FROM \"{t}\"",
+        "SELECT min(\"{lat}\"), max(\"{lat}\"), min(\"{lon}\"), max(\"{lon}\") FROM \"{t}\" {where_clause}",
         lat = lat_col.replace("\"", "\"\""),
         lon = lon_col.replace("\"", "\"\""),
-        t = table.replace("\"", "\"\"")
+        t = table.replace("\"", "\"\""),
+        where_clause = where_clause
     );
     let mut bounds_stmt = conn.prepare(&bounds_query)?;
     let mut bounds_rows = bounds_stmt.query([])?;
@@ -223,6 +233,7 @@ fn plot_heatmap(
     table: &str,
     val_col: &str,
     group_by: Option<&str>,
+    pin: &[String],
 ) -> Result<()> {
     if group_by.is_some() {
         println!("Warning: group-by is ignored for spatial heatmaps.");
@@ -244,11 +255,14 @@ fn plot_heatmap(
         }
     }
 
+    let where_clause = crate::duckdb_utils::format_pins_where(pin);
+
     let distinct_query = format!(
-        "SELECT count(distinct \"{lat}\"), count(distinct \"{lon}\") FROM \"{t}\"",
+        "SELECT count(distinct \"{lat}\"), count(distinct \"{lon}\") FROM \"{t}\" {where_clause}",
         lat = lat_col.replace("\"", "\"\""),
         lon = lon_col.replace("\"", "\"\""),
-        t = table.replace("\"", "\"\"")
+        t = table.replace("\"", "\"\""),
+        where_clause = where_clause
     );
     let mut distinct_stmt = conn.prepare(&distinct_query)?;
     let mut distinct_rows = distinct_stmt.query([])?;
@@ -266,13 +280,13 @@ fn plot_heatmap(
     let cols_count = actual_cols.clamp(1, 80);
 
     let (min_lat_bound, max_lat_bound, min_lon_bound, max_lon_bound) =
-        detect_grid_bounds(conn, table, &lat_col, &lon_col)?;
+        detect_grid_bounds(conn, table, &lat_col, &lon_col, &where_clause)?;
 
     let query = format!(
         "WITH bounds AS (
             SELECT min(\"{lat}\") as min_lat, max(\"{lat}\") as max_lat,
                    min(\"{lon}\") as min_lon, max(\"{lon}\") as max_lon
-            FROM \"{t}\"
+            FROM \"{t}\" {where_clause}
         ),
         grid AS (
             SELECT
@@ -280,13 +294,16 @@ fn plot_heatmap(
                 COALESCE(floor((\"{lon}\" - min_lon) / NULLIF((max_lon - min_lon) / {cols_count}.0, 0)), 0) as col_idx,
                 avg(\"{v}\") as cell_val
             FROM \"{t}\", bounds
+            {where_clause_with_and}
             GROUP BY 1, 2
         )
         SELECT row_idx, col_idx, cell_val FROM grid",
         lat = lat_col.replace("\"", "\"\""),
         lon = lon_col.replace("\"", "\"\""),
         v = val_col.replace("\"", "\"\""),
-        t = table.replace("\"", "\"\"")
+        t = table.replace("\"", "\"\""),
+        where_clause = where_clause,
+        where_clause_with_and = if where_clause.is_empty() { String::new() } else { where_clause.replace("WHERE", "WHERE ") }
     );
 
     let mut stmt = conn.prepare(&query)?;
@@ -444,6 +461,7 @@ pub struct PlotConfig {
     pub table: String,
     pub value_column: String,
     pub group_by: Option<String>,
+    pub pin: Vec<String>,
 }
 
 pub fn render_plot(conn: &Connection, config: &PlotConfig) -> Result<()> {
@@ -453,18 +471,21 @@ pub fn render_plot(conn: &Connection, config: &PlotConfig) -> Result<()> {
             &config.table,
             &config.value_column,
             config.group_by.as_deref(),
+            &config.pin,
         )?,
         PlotType::Heatmap => plot_heatmap(
             conn,
             &config.table,
             &config.value_column,
             config.group_by.as_deref(),
+            &config.pin,
         )?,
         PlotType::Line => plot_line(
             conn,
             &config.table,
             &config.value_column,
             config.group_by.as_deref(),
+            &config.pin,
         )?,
     }
     Ok(())
@@ -564,6 +585,7 @@ pub fn collect_wizard_config(conn: &Connection, default_table: &str) -> Result<O
         table: selected_table,
         value_column: val_col,
         group_by: None,
+        pin: vec![],
     }))
 }
 
@@ -573,6 +595,7 @@ pub fn run_plot(
     table: &str,
     value_column: Option<&str>,
     group_by: Option<&str>,
+    pin: Vec<String>,
 ) -> Result<()> {
     if !std::path::Path::new(db_path).exists() {
         return Err(eyre!("Database '{}' does not exist.", db_path));
@@ -598,6 +621,7 @@ pub fn run_plot(
             table: table.to_string(),
             value_column: val_col,
             group_by: group_by.map(|s| s.to_string()),
+            pin,
         }
     } else {
         match collect_wizard_config(&conn, table)? {
@@ -634,7 +658,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = plot_hist(&conn, "test_data", "val", None);
+        let result = plot_hist(&conn, "test_data", "val", None, &[]);
         assert!(result.is_ok(), "plot_hist failed: {:?}", result.err());
     }
 
@@ -649,7 +673,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = plot_hist(&conn, "test_group", "val", Some("category"));
+        let result = plot_hist(&conn, "test_group", "val", Some("category"), &[]);
         assert!(
             result.is_ok(),
             "plot_hist with group_by failed: {:?}",
@@ -665,7 +689,7 @@ mod tests {
         conn.execute("INSERT INTO test_zero VALUES (2.0), (2.0), (2.0)", [])
             .unwrap();
 
-        let result = plot_hist(&conn, "test_zero", "val", None);
+        let result = plot_hist(&conn, "test_zero", "val", None, &[]);
         assert!(
             result.is_ok(),
             "plot_hist div by zero failed: {:?}",
@@ -680,7 +704,7 @@ mod tests {
             .unwrap();
         conn.execute("INSERT INTO test_data VALUES ('2023-01-01', 1.0), ('2023-01-02', 2.0), ('2023-01-03', 3.0)", []).unwrap();
 
-        let result = plot_line(&conn, "test_data", "val", None);
+        let result = plot_line(&conn, "test_data", "val", None, &[]);
         assert!(result.is_ok(), "plot_line failed: {:?}", result.err());
     }
 
@@ -690,7 +714,7 @@ mod tests {
         conn.execute("CREATE TABLE test_empty (time TIMESTAMP, val DOUBLE)", [])
             .unwrap();
 
-        let result = plot_line(&conn, "test_empty", "val", None);
+        let result = plot_line(&conn, "test_empty", "val", None, &[]);
         assert!(result.is_err(), "plot_line should fail on empty data");
     }
 
@@ -708,7 +732,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = plot_heatmap(&conn, "test_hm_zero", "val", None);
+        let result = plot_heatmap(&conn, "test_hm_zero", "val", None, &[]);
         assert!(
             result.is_ok(),
             "plot_heatmap div by zero failed: {:?}",

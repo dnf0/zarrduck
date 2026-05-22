@@ -1,3 +1,10 @@
+use std::collections::HashMap;
+
+pub struct QueryConstraints {
+    pub bounds: HashMap<String, (Option<f64>, Option<f64>)>,
+    pub pins: HashMap<String, u64>,
+}
+
 pub struct QueryBounds {
     pub bounds_min: Vec<u64>,
     pub bounds_max: Vec<u64>,

@@ -121,7 +121,7 @@ impl GeoZarrDataset {
 
     pub fn compute_bounds(
         &self,
-        constraints: &HashMap<String, (Option<f64>, Option<f64>)>,
+        constraints: &crate::query_planner::QueryConstraints,
     ) -> (Vec<u64>, Vec<u64>) {
         let rank = self.shape.len();
         let mut bounds_min = vec![0; rank];
@@ -135,7 +135,14 @@ impl GeoZarrDataset {
         }
 
         for (dim_index, name) in self.dim_names.iter().enumerate() {
-            let (min_val_opt, max_val_opt) = constraints.get(name).copied().unwrap_or((None, None));
+            if let Some(&pinned_idx) = constraints.pins.get(name) {
+                let target = std::cmp::min(pinned_idx, bounds_max[dim_index]);
+                bounds_min[dim_index] = target;
+                bounds_max[dim_index] = target;
+                continue;
+            }
+
+            let (min_val_opt, max_val_opt) = constraints.bounds.get(name).copied().unwrap_or((None, None));
 
             if let Some(coord_vals) = self.coords.get(name) {
                 let normalize_query = |v: f64| -> f64 {

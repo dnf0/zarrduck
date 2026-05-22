@@ -97,6 +97,7 @@ pub async fn run_extract(
     vector_path: String,
     out: Option<String>,
     yes: bool,
+    pin: Vec<String>,
     resolved_output: &OutputFormat,
     config: &ZarrduckConfig,
 ) -> EyreResult<()> {
@@ -135,9 +136,14 @@ pub async fn run_extract(
     // Calculate the bounding box of the vector file to pass to read_zarr for spatial pushdown
     let (lon_min, lat_min, lon_max, lat_max) = fetch_bounding_box(&conn, &vector_path)?;
 
-    let mut plan_query = conn.prepare(
-        "SELECT total_chunks, total_bytes FROM plan_read_zarr(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?)"
-    ).wrap_err("Failed to prepare planning query")?;
+    let pins_str = duckdb_utils::format_pins(&pin);
+
+    let plan_query_str = format!(
+        "SELECT total_chunks, total_bytes FROM plan_read_zarr(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?{})",
+        pins_str
+    );
+    let mut plan_query = conn.prepare(&plan_query_str)
+        .wrap_err("Failed to prepare planning query")?;
 
     let (total_chunks, total_bytes): (u64, u64) = plan_query
         .query_row(
@@ -171,14 +177,17 @@ pub async fn run_extract(
     };
 
     // The magic query: Create a table by joining the GeoZarr pixels that intersect the vector polygons
-    let query = "CREATE OR REPLACE TABLE extracted_data AS 
+    let query = format!(
+        "CREATE OR REPLACE TABLE extracted_data AS 
                  SELECT z.*, v.* EXCLUDE (geom) 
-                 FROM read_zarr(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?) z, ST_Read(?) v 
-                 WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))";
+                 FROM read_zarr(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?{}) z, ST_Read(?) v 
+                 WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))",
+        pins_str
+    );
 
     // Note: Since this is a blocking call, we run it in a blocking task so the tokio runtime can still tick the spinner if needed (though enable_steady_tick actually uses its own background thread).
     conn.execute(
-        query,
+        &query,
         duckdb::params![zarr_uri, lon_min, lat_min, lon_max, lat_max, vector_path],
     )
     .wrap_err("Spatial extraction query failed")?;
