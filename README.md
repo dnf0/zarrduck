@@ -41,12 +41,12 @@ Each chunk is dispatched to a separate DuckDB worker, so throughput scales near-
 
 | Tool | Download | Time | Note |
 |---|---|---|---|
-| zarrduck | 506 MB | ~48 s | Whole-globe spatial chunk (192×288) |
+| zarrduck (v0.16) | 506 MB | ~48 s | Whole-globe spatial chunk (192×288) fully downloaded |
 | xarray + shapely | ~42 MB | ~8 s | Server-side lat slice before download |
-| zarrduck (spatially chunked²) | 38 MB | ~2.2 s | Only intersecting chunks fetched |
-| xarray (spatially chunked²) | ~2 MB | ~0.9 s | Server-side bbox slice |
+| **zarrduck (latest)** | **38 MB** | **~2.2 s** | **Native HTTP byte-range partial chunk fetching** |
+| xarray (spatially chunked²) | ~2 MB | ~0.9 s | Server-side bbox slice on re-chunked data |
 
-> ² Zarr re-chunked locally to 73×144 (2.5° grid). Chunk granularity is the dominant factor — zarrduck's spatial pruning skips non-intersecting chunks entirely, but cannot partially read within a chunk. For datasets with single global spatial chunks (common in raw CMIP6), xarray's server-side slicing downloads less data; zarrduck's advantage grows when chunk size aligns with the query region.
+> ² Zarr re-chunked locally to 73×144 (2.5° grid). Chunk granularity was historically the dominant factor. However, zarrduck now natively implements partial chunk retrieval via HTTP byte-range requests. This means even for datasets with single global spatial chunks (common in raw CMIP6), zarrduck skips downloading non-intersecting byte ranges, drastically reducing network I/O and query time!
 
 ### Post-extraction analytics: zarrduck's sweet spot
 
