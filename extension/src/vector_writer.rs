@@ -38,6 +38,45 @@ impl FillValueCmp for bool {
     }
 }
 
+pub fn populate_coordinate_batch_f64(
+    batch_size: usize,
+    cursor: usize,
+    subset_info: &geozarr_core::scanner::SubsetInfo,
+    dim: usize,
+    coords: Option<&Vec<f64>>,
+    is_0_360: bool,
+    transform: Option<&geozarr_core::metadata::SpatialTransform>,
+    out_slice: &mut [f64],
+) {
+    if let Some(coord_vals) = coords {
+        for i in 0..batch_size {
+            let pos = (cursor + i) as u64;
+            let g_idx = subset_info.global_coord(dim, pos) as usize;
+            let raw = coord_vals.get(g_idx).copied().unwrap_or(f64::NAN);
+            out_slice[i] = geozarr_core::coordinates::normalize_longitude(raw, is_0_360);
+        }
+    } else if let Some(transform) = transform {
+        for i in 0..batch_size {
+            let pos = (cursor + i) as u64;
+            let g_idx = subset_info.global_coord(dim, pos);
+            out_slice[i] = geozarr_core::coordinates::apply_transform(transform, dim, g_idx);
+        }
+    }
+}
+
+pub fn populate_coordinate_batch_i64(
+    batch_size: usize,
+    cursor: usize,
+    subset_info: &geozarr_core::scanner::SubsetInfo,
+    dim: usize,
+    out_slice: &mut [i64],
+) {
+    for i in 0..batch_size {
+        let pos = (cursor + i) as u64;
+        out_slice[i] = subset_info.global_coord(dim, pos) as i64;
+    }
+}
+
 pub fn write_chunk_unified<T, Extract, Insert>(
     extract: Extract,
     wrap: fn(Vec<T>) -> ChunkBuffer,
@@ -114,38 +153,51 @@ where
                     let is_0_360 = bind_data.lon_0_360_dims.contains(&dim);
                     let mut coord_vector = output.flat_vector(dim);
                     let coord_slice = coord_vector.as_mut_slice::<f64>();
-                    for i in 0..batch_size {
-                        let pos = (local_state.element_cursor + i) as u64;
-                        let g_idx = subset_info.global_coord(dim, pos) as usize;
-                        let raw = coord_vals.get(g_idx).copied().unwrap_or(f64::NAN);
-                        coord_slice[valid_rows + i] =
-                            geozarr_core::coordinates::normalize_longitude(raw, is_0_360);
-                    }
+                    populate_coordinate_batch_f64(
+                        batch_size,
+                        local_state.element_cursor,
+                        subset_info,
+                        dim,
+                        Some(coord_vals),
+                        is_0_360,
+                        None,
+                        &mut coord_slice[valid_rows..valid_rows + batch_size],
+                    );
                 } else if let Some(ref transform) = bind_data.spatial_transform {
                     if dim < transform.scale.len() {
                         let mut coord_vector = output.flat_vector(dim);
                         let coord_slice = coord_vector.as_mut_slice::<f64>();
-                        for i in 0..batch_size {
-                            let pos = (local_state.element_cursor + i) as u64;
-                            let g_idx = subset_info.global_coord(dim, pos);
-                            coord_slice[valid_rows + i] =
-                                geozarr_core::coordinates::apply_transform(transform, dim, g_idx);
-                        }
+                        populate_coordinate_batch_f64(
+                            batch_size,
+                            local_state.element_cursor,
+                            subset_info,
+                            dim,
+                            None,
+                            false,
+                            Some(transform),
+                            &mut coord_slice[valid_rows..valid_rows + batch_size],
+                        );
                     } else {
                         let mut coord_vector = output.flat_vector(dim);
                         let coord_slice = coord_vector.as_mut_slice::<i64>();
-                        for i in 0..batch_size {
-                            let pos = (local_state.element_cursor + i) as u64;
-                            coord_slice[valid_rows + i] = subset_info.global_coord(dim, pos) as i64;
-                        }
+                        populate_coordinate_batch_i64(
+                            batch_size,
+                            local_state.element_cursor,
+                            subset_info,
+                            dim,
+                            &mut coord_slice[valid_rows..valid_rows + batch_size],
+                        );
                     }
                 } else {
                     let mut coord_vector = output.flat_vector(dim);
                     let coord_slice = coord_vector.as_mut_slice::<i64>();
-                    for i in 0..batch_size {
-                        let pos = (local_state.element_cursor + i) as u64;
-                        coord_slice[valid_rows + i] = subset_info.global_coord(dim, pos) as i64;
-                    }
+                    populate_coordinate_batch_i64(
+                        batch_size,
+                        local_state.element_cursor,
+                        subset_info,
+                        dim,
+                        &mut coord_slice[valid_rows..valid_rows + batch_size],
+                    );
                 }
             }
         }
@@ -239,4 +291,28 @@ macro_rules! dispatch_write_chunk {
             $bind_data,
         )
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geozarr_core::scanner::SubsetInfo;
+
+    #[test]
+    fn test_populate_coordinate_batch_f64() {
+        let subset_info = SubsetInfo {
+            global_starts: vec![0, 0],
+            shape: vec![100, 100],
+            strides: vec![100, 1],
+        };
+        let mut out = vec![0.0; 2];
+        let coords = vec![100.0, 101.0, 102.0];
+        
+        populate_coordinate_batch_f64(
+            2, 0, &subset_info, 1, Some(&coords), false, None, &mut out[..]
+        );
+        
+        assert_eq!(out[0], 100.0);
+        assert_eq!(out[1], 101.0);
+    }
 }
