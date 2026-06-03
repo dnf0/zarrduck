@@ -34,5 +34,12 @@ fn bench_populate_coordinate(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_populate_coordinate);
+criterion_group!(
+    name = benches;
+    config = Criterion::default()
+        .warm_up_time(std::time::Duration::from_secs(1))
+        .measurement_time(std::time::Duration::from_secs(1))
+        .sample_size(10);
+    targets = bench_populate_coordinate
+);
 criterion_main!(benches);

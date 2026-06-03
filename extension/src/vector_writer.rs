@@ -56,35 +56,36 @@ pub fn populate_coordinate_batch_f64(
     let mut current_mod = (pos / stride) % shape;
     let mut step_in_stride = pos % stride;
 
-    if let Some(coord_vals) = coords {
-        for i in 0..batch_size {
-            let g_idx = (start + current_mod) as usize;
-            let raw = coord_vals.get(g_idx).copied().unwrap_or(f64::NAN);
-            out_slice[i] = geozarr_core::coordinates::normalize_longitude(raw, is_0_360);
+    let mut i = 0; // Index into out_slice
+    while i < batch_size {
+        // Calculate how many elements we can fill with the current g_idx
+        // The `g_idx` value (and thus the `val` derived from it) is constant for `stride` consecutive elements.
+        let remaining_in_current_stride = stride - step_in_stride;
+        let count_to_fill = (remaining_in_current_stride as usize).min(batch_size - i);
 
-            step_in_stride += 1;
-            if step_in_stride == stride {
-                step_in_stride = 0;
-                current_mod += 1;
-                if current_mod == shape {
-                    current_mod = 0;
-                }
-            }
-        }
-    } else if let Some(transform) = transform {
-        for i in 0..batch_size {
-            let g_idx = start + current_mod;
-            out_slice[i] = geozarr_core::coordinates::apply_transform(transform, dim, g_idx);
+        // This check is a safeguard. `count_to_fill` should only be zero if `batch_size - i` is zero,
+        // which means the outer `while` loop condition `i < batch_size` is already false.
+        if count_to_fill == 0 { break; }
 
-            step_in_stride += 1;
-            if step_in_stride == stride {
-                step_in_stride = 0;
-                current_mod += 1;
-                if current_mod == shape {
-                    current_mod = 0;
-                }
-            }
+        let g_idx = start + current_mod;
+
+        if let Some(coord_vals) = coords {
+            let raw = coord_vals.get(g_idx as usize).copied().unwrap_or(f64::NAN);
+            let val = geozarr_core::coordinates::normalize_longitude(raw, is_0_360);
+            out_slice[i..(i + count_to_fill)].fill(val);
+        } else if let Some(transform) = transform {
+            let val = geozarr_core::coordinates::apply_transform(transform, dim, g_idx);
+            out_slice[i..(i + count_to_fill)].fill(val);
         }
+        
+        i += count_to_fill;
+        step_in_stride += count_to_fill as u64;
+
+        // Use branchless arithmetic to update step_in_stride and current_mod.
+        // `step_in_stride` can only be exactly `stride` or less due to `count_to_fill` calculation.
+        let increment_mod = (step_in_stride == stride) as u64;
+        step_in_stride -= increment_mod * stride;
+        current_mod = (current_mod + increment_mod) % shape;
     }
 }
 
@@ -103,17 +104,27 @@ pub fn populate_coordinate_batch_i64(
     let mut current_mod = (pos / stride) % shape;
     let mut step_in_stride = pos % stride;
 
-    for i in 0..batch_size {
-        let g_idx = start + current_mod;
-        out_slice[i] = g_idx as i64;
+    let mut i = 0;
+    while i < batch_size {
+        // Calculate how many elements we can fill with the current g_idx
+        // The `g_idx` value is constant for `stride` consecutive elements.
+        let remaining_in_current_stride = stride - step_in_stride;
+        let count_to_fill = (remaining_in_current_stride as usize).min(batch_size - i);
 
-        step_in_stride += 1;
+        if count_to_fill == 0 { break; } 
+
+        let g_idx = start + current_mod;
+        let val = g_idx as i64;
+        out_slice[i..(i + count_to_fill)].fill(val);
+        
+        i += count_to_fill;
+        step_in_stride += count_to_fill as u64;
+
+        // If step_in_stride has reached `stride`, it means we completed a full stride segment.
+        // Reset `step_in_stride` and advance `current_mod`.
         if step_in_stride == stride {
             step_in_stride = 0;
-            current_mod += 1;
-            if current_mod == shape {
-                current_mod = 0;
-            }
+            current_mod = (current_mod + 1) % shape;
         }
     }
 }
