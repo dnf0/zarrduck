@@ -1436,6 +1436,7 @@ dependencies = [
 name = "geozarr_core"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "criterion",
  "opendal",
  "serde",
