@@ -5,3 +5,17 @@ members = [
     "geozarr_core"
 ]
 resolver = "2"
+
+[profile.dev]
+debug = 0 # Disable debug info to save disk space (duckdb-sys debug symbols are massive)
+
+[profile.release]
+opt-level = "s"      # Optimize for size
+strip = true         # Strip symbols from binary
+lto = true           # Link time optimization
+codegen-units = 1    # Maximize size reduction
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+codegen-units = 16

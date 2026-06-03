@@ -38,6 +38,97 @@ impl FillValueCmp for bool {
     }
 }
 
+pub fn populate_coordinate_batch_f64(
+    batch_size: usize,
+    cursor: usize,
+    subset_info: &geozarr_core::scanner::SubsetInfo,
+    dim: usize,
+    coords: Option<&Vec<f64>>,
+    is_0_360: bool,
+    transform: Option<&geozarr_core::metadata::SpatialTransform>,
+    out_slice: &mut [f64],
+) {
+    let stride = subset_info.strides[dim];
+    let shape = subset_info.shape[dim];
+    let start = subset_info.global_starts[dim];
+    
+    let pos = cursor as u64;
+    let mut current_mod = (pos / stride) % shape;
+    let mut step_in_stride = pos % stride;
+
+    let mut i = 0; // Index into out_slice
+    while i < batch_size {
+        // Calculate how many elements we can fill with the current g_idx
+        // The `g_idx` value (and thus the `val` derived from it) is constant for `stride` consecutive elements.
+        let remaining_in_current_stride = stride - step_in_stride;
+        let count_to_fill = (remaining_in_current_stride as usize).min(batch_size - i);
+
+        // This check is a safeguard. `count_to_fill` should only be zero if `batch_size - i` is zero,
+        // which means the outer `while` loop condition `i < batch_size` is already false.
+        if count_to_fill == 0 { break; }
+
+        let g_idx = start + current_mod;
+
+        if let Some(coord_vals) = coords {
+            let raw = coord_vals.get(g_idx as usize).copied().unwrap_or(f64::NAN);
+            let val = geozarr_core::coordinates::normalize_longitude(raw, is_0_360);
+            out_slice[i..(i + count_to_fill)].fill(val);
+        } else if let Some(transform) = transform {
+            let val = geozarr_core::coordinates::apply_transform(transform, dim, g_idx);
+            out_slice[i..(i + count_to_fill)].fill(val);
+        }
+        
+        i += count_to_fill;
+        step_in_stride += count_to_fill as u64;
+
+        // Use branchless arithmetic to update step_in_stride and current_mod.
+        // `step_in_stride` can only be exactly `stride` or less due to `count_to_fill` calculation.
+        let increment_mod = (step_in_stride == stride) as u64;
+        step_in_stride -= increment_mod * stride;
+        current_mod = (current_mod + increment_mod) % shape;
+    }
+}
+
+pub fn populate_coordinate_batch_i64(
+    batch_size: usize,
+    cursor: usize,
+    subset_info: &geozarr_core::scanner::SubsetInfo,
+    dim: usize,
+    out_slice: &mut [i64],
+) {
+    let stride = subset_info.strides[dim];
+    let shape = subset_info.shape[dim];
+    let start = subset_info.global_starts[dim];
+    
+    let pos = cursor as u64;
+    let mut current_mod = (pos / stride) % shape;
+    let mut step_in_stride = pos % stride;
+
+    let mut i = 0;
+    while i < batch_size {
+        // Calculate how many elements we can fill with the current g_idx
+        // The `g_idx` value is constant for `stride` consecutive elements.
+        let remaining_in_current_stride = stride - step_in_stride;
+        let count_to_fill = (remaining_in_current_stride as usize).min(batch_size - i);
+
+        if count_to_fill == 0 { break; } 
+
+        let g_idx = start + current_mod;
+        let val = g_idx as i64;
+        out_slice[i..(i + count_to_fill)].fill(val);
+        
+        i += count_to_fill;
+        step_in_stride += count_to_fill as u64;
+
+        // If step_in_stride has reached `stride`, it means we completed a full stride segment.
+        // Reset `step_in_stride` and advance `current_mod`.
+        if step_in_stride == stride {
+            step_in_stride = 0;
+            current_mod = (current_mod + 1) % shape;
+        }
+    }
+}
+
 pub fn write_chunk_unified<T, Extract, Insert>(
     extract: Extract,
     wrap: fn(Vec<T>) -> ChunkBuffer,
@@ -114,38 +205,51 @@ where
                     let is_0_360 = bind_data.lon_0_360_dims.contains(&dim);
                     let mut coord_vector = output.flat_vector(dim);
                     let coord_slice = coord_vector.as_mut_slice::<f64>();
-                    for i in 0..batch_size {
-                        let pos = (local_state.element_cursor + i) as u64;
-                        let g_idx = subset_info.global_coord(dim, pos) as usize;
-                        let raw = coord_vals.get(g_idx).copied().unwrap_or(f64::NAN);
-                        coord_slice[valid_rows + i] =
-                            geozarr_core::coordinates::normalize_longitude(raw, is_0_360);
-                    }
+                    populate_coordinate_batch_f64(
+                        batch_size,
+                        local_state.element_cursor,
+                        subset_info,
+                        dim,
+                        Some(coord_vals),
+                        is_0_360,
+                        None,
+                        &mut coord_slice[valid_rows..valid_rows + batch_size],
+                    );
                 } else if let Some(ref transform) = bind_data.spatial_transform {
                     if dim < transform.scale.len() {
                         let mut coord_vector = output.flat_vector(dim);
                         let coord_slice = coord_vector.as_mut_slice::<f64>();
-                        for i in 0..batch_size {
-                            let pos = (local_state.element_cursor + i) as u64;
-                            let g_idx = subset_info.global_coord(dim, pos);
-                            coord_slice[valid_rows + i] =
-                                geozarr_core::coordinates::apply_transform(transform, dim, g_idx);
-                        }
+                        populate_coordinate_batch_f64(
+                            batch_size,
+                            local_state.element_cursor,
+                            subset_info,
+                            dim,
+                            None,
+                            false,
+                            Some(transform),
+                            &mut coord_slice[valid_rows..valid_rows + batch_size],
+                        );
                     } else {
                         let mut coord_vector = output.flat_vector(dim);
                         let coord_slice = coord_vector.as_mut_slice::<i64>();
-                        for i in 0..batch_size {
-                            let pos = (local_state.element_cursor + i) as u64;
-                            coord_slice[valid_rows + i] = subset_info.global_coord(dim, pos) as i64;
-                        }
+                        populate_coordinate_batch_i64(
+                            batch_size,
+                            local_state.element_cursor,
+                            subset_info,
+                            dim,
+                            &mut coord_slice[valid_rows..valid_rows + batch_size],
+                        );
                     }
                 } else {
                     let mut coord_vector = output.flat_vector(dim);
                     let coord_slice = coord_vector.as_mut_slice::<i64>();
-                    for i in 0..batch_size {
-                        let pos = (local_state.element_cursor + i) as u64;
-                        coord_slice[valid_rows + i] = subset_info.global_coord(dim, pos) as i64;
-                    }
+                    populate_coordinate_batch_i64(
+                        batch_size,
+                        local_state.element_cursor,
+                        subset_info,
+                        dim,
+                        &mut coord_slice[valid_rows..valid_rows + batch_size],
+                    );
                 }
             }
         }
@@ -239,4 +343,28 @@ macro_rules! dispatch_write_chunk {
             $bind_data,
         )
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geozarr_core::scanner::SubsetInfo;
+
+    #[test]
+    fn test_populate_coordinate_batch_f64() {
+        let subset_info = SubsetInfo {
+            global_starts: vec![0, 0],
+            shape: vec![100, 100],
+            strides: vec![100, 1],
+        };
+        let mut out = vec![0.0; 2];
+        let coords = vec![100.0, 101.0, 102.0];
+        
+        populate_coordinate_batch_f64(
+            2, 0, &subset_info, 1, Some(&coords), false, None, &mut out[..]
+        );
+        
+        assert_eq!(out[0], 100.0);
+        assert_eq!(out[1], 101.0);
+    }
 }
