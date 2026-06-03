@@ -18,7 +18,7 @@ except ImportError:
 # PUCT Configuration
 C_PUCT = 1.0
 MAX_EXPANSIONS_PER_NODE = 8
-EVAL_TIMEOUT_SECS = 60
+EVAL_TIMEOUT_SECS = 150
 
 class OptimizationCandidate(BaseModel):
     patch_code: str = Field(description="The complete, optimized Rust file content.")
@@ -141,8 +141,14 @@ class PUCTOrchestrator:
 
     async def self_correct_node(self, node: PUCTNode, error_log: str) -> bool:
         print(f"  Attempting iterative self-correction for {node.node_id}...")
+        parent_code = self.nodes[node.parent_id].code_content if node.parent_id and node.parent_id in self.nodes else "Not available."
         prompt = f"""
 You are an expert Rust performance engineer. You recently proposed an optimization strategy for a critical inner loop, but it failed to compile or pass tests.
+
+Here is the original, working baseline code you started from:
+```rust
+{parent_code}
+```
 
 Here is your currently failing Rust code:
 ```rust
@@ -154,7 +160,7 @@ Here is the compiler or test output detailing the exact errors:
 {error_log}
 ```
 
-Please fix the errors in your code. Return the ENTIRE modified, corrected Rust file.
+Please fix the errors in your code by referencing the baseline for the correct logic/signatures. Return the ENTIRE modified, corrected Rust file.
 Ensure the function signatures remain exactly identical to the original baseline.
 """
         try:
