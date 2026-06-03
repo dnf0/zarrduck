@@ -118,46 +118,11 @@ impl ChunkReader {
             strides[d] = strides[d + 1] * subset_shape[d + 1];
         }
 
-        let elements: Vec<T> = if self.is_remote {
-            let full = self
-                .array
-                .retrieve_chunk_elements::<T>(grid_coord)
-                .map_err(|e| format!("zarrs read error: {}", e))?;
-            let actual_chunk_shape: Vec<u64> = (0..rank)
-                .map(|d| {
-                    let chunk_start = grid_coord[d] * self.chunk_shape[d];
-                    let chunk_end_inc = chunk_start + self.chunk_shape[d] - 1;
-                    let actual_end = self.shape[d].min(chunk_end_inc + 1);
-                    actual_end - chunk_start
-                })
-                .collect();
-            let mut chunk_strides = vec![1u64; rank];
-            for d in (0..rank - 1).rev() {
-                chunk_strides[d] = chunk_strides[d + 1] * actual_chunk_shape[d + 1];
-            }
-            let total: u64 = subset_shape.iter().product();
-            let mut out = Vec::with_capacity(total as usize);
-            let mut idx = subset_start.clone();
-            for _ in 0..total {
-                let flat: u64 = (0..rank).map(|d| idx[d] * chunk_strides[d]).sum();
-                out.push(full[flat as usize].clone());
-                for d in (0..rank).rev() {
-                    idx[d] += 1;
-                    if idx[d] < subset_start[d] + subset_shape[d] {
-                        break;
-                    }
-                    idx[d] = subset_start[d];
-                }
-            }
-            out
-        } else {
-            let chunk_subset =
-                ArraySubset::new_with_start_shape(subset_start.clone(), subset_shape.clone())
-                    .map_err(|e| format!("Invalid chunk subset: {}", e))?;
-            self.array
-                .retrieve_chunk_subset_elements::<T>(grid_coord, &chunk_subset)
-                .map_err(|e| format!("zarrs read error: {}", e))?
-        };
+        let chunk_subset = ArraySubset::new_with_start_shape(subset_start.clone(), subset_shape.clone())
+            .map_err(|e| format!("Invalid chunk subset: {}", e))?;
+        let elements: Vec<T> = self.array
+            .retrieve_chunk_subset_elements::<T>(grid_coord, &chunk_subset)
+            .map_err(|e| format!("zarrs read error: {}", e))?;
 
         Ok((
             elements,
