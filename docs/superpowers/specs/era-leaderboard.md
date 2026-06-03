@@ -6,4 +6,9 @@
 
 | Rank | Implementation / Branch | Bench Time | Notes / Strategy |
 |------|-------------------------|------------|------------------|
-| 1 | `main` (Baseline) | 173.09 µs | Initial unoptimized nested loops |
+| 1 | `vector_writer_seed_2.rs` | ~138.68 µs | Generation 1 winner |
+| 2 | `vector_writer_seed_3.rs` | ~155.72 µs | Generation 1 |
+| 3 | `vector_writer_seed_5.rs` | ~156.80 µs | Generation 1 |
+| 4 | `vector_writer_seed_1.rs` | ~167.53 µs | Generation 1 |
+| 5 | `vector_writer_seed_4.rs` | ~169.67 µs | Generation 1 |
+| 6 | `main` (Baseline) | ~170.15 µs | Initial unoptimized nested loops |

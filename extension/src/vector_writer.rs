@@ -48,18 +48,42 @@ pub fn populate_coordinate_batch_f64(
     transform: Option<&geozarr_core::metadata::SpatialTransform>,
     out_slice: &mut [f64],
 ) {
+    let stride = subset_info.strides[dim];
+    let shape = subset_info.shape[dim];
+    let start = subset_info.global_starts[dim];
+    
+    let pos = cursor as u64;
+    let mut current_mod = (pos / stride) % shape;
+    let mut step_in_stride = pos % stride;
+
     if let Some(coord_vals) = coords {
         for i in 0..batch_size {
-            let pos = (cursor + i) as u64;
-            let g_idx = subset_info.global_coord(dim, pos) as usize;
+            let g_idx = (start + current_mod) as usize;
             let raw = coord_vals.get(g_idx).copied().unwrap_or(f64::NAN);
             out_slice[i] = geozarr_core::coordinates::normalize_longitude(raw, is_0_360);
+
+            step_in_stride += 1;
+            if step_in_stride == stride {
+                step_in_stride = 0;
+                current_mod += 1;
+                if current_mod == shape {
+                    current_mod = 0;
+                }
+            }
         }
     } else if let Some(transform) = transform {
         for i in 0..batch_size {
-            let pos = (cursor + i) as u64;
-            let g_idx = subset_info.global_coord(dim, pos);
+            let g_idx = start + current_mod;
             out_slice[i] = geozarr_core::coordinates::apply_transform(transform, dim, g_idx);
+
+            step_in_stride += 1;
+            if step_in_stride == stride {
+                step_in_stride = 0;
+                current_mod += 1;
+                if current_mod == shape {
+                    current_mod = 0;
+                }
+            }
         }
     }
 }
@@ -71,9 +95,26 @@ pub fn populate_coordinate_batch_i64(
     dim: usize,
     out_slice: &mut [i64],
 ) {
+    let stride = subset_info.strides[dim];
+    let shape = subset_info.shape[dim];
+    let start = subset_info.global_starts[dim];
+    
+    let pos = cursor as u64;
+    let mut current_mod = (pos / stride) % shape;
+    let mut step_in_stride = pos % stride;
+
     for i in 0..batch_size {
-        let pos = (cursor + i) as u64;
-        out_slice[i] = subset_info.global_coord(dim, pos) as i64;
+        let g_idx = start + current_mod;
+        out_slice[i] = g_idx as i64;
+
+        step_in_stride += 1;
+        if step_in_stride == stride {
+            step_in_stride = 0;
+            current_mod += 1;
+            if current_mod == shape {
+                current_mod = 0;
+            }
+        }
     }
 }
 
