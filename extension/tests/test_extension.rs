@@ -80,7 +80,17 @@ fn test_read_zarr_function_compiles() {
     // Loading it dynamically into the host duckdb CLI is not tested here because
     // DuckDB extensions are strictly tied to the exact minor version (v1.1.x vs v1.5.x)
     // and will panic on load if there's a mismatch.
-    let exists = candidate_paths.iter().any(|p| Path::new(p).exists());
+    let mut exists = candidate_paths.iter().any(|p| Path::new(p).exists());
+    
+    if !exists {
+        // Try building it automatically for the test
+        let _ = std::process::Command::new("cargo")
+            .args(&["duckdb-ext", "build"])
+            .status();
+            
+        exists = candidate_paths.iter().any(|p| Path::new(p).exists());
+    }
+
     assert!(
         exists,
         "Extension file not found. Please run `cargo duckdb-ext build` before `cargo test`"

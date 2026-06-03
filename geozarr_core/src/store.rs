@@ -81,6 +81,25 @@ pub async fn list_arrays(uri: &str) -> Result<Vec<String>, Box<dyn std::error::E
     let mut arrays = Vec::new();
 
     if is_group {
+        // Try reading consolidated metadata first (crucial for HTTP where listing is unsupported)
+        if let Ok(metadata_bytes) = operator.read(".zmetadata").await {
+            if let Ok(metadata_json) = serde_json::from_slice::<serde_json::Value>(&metadata_bytes.to_bytes()) {
+                if let Some(metadata) = metadata_json.get("metadata").and_then(|m| m.as_object()) {
+                    let mut arrays_set = std::collections::HashSet::new();
+                    for (key, _) in metadata {
+                        if key.ends_with(".zarray") {
+                            arrays_set.insert(key.strip_suffix("/.zarray").unwrap_or("").to_string());
+                        }
+                    }
+                    if !arrays_set.is_empty() {
+                        let mut sorted: Vec<_> = arrays_set.into_iter().collect();
+                        sorted.sort();
+                        return Ok(sorted);
+                    }
+                }
+            }
+        }
+
         let entries = operator.list("/").await?;
         for entry in entries {
             if entry.metadata().is_dir() {
