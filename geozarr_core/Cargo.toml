@@ -12,3 +12,8 @@ tokio = { version = "1.0", features = ["sync", "rt", "macros"] }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread"] }
+criterion = "0.5"
+
+[[bench]]
+name = "scanner_bench"
+harness = false

@@ -118,46 +118,11 @@ impl ChunkReader {
             strides[d] = strides[d + 1] * subset_shape[d + 1];
         }
 
-        let elements: Vec<T> = if self.is_remote {
-            let full = self
-                .array
-                .retrieve_chunk_elements::<T>(grid_coord)
-                .map_err(|e| format!("zarrs read error: {}", e))?;
-            let actual_chunk_shape: Vec<u64> = (0..rank)
-                .map(|d| {
-                    let chunk_start = grid_coord[d] * self.chunk_shape[d];
-                    let chunk_end_inc = chunk_start + self.chunk_shape[d] - 1;
-                    let actual_end = self.shape[d].min(chunk_end_inc + 1);
-                    actual_end - chunk_start
-                })
-                .collect();
-            let mut chunk_strides = vec![1u64; rank];
-            for d in (0..rank - 1).rev() {
-                chunk_strides[d] = chunk_strides[d + 1] * actual_chunk_shape[d + 1];
-            }
-            let total: u64 = subset_shape.iter().product();
-            let mut out = Vec::with_capacity(total as usize);
-            let mut idx = subset_start.clone();
-            for _ in 0..total {
-                let flat: u64 = (0..rank).map(|d| idx[d] * chunk_strides[d]).sum();
-                out.push(full[flat as usize].clone());
-                for d in (0..rank).rev() {
-                    idx[d] += 1;
-                    if idx[d] < subset_start[d] + subset_shape[d] {
-                        break;
-                    }
-                    idx[d] = subset_start[d];
-                }
-            }
-            out
-        } else {
-            let chunk_subset =
-                ArraySubset::new_with_start_shape(subset_start.clone(), subset_shape.clone())
-                    .map_err(|e| format!("Invalid chunk subset: {}", e))?;
-            self.array
-                .retrieve_chunk_subset_elements::<T>(grid_coord, &chunk_subset)
-                .map_err(|e| format!("zarrs read error: {}", e))?
-        };
+        let chunk_subset = ArraySubset::new_with_start_shape(subset_start.clone(), subset_shape.clone())
+            .map_err(|e| format!("Invalid chunk subset: {}", e))?;
+        let elements: Vec<T> = self.array
+            .retrieve_chunk_subset_elements::<T>(grid_coord, &chunk_subset)
+            .map_err(|e| format!("zarrs read error: {}", e))?;
 
         Ok((
             elements,
@@ -167,5 +132,59 @@ impl ChunkReader {
                 strides,
             },
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zarrs::array::{ArrayBuilder, DataType, FillValue};
+    use zarrs::array::chunk_grid::{ChunkGrid, RegularChunkGrid};
+    use zarrs::storage::store::MemoryStore;
+
+    #[test]
+    fn test_read_chunk_subset() {
+        let store = Arc::new(MemoryStore::new());
+        let shape = vec![10, 10];
+        let chunk_shape = vec![5, 5];
+        
+        let array_write = ArrayBuilder::new(
+            shape.clone(),
+            DataType::Float32,
+            ChunkGrid::new(RegularChunkGrid::new(chunk_shape.clone().try_into().unwrap())),
+            FillValue::from(0.0f32),
+        )
+            .build(store.clone(), "/test")
+            .unwrap();
+
+        let mut chunk_data = vec![0.0f32; 25];
+        for i in 0..25 { chunk_data[i] = i as f32; }
+        
+        array_write.store_metadata().unwrap();
+        array_write.store_chunk_elements(&[0, 0], &chunk_data).unwrap();
+
+        let ro_store: Arc<dyn ReadableStorageTraits> = store;
+        let array = Array::open(ro_store, "/test").unwrap();
+
+        let reader = ChunkReader::new(Arc::new(array), true, shape, chunk_shape);
+        
+        let (elements, info) = reader.read_chunk_subset::<f32>(
+            &[0, 0],
+            &[1, 1], // bounds_min
+            &[3, 3], // bounds_max
+        ).unwrap();
+        
+        assert_eq!(info.shape, vec![3, 3]);
+        // The chunk data is 5x5:
+        // [ 0,  1,  2,  3,  4]
+        // [ 5,  6,  7,  8,  9]
+        // [10, 11, 12, 13, 14]
+        // [15, 16, 17, 18, 19]
+        // [20, 21, 22, 23, 24]
+        // subset [1..=3, 1..=3] should be:
+        // [ 6,  7,  8]
+        // [11, 12, 13]
+        // [16, 17, 18]
+        assert_eq!(elements, vec![6.0, 7.0, 8.0, 11.0, 12.0, 13.0, 16.0, 17.0, 18.0]);
     }
 }
