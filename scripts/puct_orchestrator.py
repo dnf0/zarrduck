@@ -238,6 +238,14 @@ Ensure the function signatures remain exactly identical to the original baseline
         finally:
             shutil.copy(backup_file, self.target_file)
 
+    def is_exhausted(self, node_id: str) -> bool:
+        node = self.nodes[node_id]
+        if node.visits > 0 and node.benchmark_time is None:
+            return True
+        if node.children:
+            return all(self.is_exhausted(c) for c in node.children)
+        return False
+
     def select(self) -> str:
         current = "root"
         while self.nodes[current].children:
@@ -246,6 +254,9 @@ Ensure the function signatures remain exactly identical to the original baseline
             parent_visits = self.nodes[current].visits
             
             for child_id in self.nodes[current].children:
+                if self.is_exhausted(child_id):
+                    continue
+                    
                 child = self.nodes[child_id]
                 score = child.puct_score(parent_visits)
                 if score > best_score:
@@ -373,6 +384,10 @@ Ensure the function signatures remain exactly identical. Return the ENTIRE modif
     def run_step(self) -> bool:
         leaf_id = self.select()
         
+        if self.is_exhausted(leaf_id):
+            print(f"Node {leaf_id} is fully exhausted. Treating as a dead end.")
+            return False
+            
         if not self.nodes[leaf_id].children:
             # Run async expansion
             new_children = asyncio.run(self.expand_async(leaf_id))
@@ -422,7 +437,9 @@ Ensure the function signatures remain exactly identical. Return the ENTIRE modif
             print(f"Stagnation Counter: {self.state_meta.steps_without_improvement} / {max_stagnation}")
             print(f"Nodes in Tree: {len(self.nodes)}\n")
             
-            self.run_step()
+            if not self.run_step():
+                print("\n🛑 Terminating: Search space fully exhausted. All paths lead to dead ends.")
+                break
             
         print("\n🏆 --- FINAL OPTIMIZATION LEADERBOARD --- 🏆")
         best_nodes = sorted(
