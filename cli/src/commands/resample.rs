@@ -160,7 +160,7 @@ pub fn run_resample(
         println!(r#"{{"status": "success", "db": "{}"}}"#, output_db);
     } else {
         println!("Data saved to table 'resampled_data' in {}", output_db);
-        println!("Run `zarrduck shell {}` to explore it.", output_db);
+        println!("Run `eider shell {}` to explore it.", output_db);
     }
 
     Ok(())

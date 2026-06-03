@@ -28,7 +28,7 @@ def main():
     # Optional: we can chunk it nicely
     ds = ds.chunk({'time': 12, 'lat': 73, 'lon': 144})
     
-    # Let's quickly ensure the arrays map well for zarrduck
+    # Let's quickly ensure the arrays map well for eider
     # We rename 'air' to 'air_temperature' so it matches the tape
     if 'air' in ds:
         ds = ds.rename({'air': 'air_temperature'})

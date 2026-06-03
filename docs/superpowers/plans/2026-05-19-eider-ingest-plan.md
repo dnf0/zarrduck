@@ -1,4 +1,4 @@
-# Zarrduck Data Ingestion Engine Implementation Plan
+# Eider Data Ingestion Engine Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -68,7 +68,7 @@ In the `run_cli` match block, add the arm for `Ingest`:
 
 - [ ] **Step 3: Run check to verify it compiles**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 4: Commit**
@@ -137,7 +137,7 @@ Update the `Commands::Ingest` arm after creating the `temp_ingest` view:
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 4: Commit**
@@ -218,7 +218,7 @@ Append to `Commands::Ingest` after the chunk calculation:
 
 - [ ] **Step 4: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 5: Commit**
@@ -242,7 +242,7 @@ Add a test that verifies `ingest` fails elegantly on a missing input file:
 ```rust
 #[test]
 fn test_cli_ingest_missing_input() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("ingest")
         .arg("missing_input.nc")
         .arg("s3://bucket/out.zarr")
@@ -255,7 +255,7 @@ fn test_cli_ingest_missing_input() {
 
 - [ ] **Step 2: Run test to verify it passes**
 
-Run: `cargo test -p zarrduck --test integration_test test_cli_ingest_missing_input`
+Run: `cargo test -p eider --test integration_test test_cli_ingest_missing_input`
 Expected: PASS
 
 - [ ] **Step 3: Commit**

@@ -1,4 +1,4 @@
-use crate::config::ZarrduckConfig;
+use crate::config::EiderConfig;
 use crate::duckdb_utils;
 use crate::OutputFormat;
 use color_eyre::eyre::Result as EyreResult;
@@ -11,7 +11,7 @@ pub async fn run_export_cmd(
     value_column: String,
     chunks: Option<String>,
     resolved_output: &OutputFormat,
-    config: &ZarrduckConfig,
+    config: &EiderConfig,
 ) -> EyreResult<()> {
     let conn = if let Some(db_path) = db {
         let db_config = duckdb::Config::default().allow_unsigned_extensions()?;

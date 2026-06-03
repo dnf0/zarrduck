@@ -1,20 +1,20 @@
-# Zarrduck CLI Temporal Analytics Design
+# Eider CLI Temporal Analytics Design
 
 **Date:** 2026-05-19
 
 ## 1. Context & Purpose
-Following Phase 1 (STAC Discovery) of the Zarrduck Future Roadmap, Phase 2 focuses on Temporal Analytics. Geospatial data extracted from Zarr stores is almost always multi-dimensional, with time being a critical axis.
+Following Phase 1 (STAC Discovery) of the Eider Future Roadmap, Phase 2 focuses on Temporal Analytics. Geospatial data extracted from Zarr stores is almost always multi-dimensional, with time being a critical axis.
 
-Currently, users must manually write complex DuckDB SQL using window functions or `date_trunc` to aggregate this data (e.g., converting daily temperature grids into monthly averages). The purpose of this sub-project is to introduce a high-level `zarrduck resample` command that automates this temporal aggregation, leaning into our "High-Level Automation" philosophy.
+Currently, users must manually write complex DuckDB SQL using window functions or `date_trunc` to aggregate this data (e.g., converting daily temperature grids into monthly averages). The purpose of this sub-project is to introduce a high-level `eider resample` command that automates this temporal aggregation, leaning into our "High-Level Automation" philosophy.
 
 ## 2. Core Architecture & Commands
 
-We will add a new `resample` subcommand to the `zarrduck` CLI.
+We will add a new `resample` subcommand to the `eider` CLI.
 
 ### 2.1 The `resample` Command
 - **Purpose:** Temporally aggregate extracted GeoZarr data.
 - **Input:**
-  - `<input_db>`: A local DuckDB file (typically the output of `zarrduck extract`).
+  - `<input_db>`: A local DuckDB file (typically the output of `eider extract`).
   - `<output_db>`: A target DuckDB file for the aggregated results.
   - `--freq`: The temporal frequency for the aggregation (e.g., `month`, `year`, `day`).
   - `--agg`: The SQL aggregate function to apply (e.g., `mean`, `sum`, `max`, `min`).

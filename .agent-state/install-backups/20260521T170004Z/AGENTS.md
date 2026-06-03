@@ -1,6 +1,6 @@
-<!-- agent-rules@0_42_0 objective=general language=rust strictness=balanced repo_name=zarrduck -->
+<!-- agent-rules@0_42_0 objective=general language=rust strictness=balanced repo_name=eider -->
 
-# zarrduck Agent Guidance
+# eider Agent Guidance
 
 Provider target: Universal
 

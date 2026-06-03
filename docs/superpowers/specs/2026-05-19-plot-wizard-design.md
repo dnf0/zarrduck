@@ -1,11 +1,11 @@
 # Design Specification: Interactive Plotting Wizard
 
 ## Overview
-An interactive wizard mode for the `zarrduck plot` command. When a user runs the command without explicit flags, they will be dropped into an interactive session (powered by the `inquire` crate) to select their data and determine the best visualization strategy based on their selections.
+An interactive wizard mode for the `eider plot` command. When a user runs the command without explicit flags, they will be dropped into an interactive session (powered by the `inquire` crate) to select their data and determine the best visualization strategy based on their selections.
 
 ## User Experience
 
-1. **Invocation:** The user runs `zarrduck plot <db_path>`. The CLI detects that no strict `--plot-type` or `--var` flags were passed and initiates the wizard.
+1. **Invocation:** The user runs `eider plot <db_path>`. The CLI detects that no strict `--plot-type` or `--var` flags were passed and initiates the wizard.
 2. **Table Selection:** The CLI queries the DuckDB file for a list of tables and presents them in a selectable list.
 3. **Variable Selection:** The CLI queries the selected table's schema and presents a multi-select checklist of all columns. The user selects the variables they wish to plot.
 4. **Plot Recommendation:** Based on the number of variables selected, the CLI recommends plot types:

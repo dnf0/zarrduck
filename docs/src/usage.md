@@ -17,7 +17,7 @@ If a coordinate array does not exist, the extension gracefully falls back to yie
 
 ## GeoZarr Metadata & Spatial Projections
 
-Zarrduck aligns with the official GeoZarr specification.
+Eider aligns with the official GeoZarr specification.
 
 ### Global Metadata
 

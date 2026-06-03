@@ -1,4 +1,4 @@
-# Zarrduck CLI Shell Auto-Completion Implementation Plan
+# Eider CLI Shell Auto-Completion Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -60,7 +60,7 @@ enum Commands {
 
 - [ ] **Step 3: Run check to verify it compiles**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 4: Commit**
@@ -91,7 +91,7 @@ In `cli/src/main.rs` inside the `run_cli` function's `match cli.command` block, 
 
 - [ ] **Step 2: Verify Compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 3: Commit**
@@ -115,18 +115,18 @@ Add the following test to `cli/tests/integration_test.rs`:
 ```rust
 #[test]
 fn test_cli_completions_bash() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("completions")
         .arg("bash")
         .assert()
         .success()
-        .stdout(predicate::str::contains("_zarrduck() {"));
+        .stdout(predicate::str::contains("_eider() {"));
 }
 ```
 
 - [ ] **Step 2: Run test to verify it passes**
 
-Run: `cargo test -p zarrduck --test integration_test test_cli_completions_bash`
+Run: `cargo test -p eider --test integration_test test_cli_completions_bash`
 Expected: PASS
 
 - [ ] **Step 3: Commit**

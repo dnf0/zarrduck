@@ -1133,6 +1133,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
+name = "eider"
+version = "0.1.0"
+dependencies = [
+ "assert_cmd",
+ "clap",
+ "clap_complete",
+ "color-eyre",
+ "directories",
+ "duckdb",
+ "figment",
+ "geozarr_core",
+ "indicatif",
+ "inquire",
+ "opendal",
+ "predicates",
+ "rasciigraph",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tempfile",
+ "tokio",
+ "zarrs",
+]
+
+[[package]]
+name = "eider_extension"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "criterion",
+ "duckdb",
+ "geozarr_core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "ureq",
+ "url",
+ "zarrs",
+]
+
+[[package]]
 name = "either"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1436,6 +1478,7 @@ dependencies = [
 name = "geozarr_core"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "criterion",
  "opendal",
  "serde",
@@ -4827,48 +4870,6 @@ dependencies = [
  "quote",
  "syn 2.0.117",
  "synstructure",
-]
-
-[[package]]
-name = "zarrduck"
-version = "0.1.0"
-dependencies = [
- "assert_cmd",
- "clap",
- "clap_complete",
- "color-eyre",
- "directories",
- "duckdb",
- "figment",
- "geozarr_core",
- "indicatif",
- "inquire",
- "opendal",
- "predicates",
- "rasciigraph",
- "reqwest",
- "serde",
- "serde_json",
- "serial_test",
- "tempfile",
- "tokio",
- "zarrs",
-]
-
-[[package]]
-name = "zarrduck_extension"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "criterion",
- "duckdb",
- "geozarr_core",
- "serde",
- "serde_json",
- "tempfile",
- "ureq",
- "url",
- "zarrs",
 ]
 
 [[package]]

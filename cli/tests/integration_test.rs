@@ -3,7 +3,7 @@ use predicates::prelude::*;
 
 #[test]
 fn test_cli_help() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("--help")
         .assert()
         .success()
@@ -12,7 +12,7 @@ fn test_cli_help() {
 
 #[test]
 fn test_cli_info_invalid_uri_table() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("info")
         .arg("s3://invalid-bucket-that-does-not-exist/data.zarr")
         .arg("--output=table")
@@ -22,7 +22,7 @@ fn test_cli_info_invalid_uri_table() {
 
 #[test]
 fn test_cli_info_invalid_uri_json() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("info")
         .arg("s3://invalid-bucket-that-does-not-exist/data.zarr")
         .arg("--output=json")
@@ -34,17 +34,17 @@ fn test_cli_info_invalid_uri_json() {
 
 #[test]
 fn test_cli_completions_bash() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("completions")
         .arg("bash")
         .assert()
         .success()
-        .stdout(predicate::str::contains("_zarrduck() {"));
+        .stdout(predicate::str::contains("_eider() {"));
 }
 
 #[test]
 fn test_cli_search_invalid_api() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("search")
         .arg("--api")
         .arg("http://api.test.invalid")
@@ -58,7 +58,7 @@ fn test_cli_search_invalid_api() {
 
 #[test]
 fn test_cli_resample_missing_input() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("resample")
         .arg("missing_input.duckdb")
         .arg("out.duckdb")
@@ -76,7 +76,7 @@ fn test_cli_resample_missing_input() {
 
 #[test]
 fn test_cli_ingest_missing_input() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("ingest")
         .arg("missing_input.nc")
         .arg("s3://bucket/out.zarr")

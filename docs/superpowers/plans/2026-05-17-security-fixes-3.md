@@ -205,7 +205,7 @@ Add this right after `let shape = array.shape().to_vec();`:
 ```
 
 - [ ] **Step 3: Run test to verify it passes**
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: PASS.
 
 - [ ] **Step 4: Commit**
@@ -239,7 +239,7 @@ With:
 ```
 
 - [ ] **Step 3: Run test to verify it passes**
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: PASS.
 
 - [ ] **Step 4: Commit**

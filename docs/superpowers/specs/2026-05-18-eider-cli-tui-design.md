@@ -1,9 +1,9 @@
-# Zarrduck CLI Interactive Prompts & Progress TUI Design
+# Eider CLI Interactive Prompts & Progress TUI Design
 
 **Date:** 2026-05-18
 
 ## 1. Context & Purpose
-The `zarrduck` CLI performs heavy spatial operations and network streaming that can take minutes to complete. Currently, the CLI prints static messages and blocks, leaving the user wondering if the process has frozen. Additionally, destructive operations (like overwriting an output file) happen without warning.
+The `eider` CLI performs heavy spatial operations and network streaming that can take minutes to complete. Currently, the CLI prints static messages and blocks, leaving the user wondering if the process has frozen. Additionally, destructive operations (like overwriting an output file) happen without warning.
 
 The purpose of this sub-project is to introduce `indicatif` for progress visualization and `inquire` for interactive terminal prompts, significantly improving the human UX while strictly preserving headless JSON compatibility for LLM agents.
 
@@ -14,11 +14,11 @@ We will add the following crates to `cli/Cargo.toml`:
 - `inquire`: For rendering interactive prompts.
 
 ### 2.1 Progress Feedback (`indicatif`)
-- **Extraction Command (`zarrduck extract`)**:
+- **Extraction Command (`eider extract`)**:
   - DuckDB's spatial join executes as a single blocking call.
   - We will spawn a background thread with an `indicatif::ProgressBar::new_spinner()` displaying a message like `"🔄 Performing spatial extraction..."`.
   - The spinner will animate while the query runs and will be cleared/finished with a success message when the query completes.
-- **Export Command (`zarrduck export`)**:
+- **Export Command (`eider export`)**:
   - The export streams data chunk-by-chunk. We will replace the print statements with an `indicatif::ProgressBar` that increments as chunks are processed, giving the user a true percentage-based progress bar.
 
 ### 2.2 Interactive Prompts (`inquire`)

@@ -1,6 +1,6 @@
 # ERA Optimization Leaderboard: Coordinate Generation
 
-**Target:** The `populate_coordinate_batch` inner loop in Zarrduck's extraction engine.
+**Target:** The `populate_coordinate_batch` inner loop in Eider's extraction engine.
 **Metric:** Execution time (lower is better).
 **Baseline Command:** `cargo bench -p extension --bench coordinate_bench`
 

@@ -30,7 +30,7 @@ def run_loop():
     try:
         # Run baseline
         print("Running Baseline...")
-        res = subprocess.run(["cargo", "bench", "-p", "zarrduck_extension"], capture_output=True, text=True, cwd="extension")
+        res = subprocess.run(["cargo", "bench", "-p", "eider_extension"], capture_output=True, text=True, cwd="extension")
         baseline_time = extract_bench_time(res.stdout)
         print(f"Baseline Time: {baseline_time}")
         results.append(("baseline", baseline_time))
@@ -43,7 +43,7 @@ def run_loop():
             # Run tests
             print("  Running tests...")
             test_res = subprocess.run(
-                ["cargo", "test", "-p", "zarrduck_extension", "test_populate_coordinate_batch"], 
+                ["cargo", "test", "-p", "eider_extension", "test_populate_coordinate_batch"], 
                 capture_output=True, text=True, cwd="extension"
             )
             if test_res.returncode != 0:
@@ -53,7 +53,7 @@ def run_loop():
             
             # Run bench
             print("  Running bench...")
-            bench_res = subprocess.run(["cargo", "bench", "-p", "zarrduck_extension"], capture_output=True, text=True, cwd="extension")
+            bench_res = subprocess.run(["cargo", "bench", "-p", "eider_extension"], capture_output=True, text=True, cwd="extension")
             time_val = extract_bench_time(bench_res.stdout)
             print(f"  Bench Time: {time_val}")
             results.append((name, time_val))

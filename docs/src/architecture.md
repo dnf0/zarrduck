@@ -1,6 +1,6 @@
 # Architecture Deep Dive
 
-The Zarrduck extension is designed with a heavy focus on network I/O optimization, memory safety, and lock-free concurrency. It relies on the [zarrs](https://crates.io/crates/zarrs) crate for core Zarr decoding and the [opendal](https://crates.io/crates/opendal) crate for cloud storage abstraction.
+The Eider extension is designed with a heavy focus on network I/O optimization, memory safety, and lock-free concurrency. It relies on the [zarrs](https://crates.io/crates/zarrs) crate for core Zarr decoding and the [opendal](https://crates.io/crates/opendal) crate for cloud storage abstraction.
 
 ## Conceptual Model: From Zarr to DuckDB
 
@@ -22,7 +22,7 @@ graph TD
         T -.-> |Apply Math| E
     end
 
-    subgraph Zarrduck Extension (C-API Adapter)
+    subgraph Eider Extension (C-API Adapter)
         E --> |Yield ZarrBatches| R[(Flat Relational Table)]
     end
 

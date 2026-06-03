@@ -1,4 +1,4 @@
-use crate::config::ZarrduckConfig;
+use crate::config::EiderConfig;
 use crate::duckdb_utils;
 use crate::ui;
 use crate::OutputFormat;
@@ -99,7 +99,7 @@ pub async fn run_extract(
     yes: bool,
     pin: Vec<String>,
     resolved_output: &OutputFormat,
-    config: &ZarrduckConfig,
+    config: &EiderConfig,
 ) -> EyreResult<()> {
     let zarr_uri = ui::prompt_zarr_uri(&zarr_uri, *resolved_output == OutputFormat::Json).await?;
     let out_path = out.or_else(|| config.default_out.clone()).ok_or_else(|| {
@@ -200,7 +200,7 @@ pub async fn run_extract(
         println!(r#"{{"status": "success", "db": "{}"}}"#, out_path);
     } else {
         println!(
-            "Run `zarrduck shell {}` to explore the extracted data.",
+            "Run `eider shell {}` to explore the extracted data.",
             out_path
         );
     }

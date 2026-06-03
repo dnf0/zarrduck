@@ -200,7 +200,7 @@ Ensure the function signatures remain exactly identical to the original baseline
                     
                 print(f"  Running tests (Attempt {attempt+1}/{max_retries+1})...")
                 test_res = subprocess.run(
-                    ["cargo", "test", "-p", "zarrduck_extension", "test_populate_coordinate_batch"],
+                    ["cargo", "test", "-p", "eider_extension", "test_populate_coordinate_batch"],
                     capture_output=True, text=True, cwd="extension", timeout=EVAL_TIMEOUT_SECS
                 )
                 
@@ -222,7 +222,7 @@ Ensure the function signatures remain exactly identical to the original baseline
                 
             print("  Running benchmark...")
             bench_res = subprocess.run(
-                ["cargo", "bench", "-p", "zarrduck_extension"],
+                ["cargo", "bench", "-p", "eider_extension"],
                 capture_output=True, text=True, cwd="extension", timeout=EVAL_TIMEOUT_SECS
             )
             

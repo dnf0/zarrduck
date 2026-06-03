@@ -112,7 +112,7 @@ services:
       sh -c "apt-get update && apt-get install -y curl unzip time
       && curl -L -o duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.1.1/duckdb_cli_linux_amd64.zip
       && unzip duckdb.zip
-      && /usr/bin/time -o /app/e2e_benchmark.txt -v ./duckdb -unsigned -c \"LOAD '/app/target_docker/release/libzarrduck.so'; SELECT SUM(value) FROM read_zarr('/data/test.zarr');\""
+      && /usr/bin/time -o /app/e2e_benchmark.txt -v ./duckdb -unsigned -c \"LOAD '/app/target_docker/release/libeider.so'; SELECT SUM(value) FROM read_zarr('/data/test.zarr');\""
 ```
 
 - [ ] **Step 2: Commit**

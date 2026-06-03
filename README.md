@@ -1,29 +1,29 @@
-# Zarrduck
+# Eider
 
 A high-performance, cloud-native [DuckDB](https://duckdb.org/) extension for reading and writing N-dimensional [Zarr](https://zarr.readthedocs.io/) and GeoZarr arrays directly as flat relational tables.
 
-![Zarrduck End-to-End Demo](docs/src/demo.gif)
+![Eider End-to-End Demo](docs/src/demo.gif)
 
-[![Semantic Release](https://github.com/dnf0/zarrduck/actions/workflows/release.yaml/badge.svg)](https://github.com/dnf0/zarrduck/actions/workflows/release.yaml)
+[![Semantic Release](https://github.com/dnf0/eider/actions/workflows/release.yaml/badge.svg)](https://github.com/dnf0/eider/actions/workflows/release.yaml)
 
-📖 **[Read the Full Documentation here!](https://dnf0.github.io/zarrduck/)**
+📖 **[Read the Full Documentation here!](https://dnf0.github.io/eider/)**
 
 ## Performance
 
 All benchmarks use the [NCEP CDAS reanalysis surface air temperature dataset](https://downloads.psl.noaa.gov/Datasets/ncep.reanalysis.derived/surface/air.mon.mean.nc) converted to Zarr (938×73×144, chunk=12×73×144, 79 chunks). Timed query: extract all grid cells within the California bounding box (−125°–−115°, 30°–45°), returning 32,830 rows. In-process DuckDB Python API; median of 20 runs.
 
-### Head-to-head: zarrduck vs the Python ecosystem
+### Head-to-head: eider vs the Python ecosystem
 
 | Tool | CA bbox | Full scan | Spatial mean | Top-10 |
 |---|---|---|---|---|
 | xarray (1 thread) | 34.6 ms | 34.7 ms | 33.5 ms | 34.4 ms |
 | zarr-python | 13.5 ms | 13.7 ms | 13.3 ms | — |
 | zarr-python + zarrs pipeline¹ | 4.1 ms | **3.9 ms** | 4.1 ms | 4.4 ms |
-| **zarrduck (1 thread)** | **3.0 ms** | 7.0 ms | **3.7 ms** | **3.5 ms** |
+| **eider (1 thread)** | **3.0 ms** | 7.0 ms | **3.7 ms** | **3.5 ms** |
 
-> ¹ [zarrs](https://github.com/LDeakin/zarrs) is the same Rust codec library zarrduck uses internally, exposed via Python bindings (`zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})`). It is the current fastest Python-accessible Zarr decoder.
+> ¹ [zarrs](https://github.com/LDeakin/zarrs) is the same Rust codec library eider uses internally, exposed via Python bindings (`zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})`). It is the current fastest Python-accessible Zarr decoder.
 
-zarrduck matches or beats the fastest available Python Zarr library on all filtered queries. The full-scan case is the one exception — zarrduck pays extra cost generating coordinate columns for 9.8 M rows; zarrs Python bindings return a raw NumPy array with no coordinate overhead. For the filtered queries that matter in practice, zarrduck wins because its chunk-level spatial pruning skips non-intersecting chunks before reading them, while zarrs Python reads every chunk in full.
+eider matches or beats the fastest available Python Zarr library on all filtered queries. The full-scan case is the one exception — eider pays extra cost generating coordinate columns for 9.8 M rows; zarrs Python bindings return a raw NumPy array with no coordinate overhead. For the filtered queries that matter in practice, eider wins because its chunk-level spatial pruning skips non-intersecting chunks before reading them, while zarrs Python reads every chunk in full.
 
 ### Scaling: threads × throughput
 
@@ -41,18 +41,18 @@ Each chunk is dispatched to a separate DuckDB worker, so throughput scales near-
 
 | Tool | Download | Time | Note |
 |---|---|---|---|
-| zarrduck (v0.16) | 506 MB | ~48 s | Whole-globe spatial chunk (192×288) fully downloaded |
+| eider (v0.16) | 506 MB | ~48 s | Whole-globe spatial chunk (192×288) fully downloaded |
 | xarray + shapely | ~42 MB | ~8 s | Server-side lat slice before download |
-| **zarrduck (latest)** | **38 MB** | **~2.2 s** | **Native HTTP byte-range partial chunk fetching** |
+| **eider (latest)** | **38 MB** | **~2.2 s** | **Native HTTP byte-range partial chunk fetching** |
 | xarray (spatially chunked²) | ~2 MB | ~0.9 s | Server-side bbox slice on re-chunked data |
 
-> ² Zarr re-chunked locally to 73×144 (2.5° grid). Chunk granularity was historically the dominant factor. However, zarrduck now natively implements partial chunk retrieval via HTTP byte-range requests. This means even for datasets with single global spatial chunks (common in raw CMIP6), zarrduck skips downloading non-intersecting byte ranges, drastically reducing network I/O and query time!
+> ² Zarr re-chunked locally to 73×144 (2.5° grid). Chunk granularity was historically the dominant factor. However, eider now natively implements partial chunk retrieval via HTTP byte-range requests. This means even for datasets with single global spatial chunks (common in raw CMIP6), eider skips downloading non-intersecting byte ranges, drastically reducing network I/O and query time!
 
-### Post-extraction analytics: zarrduck's sweet spot
+### Post-extraction analytics: eider's sweet spot
 
 Once data is extracted into DuckDB (32,830 rows, California subset), subsequent SQL queries are near-instant and compose freely with other DuckDB tables — no IPC or Python overhead:
 
-| Query | zarrduck | pandas (equiv.) |
+| Query | eider | pandas (equiv.) |
 |---|---|---|
 | Spatial mean (GROUP BY lat, lon) | 0.7 ms | ~0.5 ms |
 | Top-N hottest months | 0.7 ms | ~0.4 ms |
@@ -61,7 +61,7 @@ Once data is extracted into DuckDB (32,830 rows, California subset), subsequent 
 
 Overall scan rate: **~174 M rows/s** on extracted data. The extraction cost is paid once; every subsequent query is free in DuckDB's vectorized engine.
 
-## Why Zarrduck?
+## Why Eider?
 
 Geospatial and climate data are frequently stored in Zarr format because it enables efficient, chunked, and compressed storage of multi-dimensional arrays (like Time × Latitude × Longitude). However, querying this data traditionally required loading it into Python (via `xarray` or `zarr-python`) before performing analytics, introducing massive IPC (Inter-Process Communication) and memory overhead.
 
@@ -80,14 +80,14 @@ This project bridges the gap with two tools:
 
 ## Quick Start (Reading)
 
-Download the `.duckdb_extension` binary for your platform from the [Releases page](https://github.com/dnf0/zarrduck/releases), or build it from source.
+Download the `.duckdb_extension` binary for your platform from the [Releases page](https://github.com/dnf0/eider/releases), or build it from source.
 
 ```sql
 -- Allow unsigned extensions
 SET allow_unsigned_extensions = true;
 
 -- Load the extension
-LOAD '/path/to/zarrduck_extension.duckdb_extension';
+LOAD '/path/to/eider_extension.duckdb_extension';
 
 -- Query a remote Zarr array, aggregating over a specific spatial bounding box
 SELECT
@@ -101,28 +101,28 @@ FROM read_zarr(
 GROUP BY time;
 ```
 
-## Zarrduck CLI (Agentic Data Engine)
+## Eider CLI (Agentic Data Engine)
 
-The companion `zarrduck` CLI allows you to perform complex spatial operations and STAC discoveries directly from the terminal. It features a powerful, multi-level interactive Terminal User Interface (TUI) for human users, while remaining fully LLM-agent friendly via the `--output=json` flag.
+The companion `eider` CLI allows you to perform complex spatial operations and STAC discoveries directly from the terminal. It features a powerful, multi-level interactive Terminal User Interface (TUI) for human users, while remaining fully LLM-agent friendly via the `--output=json` flag.
 
 ```bash
 # 1. Multi-Level STAC Discovery (Interactive TUI)
 # Run without arguments to launch the guided interactive explorer.
 # Navigate Providers -> Collections -> Dataset URIs -> Zarr Channels
 # Supports smart multi-word filtering and STAC descriptions!
-zarrduck search --bbox -122.27,37.77,-122.22,37.81
+eider search --bbox -122.27,37.77,-122.22,37.81
 
 # 2. Vector-Raster Extraction
 # Downloads only intersecting chunks and joins spatial pixels with vector polygons
-zarrduck extract climate_data.zarr/air_temperature ./my_region.geojson --out analysis.duckdb
+eider extract climate_data.zarr/air_temperature ./my_region.geojson --out analysis.duckdb
 
 # 3. Temporal Analytics
 # Resample massive time-series data to coarser frequencies (e.g., monthly averages)
-zarrduck resample analysis.duckdb monthly.duckdb --freq month --agg avg
+eider resample analysis.duckdb monthly.duckdb --freq month --agg avg
 
 # 4. Interactive SQL Shell
 # Drop into a spatial-enabled REPL to query your extracted data
-zarrduck shell monthly.duckdb
+eider shell monthly.duckdb
 ```
 
 ## Development
@@ -130,15 +130,15 @@ zarrduck shell monthly.duckdb
 The project is structured as a Cargo workspace:
 - `geozarr_core/`: The deep, pure Rust domain model handling Zarr metadata, coordinate projection, bounds validation, and types. Free from sink-specific (e.g., DuckDB) or UI dependencies.
 - `extension/`: The core DuckDB loadable extension, acting as a thin C-API adapter over `geozarr_core`.
-- `cli/`: The companion `zarrduck` extraction and analysis tool, acting as a command router.
+- `cli/`: The companion `eider` extraction and analysis tool, acting as a command router.
 
 To build both:
 ```bash
-git clone https://github.com/dnf0/zarrduck.git
-cd zarrduck
+git clone https://github.com/dnf0/eider.git
+cd eider
 cargo build --release
 ```
 
 ## Documentation
 
-Full documentation on installation, advanced spatial pruning, and architecture details can be found at [dnf0.github.io/zarrduck/](https://dnf0.github.io/zarrduck/).
+Full documentation on installation, advanced spatial pruning, and architecture details can be found at [dnf0.github.io/eider/](https://dnf0.github.io/eider/).

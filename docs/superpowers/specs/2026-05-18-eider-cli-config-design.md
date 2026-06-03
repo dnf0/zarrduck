@@ -1,9 +1,9 @@
-# Zarrduck CLI Configuration Management Design
+# Eider CLI Configuration Management Design
 
 **Date:** 2026-05-18
 
 ## 1. Context & Purpose
-The `zarrduck` CLI currently requires users to specify output formats and target directories on every invocation. Additionally, it relies purely on the OS environment variables to authenticate against cloud storage (S3). To reduce boilerplate and improve ergonomics, we are introducing a robust Configuration Management system.
+The `eider` CLI currently requires users to specify output formats and target directories on every invocation. Additionally, it relies purely on the OS environment variables to authenticate against cloud storage (S3). To reduce boilerplate and improve ergonomics, we are introducing a robust Configuration Management system.
 
 The purpose of this sub-project is to implement a hierarchical configuration resolver that combines global defaults, local project overrides, environment variables, and CLI flags, allowing users to define persistent defaults for S3 credentials, output formats, and output paths.
 
@@ -21,11 +21,11 @@ The new dependencies in `cli/Cargo.toml` will be:
 Values will be resolved in the following order of precedence (Highest to Lowest):
 
 1. **CLI Flags**: Explicitly passed on the command line (e.g., `--output=json`).
-2. **Environment Variables**: Prefixed with `ZARRDUCK_` (e.g., `ZARRDUCK_OUTPUT_FORMAT=json`, `ZARRDUCK_S3_ACCESS_KEY=...`).
-3. **Local Config**: A `.zarrduck.toml` file located in the current working directory.
-4. **Global Config**: A `config.toml` located in `~/.config/zarrduck/` (or the equivalent OS config dir).
+2. **Environment Variables**: Prefixed with `EIDER_` (e.g., `EIDER_OUTPUT_FORMAT=json`, `EIDER_S3_ACCESS_KEY=...`).
+3. **Local Config**: A `.eider.toml` file located in the current working directory.
+4. **Global Config**: A `config.toml` located in `~/.config/eider/` (or the equivalent OS config dir).
 
-## 4. The `ZarrduckConfig` Data Model
+## 4. The `EiderConfig` Data Model
 
 The application config will map to the following structure:
 

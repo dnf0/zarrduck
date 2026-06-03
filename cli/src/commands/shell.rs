@@ -2,7 +2,7 @@ use color_eyre::eyre::Result as EyreResult;
 use std::process::Command;
 
 pub fn run_shell(db_path: String) -> EyreResult<()> {
-    let ext_name = "zarrduck_extension.duckdb_extension";
+    let ext_name = "eider_extension.duckdb_extension";
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
     let mut candidate_paths = vec![

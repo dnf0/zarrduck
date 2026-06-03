@@ -1,9 +1,9 @@
-# Zarrduck CLI Error Diagnostics Design
+# Eider CLI Error Diagnostics Design
 
 **Date:** 2026-05-18
 
 ## 1. Context & Purpose
-As the `zarrduck` CLI grows in complexity (handling S3 fetching, DuckDB spatial joins, and metadata parsing), failures become inevitable. Currently, errors are either returned as raw, unformatted Rust strings or printed via basic `eprintln!`. This provides a poor User Experience (UX).
+As the `eider` CLI grows in complexity (handling S3 fetching, DuckDB spatial joins, and metadata parsing), failures become inevitable. Currently, errors are either returned as raw, unformatted Rust strings or printed via basic `eprintln!`. This provides a poor User Experience (UX).
 
 The purpose of this sub-project is to integrate the `color-eyre` crate to provide beautiful, annotated, and colorful error diagnostics and panic backtraces for human users, while preserving strict JSON error formatting for LLM agents.
 

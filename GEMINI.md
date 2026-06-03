@@ -1,6 +1,6 @@
-<!-- agent-rules@0_42_5 objective=general language=python,rust strictness=balanced repo_name=zarrduck -->
+<!-- agent-rules@0_42_5 objective=general language=python,rust strictness=balanced repo_name=eider -->
 
-# zarrduck Gemini Guidance
+# eider Gemini Guidance
 
 Provider target: Gemini
 

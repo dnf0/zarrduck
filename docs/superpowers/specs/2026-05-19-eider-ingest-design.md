@@ -1,15 +1,15 @@
-# Zarrduck Data Ingestion Engine Design
+# Eider Data Ingestion Engine Design
 
 **Date:** 2026-05-19
 
 ## 1. Context & Purpose
-Phase 3 of the Zarrduck Future Roadmap introduces the Data Ingestion Engine. While the CLI currently excels at reading and extracting from Zarr, users often need to convert legacy geospatial formats (like NetCDF, GeoTIFF, or CSV) into cloud-native Zarr. 
+Phase 3 of the Eider Future Roadmap introduces the Data Ingestion Engine. While the CLI currently excels at reading and extracting from Zarr, users often need to convert legacy geospatial formats (like NetCDF, GeoTIFF, or CSV) into cloud-native Zarr. 
 
-The purpose of this sub-project is to build the `zarrduck ingest` command, effectively turning the CLI into an ETL pipeline. It will leverage DuckDB's spatial extensions to ingest legacy files and use our robust export engine to write them to S3 as GeoZarr, utilizing a hybrid auto-chunking strategy.
+The purpose of this sub-project is to build the `eider ingest` command, effectively turning the CLI into an ETL pipeline. It will leverage DuckDB's spatial extensions to ingest legacy files and use our robust export engine to write them to S3 as GeoZarr, utilizing a hybrid auto-chunking strategy.
 
 ## 2. Core Architecture & Commands
 
-We will add a new `ingest` subcommand to the `zarrduck` CLI.
+We will add a new `ingest` subcommand to the `eider` CLI.
 
 ### 2.1 The `ingest` Command
 - **Purpose:** Convert legacy spatial files into cloud-native GeoZarr.
