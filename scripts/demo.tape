@@ -14,7 +14,7 @@ Enter
 Type "python3 scripts/mock_stac.py 8080 &"
 Enter
 Sleep 1s
-Type "export ZARRDUCK_LOCAL_STAC='http://localhost:8080 - Local Demo Catalog'"
+Type "export EIDER_LOCAL_STAC='http://localhost:8080 - Local Demo Catalog'"
 Enter
 Type "clear"
 Enter
@@ -26,7 +26,7 @@ Type "printf '\033[1A\033[2K\033[1;36m# 1. Discover cloud-native GeoZarr assets 
 Enter
 Show
 Sleep 1s
-Type "zarrduck search --bbox -122.27,37.77,-122.22,37.81"
+Type "eider search --bbox -122.27,37.77,-122.22,37.81"
 Enter
 Sleep 2s
 Type "demo"
@@ -48,7 +48,7 @@ Type "printf '\033[1A\033[2K\n\033[1;36m# 2. Extract and join spatial data\033[0
 Enter
 Show
 Sleep 1s
-Type "zarrduck extract climate_data.zarr/air_temperature scripts/demo_region.geojson --out analysis.duckdb"
+Type "eider extract climate_data.zarr/air_temperature scripts/demo_region.geojson --out analysis.duckdb"
 Enter
 Sleep 3s
 Enter
@@ -60,7 +60,7 @@ Type "printf '\033[1A\033[2K\n\033[1;36m# 3. Automatically aggregate time-series
 Enter
 Show
 Sleep 1s
-Type "zarrduck resample analysis.duckdb monthly.duckdb"
+Type "eider resample analysis.duckdb monthly.duckdb"
 Enter
 Sleep 2s
 Type "mon"
@@ -78,7 +78,7 @@ Type "printf '\033[1A\033[2K\n\033[1;36m# 4. Drop into a spatial-enabled shell\0
 Enter
 Show
 Sleep 1s
-Type "zarrduck shell monthly.duckdb"
+Type "eider shell monthly.duckdb"
 Enter
 Sleep 3s
 Type "SELECT time, lat, lon, value FROM resampled_data LIMIT 5;"
@@ -95,7 +95,7 @@ Type "printf '\033[1A\033[2K\n\033[1;36m# 5. Interactive data visualization\033[
 Enter
 Show
 Sleep 1s
-Type "zarrduck plot analysis.duckdb"
+Type "eider plot analysis.duckdb"
 Enter
 Sleep 2s
 Type "extracted"

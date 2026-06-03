@@ -1,4 +1,4 @@
-# Zarrduck CLI Interactive Prompts & Progress TUI Implementation Plan
+# Eider CLI Interactive Prompts & Progress TUI Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -65,7 +65,7 @@ In `cli/src/main.rs`, update the `Extract` arm before `let config = duckdb::Conf
 
 - [ ] **Step 3: Run check to verify it compiles**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 4: Commit**
@@ -126,13 +126,13 @@ Remove the `if cli.output != OutputFormat::Json { println!("Extraction complete!
             if cli.output == OutputFormat::Json {
                 println!(r#"{{"status": "success", "db": "{}"}}"#, out);
             } else {
-                println!("Run `zarrduck shell {}` to explore the extracted data.", out);
+                println!("Run `eider shell {}` to explore the extracted data.", out);
             }
 ```
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 4: Commit**
@@ -203,7 +203,7 @@ After `stream_result?;`:
 
 - [ ] **Step 4: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 5: Commit**

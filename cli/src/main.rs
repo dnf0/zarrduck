@@ -6,7 +6,7 @@ mod plot;
 mod stac;
 mod ui;
 
-use config::ZarrduckConfig;
+use config::EiderConfig;
 
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::Result as EyreResult;
@@ -18,7 +18,7 @@ pub enum OutputFormat {
 }
 
 #[derive(Parser)]
-#[command(name = "zarrduck")]
+#[command(name = "eider")]
 #[command(about = "Agentic Spatial Data Engine for GeoZarr and DuckDB", long_about = None)]
 struct Cli {
     #[command(subcommand)]
@@ -167,7 +167,7 @@ enum Commands {
 async fn main() -> EyreResult<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
-    let config = ZarrduckConfig::load().unwrap_or(ZarrduckConfig {
+    let config = EiderConfig::load().unwrap_or(EiderConfig {
         output_format: None,
         default_out: None,
         local_stac: None,
@@ -199,7 +199,7 @@ async fn main() -> EyreResult<()> {
     Ok(())
 }
 
-async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
+async fn run_cli(mut cli: Cli, config: EiderConfig) -> EyreResult<()> {
     let resolved_output = cli
         .output
         .clone()
@@ -222,7 +222,7 @@ async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
 async fn execute_command(
     command: Commands,
     resolved_output: OutputFormat,
-    config: ZarrduckConfig,
+    config: EiderConfig,
 ) -> EyreResult<()> {
     match command {
         Commands::Info { uri, pin } => {

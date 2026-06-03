@@ -1,4 +1,4 @@
-# DuckDB GeoZarr Extension Design (`zarrduck`)
+# DuckDB GeoZarr Extension Design (`eider`)
 
 **Date:** 2026-05-15
 

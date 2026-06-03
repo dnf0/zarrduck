@@ -1,14 +1,14 @@
 # Design Specification: CLI Visualization Tool
 
 ## Overview
-A new `plot` subcommand for the `zarrduck` CLI that generates inline terminal visualizations from local DuckDB files. This allows users to quickly inspect extracted or resampled data without leaving the terminal or loading external visualizers.
+A new `plot` subcommand for the `eider` CLI that generates inline terminal visualizations from local DuckDB files. This allows users to quickly inspect extracted or resampled data without leaving the terminal or loading external visualizers.
 
 ## User Experience
 The user invokes the plot command specifying the type of visualization. All mathematical aggregation is pushed down to DuckDB, keeping the CLI responsive and lightweight.
 
 ### CLI Interface
 ```bash
-zarrduck plot <db_path> \
+eider plot <db_path> \
   --type <hist|heatmap|line> \
   --table <table_name> \     # Optional: defaults to 'extracted_data'
   --value <col_name> \       # Optional: auto-detects if omitted

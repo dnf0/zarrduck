@@ -1,6 +1,6 @@
-<!-- agent-rules@0_42_5 objective=general language=python strictness=balanced repo_name=zarrduck -->
+<!-- agent-rules@0_42_5 objective=general language=python strictness=balanced repo_name=eider -->
 
-# zarrduck Claude Guidance
+# eider Claude Guidance
 
 Provider target: Claude
 

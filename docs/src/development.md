@@ -1,6 +1,6 @@
 # Development Guide
 
-Welcome to the Zarrduck contributor documentation! This guide outlines the local development setup, our architectural rules, and the coding standards we follow across both Python and Rust.
+Welcome to the Eider contributor documentation! This guide outlines the local development setup, our architectural rules, and the coding standards we follow across both Python and Rust.
 
 ## Prerequisites
 
@@ -11,7 +11,7 @@ To build and test the project, you need:
 
 ## Building the Project
 
-Zarrduck is structured as a Cargo workspace with three primary crates:
+Eider is structured as a Cargo workspace with three primary crates:
 
 1. `geozarr_core`: The pure Rust domain logic.
 2. `extension`: The DuckDB C-API adapter.
@@ -37,7 +37,7 @@ We use Rust's native `cargo doc` to generate dynamic API and internal documentat
 cargo doc --workspace --no-deps --open
 ```
 
-This will build the HTML documentation for the `geozarr_core`, `zarrduck`, and `zarrduck_extension` crates and open it automatically in your default web browser.
+This will build the HTML documentation for the `geozarr_core`, `eider`, and `eider_extension` crates and open it automatically in your default web browser.
 
 ## Code Style and Guidelines
 

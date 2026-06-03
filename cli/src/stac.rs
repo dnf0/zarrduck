@@ -1,6 +1,6 @@
-use crate::config::ZarrduckConfig;
+use crate::config::EiderConfig;
 
-pub fn get_stac_providers(config: &ZarrduckConfig) -> Vec<String> {
+pub fn get_stac_providers(config: &EiderConfig) -> Vec<String> {
     let mut providers = vec![
         "https://planetarycomputer.microsoft.com/api/stac/v1 - Microsoft Planetary Computer"
             .to_string(),

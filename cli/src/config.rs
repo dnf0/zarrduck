@@ -14,19 +14,19 @@ pub struct S3Config {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ZarrduckConfig {
+pub struct EiderConfig {
     pub output_format: Option<String>,
     pub default_out: Option<String>,
     pub local_stac: Option<String>,
     pub s3: Option<S3Config>,
 }
 
-impl ZarrduckConfig {
+impl EiderConfig {
     pub fn load() -> color_eyre::eyre::Result<Self> {
         let mut figment = Figment::new();
 
         // Global config
-        if let Some(proj_dirs) = ProjectDirs::from("", "", "zarrduck") {
+        if let Some(proj_dirs) = ProjectDirs::from("", "", "eider") {
             let global_config = proj_dirs.config_dir().join("config.toml");
             if global_config.exists() {
                 figment = figment.merge(Toml::file(global_config));
@@ -36,14 +36,14 @@ impl ZarrduckConfig {
         // Local config
         let local_config = std::env::current_dir()
             .unwrap_or_default()
-            .join(".zarrduck.toml");
+            .join(".eider.toml");
         if local_config.exists() {
             figment = figment.merge(Toml::file(local_config));
         }
 
-        figment = figment.merge(Env::prefixed("ZARRDUCK_"));
+        figment = figment.merge(Env::prefixed("EIDER_"));
 
-        let config: ZarrduckConfig = figment.extract()?;
+        let config: EiderConfig = figment.extract()?;
 
         Ok(config)
     }
@@ -64,10 +64,10 @@ mod tests {
     #[test]
     #[serial]
     fn test_parse_local_stac_from_env() {
-        std::env::set_var("ZARRDUCK_LOCAL_STAC", "http://test-local-stac:8080");
-        let _guard = EnvGuard("ZARRDUCK_LOCAL_STAC");
+        std::env::set_var("EIDER_LOCAL_STAC", "http://test-local-stac:8080");
+        let _guard = EnvGuard("EIDER_LOCAL_STAC");
 
-        let config = ZarrduckConfig::load().unwrap();
+        let config = EiderConfig::load().unwrap();
         assert_eq!(
             config.local_stac.as_deref(),
             Some("http://test-local-stac:8080")

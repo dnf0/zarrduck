@@ -1,4 +1,4 @@
-use crate::config::ZarrduckConfig;
+use crate::config::EiderConfig;
 use crate::duckdb_utils;
 use crate::ui;
 use crate::OutputFormat;
@@ -8,7 +8,7 @@ pub async fn run_info(
     uri: String,
     pin: Vec<String>,
     resolved_output: &OutputFormat,
-    config: &ZarrduckConfig,
+    config: &EiderConfig,
 ) -> EyreResult<()> {
     let uri = ui::prompt_zarr_uri(&uri, *resolved_output == OutputFormat::Json).await?;
     let conn = duckdb_utils::setup_duckdb(config.s3.as_ref())?;

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement a `zarrduck plot` command to generate inline terminal visualizations (histogram, heatmap, line plot) from local DuckDB files.
+**Goal:** Implement a `eider plot` command to generate inline terminal visualizations (histogram, heatmap, line plot) from local DuckDB files.
 
 **Architecture:** We will add a new `Plot` variant to the `Commands` enum in `cli/src/main.rs`. To keep `main.rs` manageable, the plotting logic will be encapsulated in a new module `cli/src/plot.rs`. DuckDB will handle all aggregations, and Rust will format the results.
 
@@ -92,7 +92,7 @@ mod plot; // ADD THIS
 
 - [ ] **Step 5: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: Compilation succeeds.
 
 - [ ] **Step 6: Commit**
@@ -179,7 +179,7 @@ pub fn run_plot(
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: Compilation succeeds.
 
 - [ ] **Step 4: Commit**
@@ -267,7 +267,7 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: Compilation succeeds.
 
 - [ ] **Step 4: Commit**
@@ -352,7 +352,7 @@ fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: Compilation succeeds.
 
 - [ ] **Step 4: Commit**
@@ -475,7 +475,7 @@ fn plot_heatmap(conn: &Connection, table: &str, val_col: &str, group_by: Option<
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: Compilation succeeds.
 
 - [ ] **Step 4: Commit**

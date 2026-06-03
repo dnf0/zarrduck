@@ -1,10 +1,10 @@
-<!-- agent-rules@0_42_5 objective=general language=python,rust strictness=balanced repo_name=zarrduck -->
+<!-- agent-rules@0_42_5 objective=general language=python,rust strictness=balanced repo_name=eider -->
 ---
 description: Cursor-specific agent guidance (supplements AGENTS.md)
 alwaysApply: true
 ---
 
-# zarrduck Cursor Guidance
+# eider Cursor Guidance
 
 Provider target: Cursor
 

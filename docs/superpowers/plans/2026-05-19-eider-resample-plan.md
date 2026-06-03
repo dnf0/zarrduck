@@ -1,4 +1,4 @@
-# Zarrduck Temporal Analytics Implementation Plan
+# Eider Temporal Analytics Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -48,14 +48,14 @@ In the `run_cli` match block, add the placeholder arm:
 
 - [ ] **Step 3: Run check to verify it compiles**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add cli/src/main.rs
-git commit -m "feat: add Resample subcommand to zarrduck cli"
+git commit -m "feat: add Resample subcommand to eider cli"
 ```
 
 ---
@@ -123,7 +123,7 @@ In `Commands::Resample`:
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 4: Commit**
@@ -207,13 +207,13 @@ Append the following to the `Commands::Resample` match arm after `drop(input_con
                 println!(r#"{{"status": "success", "db": "{}"}}"#, output_db);
             } else {
                 println!("Data saved to table 'resampled_data' in {}", output_db);
-                println!("Run `zarrduck shell {}` to explore it.", output_db);
+                println!("Run `eider shell {}` to explore it.", output_db);
             }
 ```
 
 - [ ] **Step 2: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 3: Commit**
@@ -237,7 +237,7 @@ Add a simple test that ensures the command fails if the input file does not exis
 ```rust
 #[test]
 fn test_cli_resample_missing_input() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("resample")
         .arg("missing_input.duckdb")
         .arg("out.duckdb")
@@ -254,7 +254,7 @@ fn test_cli_resample_missing_input() {
 
 - [ ] **Step 2: Run test to verify it passes**
 
-Run: `cargo test -p zarrduck --test integration_test test_cli_resample_missing_input`
+Run: `cargo test -p eider --test integration_test test_cli_resample_missing_input`
 Expected: PASS
 
 - [ ] **Step 3: Commit**

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement a `search` command in the `zarrduck` CLI that queries SpatioTemporal Asset Catalog (STAC) APIs and outputs discoverable Zarr URIs.
+**Goal:** Implement a `search` command in the `eider` CLI that queries SpatioTemporal Asset Catalog (STAC) APIs and outputs discoverable Zarr URIs.
 
 **Architecture:** We will add the `stac` crate to interact with the STAC ecosystem. We will add a `Search` variant to the `Commands` enum in `cli/src/main.rs`. We'll write an asynchronous request function that fetches JSON from a given STAC API endpoint, filters the assets for `"application/vnd+zarr"`, and outputs the found URIs.
 
@@ -74,7 +74,7 @@ In `cli/src/main.rs`, inside `run_cli`'s match block:
 
 - [ ] **Step 4: Run check to verify it compiles**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 5: Commit**
@@ -172,7 +172,7 @@ In `cli/src/main.rs` inside the `Search` match arm, replace the placeholder with
 
 - [ ] **Step 2: Verify Compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 3: Commit**
@@ -196,7 +196,7 @@ In `cli/tests/integration_test.rs`, add a test to ensure the command fails grace
 ```rust
 #[test]
 fn test_cli_search_invalid_api() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("search")
         .arg("--api")
         .arg("http://invalid-stac-api-that-does-not-exist.com")
@@ -211,12 +211,12 @@ fn test_cli_search_invalid_api() {
 
 - [ ] **Step 2: Run test to verify it passes**
 
-Run: `cargo test -p zarrduck --test integration_test test_cli_search_invalid_api`
+Run: `cargo test -p eider --test integration_test test_cli_search_invalid_api`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add cli/tests/integration_test.rs
-git commit -m "test: add integration test for zarrduck search command"
+git commit -m "test: add integration test for eider search command"
 ```

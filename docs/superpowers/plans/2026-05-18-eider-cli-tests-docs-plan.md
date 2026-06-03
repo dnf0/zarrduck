@@ -1,10 +1,10 @@
-# Zarrduck CLI Tests & Docs Implementation Plan
+# Eider CLI Tests & Docs Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ensure the `zarrduck` CLI is fully tested via integration tests and comprehensively documented for both human and agent users.
+**Goal:** Ensure the `eider` CLI is fully tested via integration tests and comprehensively documented for both human and agent users.
 
-**Architecture:** We will use `assert_cmd` and `predicates` for integration testing. These tools spawn the compiled `zarrduck` binary and assert against its `stdout` and `stderr`, ensuring the CLI contract remains stable. For documentation, we will create a dedicated `cli.md` in the docs site and update the main `README.md` to reflect the new agentic commands.
+**Architecture:** We will use `assert_cmd` and `predicates` for integration testing. These tools spawn the compiled `eider` binary and assert against its `stdout` and `stderr`, ensuring the CLI contract remains stable. For documentation, we will create a dedicated `cli.md` in the docs site and update the main `README.md` to reflect the new agentic commands.
 
 **Tech Stack:** Rust, `assert_cmd`, `predicates`, Markdown
 
@@ -34,7 +34,7 @@ tempfile = "3.10"
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 5: Commit**
@@ -60,7 +60,7 @@ use predicates::prelude::*;
 
 #[test]
 fn test_cli_help() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("--help")
         .assert()
         .success()
@@ -69,7 +69,7 @@ fn test_cli_help() {
 
 #[test]
 fn test_cli_info_invalid_uri() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("info")
         .arg("s3://invalid-bucket-that-does-not-exist/data.zarr")
         .arg("--output=json")
@@ -81,7 +81,7 @@ fn test_cli_info_invalid_uri() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p zarrduck --test integration_test`
+Run: `cargo test -p eider --test integration_test`
 Expected: FAIL (if the binaries aren't built or if the `stderr` string doesn't match exactly). Wait, these should pass immediately because they test the existing implementation! Let's ensure the tests run and pass.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -89,14 +89,14 @@ Expected: FAIL (if the binaries aren't built or if the `stderr` string doesn't m
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p zarrduck --test integration_test`
+Run: `cargo test -p eider --test integration_test`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add cli/tests/integration_test.rs
-git commit -m "test: add integration tests for zarrduck cli commands"
+git commit -m "test: add integration tests for eider cli commands"
 ```
 
 ---
@@ -111,9 +111,9 @@ git commit -m "test: add integration tests for zarrduck cli commands"
 - [ ] **Step 1: Write `docs/src/cli.md`**
 
 ```markdown
-# Zarrduck CLI
+# Eider CLI
 
-The `zarrduck` CLI is an Agentic Spatial Data Engine. It allows users and LLM agents to easily discover, extract, and manipulate GeoZarr data directly from the terminal without writing complex spatial SQL.
+The `eider` CLI is an Agentic Spatial Data Engine. It allows users and LLM agents to easily discover, extract, and manipulate GeoZarr data directly from the terminal without writing complex spatial SQL.
 
 ## Commands
 
@@ -121,26 +121,26 @@ The `zarrduck` CLI is an Agentic Spatial Data Engine. It allows users and LLM ag
 Quickly inspect the shape, chunking, and Coordinate Reference System (CRS) of a remote Zarr array.
 
 ```bash
-zarrduck info s3://my-bucket/climate.zarr
+eider info s3://my-bucket/climate.zarr
 ```
 
 **Agent Mode:** Use `--output=json` to get a clean, parseable JSON response.
 ```bash
-zarrduck info s3://my-bucket/climate.zarr --output=json
+eider info s3://my-bucket/climate.zarr --output=json
 ```
 
 ### Extraction: `extract`
 Perform a Vector-Raster join (zonal extraction). This command downloads only the Zarr chunks that intersect with your vector boundaries, masks the pixels exactly to the polygons, and saves the data to a local DuckDB file.
 
 ```bash
-zarrduck extract s3://my-bucket/climate.zarr ./my_region.geojson --out analysis.duckdb
+eider extract s3://my-bucket/climate.zarr ./my_region.geojson --out analysis.duckdb
 ```
 
 ### Analytics: `shell`
-Drop into an interactive DuckDB REPL pre-loaded with the `spatial` and `zarrduck` extensions.
+Drop into an interactive DuckDB REPL pre-loaded with the `spatial` and `eider` extensions.
 
 ```bash
-zarrduck shell analysis.duckdb
+eider shell analysis.duckdb
 ```
 ```
 
@@ -154,7 +154,7 @@ Add the CLI page to the SUMMARY:
 - [Introduction](./introduction.md)
 - [Installation](./installation.md)
 - [Usage](./usage.md)
-- [Zarrduck CLI](./cli.md)
+- [Eider CLI](./cli.md)
 - [Exporting to Zarr](./exporting.md)
 - [How-To Guides](./how_to.md)
 - [Performance Metrics](./metrics.md)
@@ -163,33 +163,33 @@ Add the CLI page to the SUMMARY:
 
 - [ ] **Step 3: Update `README.md`**
 
-Replace the existing "Quick Start (Writing)" section with the new Zarrduck CLI section:
+Replace the existing "Quick Start (Writing)" section with the new Eider CLI section:
 
 ```markdown
-## Zarrduck CLI (Agentic Data Engine)
+## Eider CLI (Agentic Data Engine)
 
-The companion `zarrduck` CLI allows you to perform complex spatial operations like Vector-Raster joins (Zonal Extraction) from the terminal. It is designed to be fully LLM-agent friendly via the `--output=json` flag.
+The companion `eider` CLI allows you to perform complex spatial operations like Vector-Raster joins (Zonal Extraction) from the terminal. It is designed to be fully LLM-agent friendly via the `--output=json` flag.
 
 ```bash
 # 1. Discover the dataset metadata
-zarrduck info s3://my-bucket/climate.zarr --output=json
+eider info s3://my-bucket/climate.zarr --output=json
 
 # 2. Extract raster data strictly within your vector polygons
-zarrduck extract s3://my-bucket/climate.zarr ./my_region.geojson --out analysis.duckdb
+eider extract s3://my-bucket/climate.zarr ./my_region.geojson --out analysis.duckdb
 
 # 3. Open an interactive spatial SQL shell to analyze the extracted data
-zarrduck shell analysis.duckdb
+eider shell analysis.duckdb
 ```
 ```
 
 - [ ] **Step 4: Verify formatting**
 
-Run: `cargo test -p zarrduck` (just to ensure no tests were broken by doc changes)
+Run: `cargo test -p eider` (just to ensure no tests were broken by doc changes)
 Expected: SUCCESS
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add docs/src/cli.md docs/src/SUMMARY.md README.md
-git commit -m "docs: overhaul documentation for the new zarrduck CLI commands"
+git commit -m "docs: overhaul documentation for the new eider CLI commands"
 ```

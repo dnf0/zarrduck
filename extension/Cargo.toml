@@ -1,11 +1,11 @@
 [package]
-name = "zarrduck_extension"
+name = "eider_extension"
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
 
 [lib]
-name = "zarrduck"
+name = "eider"
 crate-type = ["cdylib", "rlib"]
 
 [features]

@@ -1,10 +1,10 @@
-# Zarrduck CLI Implementation Plan
+# Eider CLI Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rename the CLI to `zarrduck` and implement a suite of agent-friendly commands (`info`, `extract`, `shell`) that abstract away complex spatial SQL operations.
+**Goal:** Rename the CLI to `eider` and implement a suite of agent-friendly commands (`info`, `extract`, `shell`) that abstract away complex spatial SQL operations.
 
-**Architecture:** We will use `clap` to structure the multi-command CLI. The CLI will act as a wrapper around an embedded DuckDB connection. It will install and load necessary extensions (`zarrduck`, `spatial`), construct the complex SQL for metadata fetching or spatial joins, execute it, and format the output (either as human-readable tables or agent-friendly JSON).
+**Architecture:** We will use `clap` to structure the multi-command CLI. The CLI will act as a wrapper around an embedded DuckDB connection. It will install and load necessary extensions (`eider`, `spatial`), construct the complex SQL for metadata fetching or spatial joins, execute it, and format the output (either as human-readable tables or agent-friendly JSON).
 
 **Tech Stack:** Rust, `clap`, `tokio`, `duckdb`, `serde_json`
 
@@ -19,10 +19,10 @@
 
 - [ ] **Step 1: Modify Cargo definitions**
 
-Update `cli/Cargo.toml` to rename the package to `zarrduck`:
+Update `cli/Cargo.toml` to rename the package to `eider`:
 ```toml
 [package]
-name = "zarrduck"
+name = "eider"
 version = "0.1.0"
 edition = "2021"
 
@@ -48,7 +48,7 @@ use duckdb::{Connection, Result};
 use std::process::Command;
 
 #[derive(Parser)]
-#[command(name = "zarrduck")]
+#[command(name = "eider")]
 #[command(about = "Agentic Spatial Data Engine for GeoZarr and DuckDB", long_about = None)]
 struct Cli {
     #[command(subcommand)]
@@ -123,14 +123,14 @@ enum Commands {
 
 - [ ] **Step 4: Verify Compilation**
 
-Run: `cargo build -p zarrduck`
+Run: `cargo build -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add cli/Cargo.toml cli/src/main.rs Cargo.toml
-git commit -m "feat: rename cli to zarrduck and scaffold info, extract, and shell commands"
+git commit -m "feat: rename cli to eider and scaffold info, extract, and shell commands"
 ```
 
 ---
@@ -204,14 +204,14 @@ Inside the `Commands::Info` match block:
 
 - [ ] **Step 3: Test implementation**
 
-Run: `cargo run -p zarrduck -- info "s3://invalid/test" --output json`
+Run: `cargo run -p eider -- info "s3://invalid/test" --output json`
 Expected: It will fail at the extension load or runtime query because it's an invalid S3 path, but it should successfully compile and attempt the query.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add cli/src/main.rs
-git commit -m "feat: implement zarrduck info command for metadata discovery"
+git commit -m "feat: implement eider info command for metadata discovery"
 ```
 
 ---
@@ -260,7 +260,7 @@ Inside the `Commands::Extract` match block. We will create a local `.duckdb` dat
                         println!(r#"{{"status": "success", "db": "{}"}}"#, out);
                     } else {
                         println!("Extraction complete! Data saved to table 'extracted_data' in {}", out);
-                        println!("Run `zarrduck shell {}` to explore it.", out);
+                        println!("Run `eider shell {}` to explore it.", out);
                     }
                 },
                 Err(e) => {
@@ -273,14 +273,14 @@ Inside the `Commands::Extract` match block. We will create a local `.duckdb` dat
 
 - [ ] **Step 2: Verify Compilation**
 
-Run: `cargo build -p zarrduck`
+Run: `cargo build -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add cli/src/main.rs
-git commit -m "feat: implement zarrduck extract command for zonal statistics"
+git commit -m "feat: implement eider extract command for zonal statistics"
 ```
 
 ---
@@ -324,12 +324,12 @@ Inside the `Commands::Shell` match block. We will spawn the actual `duckdb` bina
 
 - [ ] **Step 2: Verify Compilation**
 
-Run: `cargo build -p zarrduck`
+Run: `cargo build -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add cli/src/main.rs
-git commit -m "feat: implement zarrduck shell command to launch interactive duckdb repl"
+git commit -m "feat: implement eider shell command to launch interactive duckdb repl"
 ```

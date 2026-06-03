@@ -628,7 +628,7 @@ pub fn run_plot(
             Some(c) => {
                 println!("\nExecuting generated command:");
                 println!(
-                    "zarrduck plot <db> --plot-type {} --table {} --value {}\n",
+                    "eider plot <db> --plot-type {} --table {} --value {}\n",
                     format!("{:?}", c.plot_type).to_lowercase(),
                     c.table,
                     c.value_column

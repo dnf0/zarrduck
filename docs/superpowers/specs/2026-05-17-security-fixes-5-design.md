@@ -4,7 +4,7 @@
 **Status:** Approved
 
 ## 1. Purpose & Context
-A 5th Red Team assessment identified four edge cases and vulnerabilities in the `zarrduck` codebase. These include a potential out-of-bounds array access in the CLI, a memory exhaustion vector due to unbounded active chunks in the CLI, a potential OOM from variable-length strings in the extension, and fragile type inference. This design outlines the remediation strategy for these findings.
+A 5th Red Team assessment identified four edge cases and vulnerabilities in the `eider` codebase. These include a potential out-of-bounds array access in the CLI, a memory exhaustion vector due to unbounded active chunks in the CLI, a potential OOM from variable-length strings in the extension, and fragile type inference. This design outlines the remediation strategy for these findings.
 
 ## 2. Remediation Architecture
 

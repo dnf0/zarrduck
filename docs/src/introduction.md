@@ -1,8 +1,8 @@
 # Introduction
 
-Welcome to the **Zarrduck** extension!
+Welcome to the **Eider** extension!
 
-![Zarrduck End-to-End Demo](demo.gif)
+![Eider End-to-End Demo](demo.gif)
 
 This loadable DuckDB extension enables you to read N-dimensional [Zarr](https://zarr.readthedocs.io/) and GeoZarr arrays directly into flat relational DuckDB vectors.
 
@@ -23,7 +23,7 @@ This traditional workflow introduces massive I/O overhead, memory duplication, a
 
 ## The Solution: Native Streaming
 
-The **Zarrduck** extension bridges this gap natively. It allows DuckDB to treat a remote Zarr array on S3 exactly like a local Parquet file or CSV.
+The **Eider** extension bridges this gap natively. It allows DuckDB to treat a remote Zarr array on S3 exactly like a local Parquet file or CSV.
 
 Instead of pre-processing the data in Python, you simply write SQL:
 

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement an interactive wizard for the `zarrduck plot` command that auto-detects the schema and guides the user to the best plot type when invoked without flags.
+**Goal:** Implement an interactive wizard for the `eider plot` command that auto-detects the schema and guides the user to the best plot type when invoked without flags.
 
 **Architecture:** We will modify the `Plot` enum variant in `cli/src/main.rs` to make its arguments optional. In `cli/src/plot.rs`, we will introduce a `run_wizard` function that uses the `inquire` crate to prompt for table and variables, applies heuristic logic to recommend plot types, and then delegates back to the existing plot rendering functions.
 
@@ -17,7 +17,7 @@
 
 - [ ] **Step 1: Update `Commands::Plot` in `cli/src/main.rs`**
 
-Change the `plot_type` argument to be optional so the command can be invoked simply as `zarrduck plot <db_path>`.
+Change the `plot_type` argument to be optional so the command can be invoked simply as `eider plot <db_path>`.
 
 ```rust
     /// Plot data from a local DuckDB file
@@ -191,7 +191,7 @@ fn run_wizard(conn: &Connection, default_table: &str) -> Result<()> {
     let val_col = var_names.last().unwrap();
 
     println!("\nExecuting generated command:");
-    println!("zarrduck plot <db> --plot-type {} --table {} --value {}\n",
+    println!("eider plot <db> --plot-type {} --table {} --value {}\n",
         format!("{:?}", plot_type).to_lowercase(), selected_table, val_col);
 
     // Delegate to existing rendering functions
@@ -211,7 +211,7 @@ Update the unit tests in `plot.rs` to pass `Some(PlotType::...)` where applicabl
 
 - [ ] **Step 4: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: Compilation succeeds.
 
 - [ ] **Step 5: Commit**

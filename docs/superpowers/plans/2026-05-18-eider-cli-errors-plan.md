@@ -1,4 +1,4 @@
-# Zarrduck CLI Error Diagnostics Implementation Plan
+# Eider CLI Error Diagnostics Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -98,7 +98,7 @@ And replace any `return Err("...".into())` with `return Err(eyre!("..."))`.
 
 - [ ] **Step 4: Verify Compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 5: Commit**
@@ -195,7 +195,7 @@ Update connection and spatial load:
                 println!(r#"{{"status": "success", "db": "{}"}}"#, out);
             } else {
                 println!("Extraction complete! Data saved to table 'extracted_data' in {}", out);
-                println!("Run `zarrduck shell {}` to explore it.", out);
+                println!("Run `eider shell {}` to explore it.", out);
             }
         }
 ```
@@ -219,7 +219,7 @@ git commit -m "feat: attach human-readable error context to cli commands using c
 ```rust
 #[test]
 fn test_cli_info_invalid_uri_json() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("info")
         .arg("s3://invalid-bucket-that-does-not-exist/data.zarr")
         .arg("--output=json")
@@ -233,7 +233,7 @@ fn test_cli_info_invalid_uri_json() {
 - [ ] **Step 2: Run test to verify it fails**
 
 Wait, it might pass because we already implemented it! But if it fails, fix the logic.
-Run: `cargo test -p zarrduck --test integration_test test_cli_info_invalid_uri_json`
+Run: `cargo test -p eider --test integration_test test_cli_info_invalid_uri_json`
 
 - [ ] **Step 3: Update existing test**
 
@@ -241,7 +241,7 @@ Modify the previous `test_cli_info_invalid_uri` to test the non-JSON (table) out
 ```rust
 #[test]
 fn test_cli_info_invalid_uri_table() {
-    let mut cmd = Command::cargo_bin("zarrduck").unwrap();
+    let mut cmd = Command::cargo_bin("eider").unwrap();
     cmd.arg("info")
         .arg("s3://invalid-bucket-that-does-not-exist/data.zarr")
         .arg("--output=table")
@@ -254,7 +254,7 @@ fn test_cli_info_invalid_uri_table() {
 
 - [ ] **Step 4: Run all tests**
 
-Run: `cargo test -p zarrduck`
+Run: `cargo test -p eider`
 Expected: PASS
 
 - [ ] **Step 5: Commit**

@@ -1,10 +1,10 @@
-# Zarrduck CLI Configuration Management Plan
+# Eider CLI Configuration Management Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement a robust, hierarchical configuration system using `figment` that resolves CLI defaults and S3 credentials from environment variables, local `.zarrduck.toml` files, and global `~/.config/zarrduck/config.toml` files.
+**Goal:** Implement a robust, hierarchical configuration system using `figment` that resolves CLI defaults and S3 credentials from environment variables, local `.eider.toml` files, and global `~/.config/eider/config.toml` files.
 
-**Architecture:** We will create a `config.rs` module that defines the `ZarrduckConfig` and `S3Config` structs, and uses `figment` to layer the configuration sources. We will update the `clap` argument definitions to use `Option<T>` for fields that can fall back to the config. Finally, we will update the DuckDB connection setups to inject AWS credentials using the `CREATE SECRET` command if provided in the config.
+**Architecture:** We will create a `config.rs` module that defines the `EiderConfig` and `S3Config` structs, and uses `figment` to layer the configuration sources. We will update the `clap` argument definitions to use `Option<T>` for fields that can fall back to the config. Finally, we will update the DuckDB connection setups to inject AWS credentials using the `CREATE SECRET` command if provided in the config.
 
 **Tech Stack:** Rust, `figment`, `directories`, `serde`
 
@@ -36,7 +36,7 @@ directories = "5.0"
 
 - [ ] **Step 2: Run check to verify it compiles**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 3: Commit**
@@ -54,7 +54,7 @@ git commit -m "chore: add figment and directories for configuration management"
 - Create: `cli/src/config.rs`
 - Modify: `cli/src/main.rs`
 
-- [ ] **Step 1: Define `ZarrduckConfig` in `config.rs`**
+- [ ] **Step 1: Define `EiderConfig` in `config.rs`**
 
 ```rust
 // In cli/src/config.rs
@@ -71,19 +71,19 @@ pub struct S3Config {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ZarrduckConfig {
+pub struct EiderConfig {
     pub output_format: Option<String>,
     pub default_out: Option<String>,
     pub s3: Option<S3Config>,
 }
 
-impl ZarrduckConfig {
+impl EiderConfig {
     pub fn load() -> color_eyre::eyre::Result<Self> {
         let mut figment = Figment::new()
-            .merge(Env::prefixed("ZARRDUCK_"));
+            .merge(Env::prefixed("EIDER_"));
 
         // Global config
-        if let Some(proj_dirs) = ProjectDirs::from("", "", "zarrduck") {
+        if let Some(proj_dirs) = ProjectDirs::from("", "", "eider") {
             let global_config = proj_dirs.config_dir().join("config.toml");
             if global_config.exists() {
                 figment = figment.merge(Toml::file(global_config));
@@ -91,12 +91,12 @@ impl ZarrduckConfig {
         }
 
         // Local config
-        let local_config = std::env::current_dir().unwrap_or_default().join(".zarrduck.toml");
+        let local_config = std::env::current_dir().unwrap_or_default().join(".eider.toml");
         if local_config.exists() {
             figment = figment.merge(Toml::file(local_config));
         }
 
-        let config: ZarrduckConfig = figment.extract().unwrap_or_else(|_| ZarrduckConfig {
+        let config: EiderConfig = figment.extract().unwrap_or_else(|_| EiderConfig {
             output_format: None,
             default_out: None,
             s3: None,
@@ -112,19 +112,19 @@ impl ZarrduckConfig {
 In `cli/src/main.rs`, add the mod declaration near the top:
 ```rust
 mod config;
-use config::ZarrduckConfig;
+use config::EiderConfig;
 ```
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add cli/src/main.rs cli/src/config.rs
-git commit -m "feat: implement ZarrduckConfig resolver using figment"
+git commit -m "feat: implement EiderConfig resolver using figment"
 ```
 
 ---
@@ -155,7 +155,7 @@ Update the `out` arg in the `Commands::Extract` subcommand to be an `Option`:
 In `run_cli`, immediately load the config and establish the resolved output format and out paths. Update the function signature and first lines:
 
 ```rust
-async fn run_cli(mut cli: Cli, config: ZarrduckConfig) -> EyreResult<()> {
+async fn run_cli(mut cli: Cli, config: EiderConfig) -> EyreResult<()> {
     let resolved_output = cli.output.clone()
         .or_else(|| {
             config.output_format.as_deref().and_then(|s| match s {
@@ -178,7 +178,7 @@ Update `main()` to load the config and pass it:
 async fn main() -> EyreResult<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
-    let config = ZarrduckConfig::load().unwrap_or_else(|_| ZarrduckConfig { output_format: None, default_out: None, s3: None });
+    let config = EiderConfig::load().unwrap_or_else(|_| EiderConfig { output_format: None, default_out: None, s3: None });
 
     let is_json = cli.output.as_ref().map(|o| *o == OutputFormat::Json)
         .unwrap_or_else(|| config.output_format.as_deref() == Some("json"));
@@ -225,7 +225,7 @@ Make sure you replace all remaining `out` variables inside the `Extract` block w
 
 - [ ] **Step 4: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 5: Commit**
@@ -295,7 +295,7 @@ In `Commands::Extract`, after `let conn = Connection::open_with_flags...`:
 
 - [ ] **Step 4: Verify compilation**
 
-Run: `cargo check -p zarrduck`
+Run: `cargo check -p eider`
 Expected: SUCCESS
 
 - [ ] **Step 5: Commit**

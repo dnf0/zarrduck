@@ -1,4 +1,4 @@
-use crate::{config::ZarrduckConfig, duckdb_utils, OutputFormat};
+use crate::{config::EiderConfig, duckdb_utils, OutputFormat};
 use color_eyre::eyre::{eyre, Result as EyreResult, WrapErr};
 
 pub async fn run_ingest(
@@ -7,7 +7,7 @@ pub async fn run_ingest(
     chunks: Option<String>,
     value_column: Option<String>,
     resolved_output: &OutputFormat,
-    config: &ZarrduckConfig,
+    config: &EiderConfig,
 ) -> EyreResult<()> {
     if !std::path::Path::new(&input_file).exists() {
         return Err(eyre!("Input file '{}' does not exist.", input_file));

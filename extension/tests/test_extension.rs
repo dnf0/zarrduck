@@ -4,7 +4,7 @@ use std::path::Path;
 #[test]
 fn test_new_data_types() -> Result<()> {
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<zarrduck::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<eider::ReadZarrVTab>("read_zarr")?;
 
     // We don't set GEOZARR_ALLOW_PATH dynamically to avoid race conditions in parallel tests.
     // Instead, the tests will be run with GEOZARR_ALLOW_PATH set for the whole test process
@@ -72,8 +72,8 @@ fn test_new_data_types() -> Result<()> {
 #[test]
 fn test_read_zarr_function_compiles() {
     let candidate_paths = vec![
-        "../target/debug/zarrduck_extension.duckdb_extension",
-        "target/debug/zarrduck_extension.duckdb_extension",
+        "../target/debug/eider_extension.duckdb_extension",
+        "target/debug/eider_extension.duckdb_extension",
     ];
 
     // We just verify the extension file was successfully packaged by `cargo duckdb-ext build`.
@@ -99,7 +99,7 @@ fn test_read_zarr_function_compiles() {
 
 fn setup_mock_zarr() -> Result<(duckdb::Connection, tempfile::TempDir, std::path::PathBuf)> {
     let conn = duckdb::Connection::open_in_memory()?;
-    conn.register_table_function::<zarrduck::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<eider::ReadZarrVTab>("read_zarr")?;
 
     let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let store_path = temp_dir.path().join("test.zarr");
@@ -281,8 +281,8 @@ fn test_schema_corrupted_chunk() -> Result<()> {
 #[test]
 fn test_geozarr_spatial_metadata() -> duckdb::Result<()> {
     let conn = duckdb::Connection::open_in_memory()?;
-    conn.register_table_function::<zarrduck::ReadZarrVTab>("read_zarr")?;
-    conn.register_table_function::<zarrduck::metadata_vtab::ReadZarrMetadataVTab>(
+    conn.register_table_function::<eider::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<eider::metadata_vtab::ReadZarrMetadataVTab>(
         "read_zarr_metadata",
     )?;
 

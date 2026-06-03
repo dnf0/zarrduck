@@ -3,8 +3,8 @@ use duckdb::{Connection, Result};
 #[test]
 fn test_plan_read_zarr() -> Result<()> {
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<zarrduck::ReadZarrVTab>("read_zarr")?;
-    conn.register_table_function::<zarrduck::PlanReadZarrVTab>("plan_read_zarr")?;
+    conn.register_table_function::<eider::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<eider::PlanReadZarrVTab>("plan_read_zarr")?;
 
     let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let store_path = temp_dir.path().join("test_plan.zarr");
@@ -44,8 +44,8 @@ fn test_plan_read_zarr() -> Result<()> {
 #[test]
 fn test_plan_read_zarr_bounding_box_and_types() -> Result<()> {
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<zarrduck::ReadZarrVTab>("read_zarr")?;
-    conn.register_table_function::<zarrduck::PlanReadZarrVTab>("plan_read_zarr")?;
+    conn.register_table_function::<eider::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<eider::PlanReadZarrVTab>("plan_read_zarr")?;
 
     let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let store_path = temp_dir.path().join("test_plan_bbox.zarr");

@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use zarrduck::vector_writer::populate_coordinate_batch_f64;
+use eider::vector_writer::populate_coordinate_batch_f64;
 use geozarr_core::scanner::SubsetInfo;
 
 fn bench_populate_coordinate(c: &mut Criterion) {

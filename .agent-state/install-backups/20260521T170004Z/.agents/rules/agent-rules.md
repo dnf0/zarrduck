@@ -1,6 +1,6 @@
-<!-- agent-rules@0_42_0 objective=general language=python strictness=balanced repo_name=zarrduck -->
+<!-- agent-rules@0_42_0 objective=general language=python strictness=balanced repo_name=eider -->
 
-# zarrduck Antigravity Guidance
+# eider Antigravity Guidance
 
 Provider target: Antigravity
 

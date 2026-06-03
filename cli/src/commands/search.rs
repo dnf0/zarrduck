@@ -1,4 +1,4 @@
-use crate::{config::ZarrduckConfig, stac, ui, OutputFormat};
+use crate::{config::EiderConfig, stac, ui, OutputFormat};
 use color_eyre::eyre::{eyre, Result as EyreResult, WrapErr};
 
 fn build_stac_query(
@@ -91,7 +91,7 @@ fn output_json_results(uris: &[String]) {
 fn get_selected_api(
     api: Option<String>,
     resolved_output: &OutputFormat,
-    config: &ZarrduckConfig,
+    config: &EiderConfig,
 ) -> EyreResult<String> {
     if let Some(a) = api {
         return Ok(a);
@@ -213,7 +213,7 @@ pub async fn run_search(
     bbox: Option<String>,
     datetime: Option<String>,
     resolved_output: &OutputFormat,
-    config: &ZarrduckConfig,
+    config: &EiderConfig,
 ) -> EyreResult<()> {
     let client = reqwest::Client::new();
     let selected_api = get_selected_api(api, resolved_output, config)?;
@@ -301,7 +301,7 @@ pub async fn run_search(
             println!("Selected Dataset: {}", resolved_uri);
             println!("You can now extract this data using:");
             println!(
-                "zarrduck extract {} <your-vector-file.geojson>",
+                "eider extract {} <your-vector-file.geojson>",
                 resolved_uri
             );
             break;
