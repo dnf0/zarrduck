@@ -38,6 +38,7 @@ impl FillValueCmp for bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn populate_coordinate_batch_f64(
     batch_size: usize,
     cursor: usize,

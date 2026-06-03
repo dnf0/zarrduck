@@ -67,7 +67,7 @@ impl ReadableStorageTraits for VirtualCogStore {
                             let rt = tokio::runtime::Runtime::new().unwrap();
                             rt.block_on(async {
                                 op.read_with("").range(range).await
-                            })
+                            }).map_err(|e| e.to_string())
                         }).join().unwrap();
                         
                         if let Ok(bytes) = bytes_res {
