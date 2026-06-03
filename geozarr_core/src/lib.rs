@@ -1,3 +1,4 @@
+pub mod cog;
 pub mod coordinate_resolver;
 pub mod coordinates;
 pub mod dataset;
