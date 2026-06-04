@@ -19,7 +19,6 @@ const sidebars: SidebarsConfig = {
         'engineering/architecture',
         'engineering/cog_virtualization',
         'engineering/spatial_pruning',
-        'engineering/benchmarks',
       ],
     },
   ],

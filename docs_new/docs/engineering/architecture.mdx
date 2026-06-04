@@ -1,0 +1,15 @@
+# System Architecture
+
+Eider bridges the gap between Rust-based spatial logic and DuckDB's C-API vectorized execution engine.
+
+```mermaid
+graph TD
+    A[DuckDB Query] --> B[eider_extension C-API]
+    B --> C[geozarr_core Rust Logic]
+    C --> D[Zarrs Codec Pipeline]
+    D --> E[OpenDAL Network Layer]
+    E --> F[s3:// / http:// / gcs://]
+```
+
+## Multi-threading Model
+When `read_zarr` is initialized, DuckDB allocates a pool of background workers. Eider dispatches individual chunk read requests to these workers lock-free, saturating available network bandwidth and CPU cores.

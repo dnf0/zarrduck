@@ -1,0 +1,15 @@
+# Spatial Pruning
+
+Traditional Python spatial tools (like Xarray with Zarr-Python) often suffer from the "N+1 Problem" when pulling remote chunks.
+
+```mermaid
+graph LR
+    subgraph Eider Approach
+    A[SQL Bounding Box] --> B[Calculate Grid Intersections]
+    B --> C{Chunk in BBox?}
+    C -- Yes --> D[HTTP GET Byte-Range]
+    C -- No --> E[Skip Completely]
+    end
+```
+
+By pushing `lat_min` and `lon_max` down into `geozarr_core`, Eider determines exactly which chunks contain relevant data mathematically using the affine transform. It never issues HTTP requests for data it knows it will drop.
