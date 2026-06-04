@@ -27,6 +27,8 @@ cli-table = "0.4"
 assert_cmd = "2.0"
 insta = "1.47.2"
 predicates = "3.1"
-rexpect = "0.7.1"
 serial_test = "3.4.0"
 tempfile = "3.10"
+
+[target.'cfg(unix)'.dev-dependencies]
+rexpect = "0.7.1"

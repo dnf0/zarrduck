@@ -1,5 +1,18 @@
 use crate::{config::EiderConfig, stac, ui, ui::OutputMode};
 use color_eyre::eyre::{eyre, Result as EyreResult, WrapErr};
+use std::io::IsTerminal;
+
+#[derive(Clone)]
+struct SelectOption {
+    id: String,
+    display: String,
+}
+
+impl std::fmt::Display for SelectOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display)
+    }
+}
 
 fn build_stac_query(
     collection: &str,
@@ -53,8 +66,7 @@ fn is_supported_asset(asset: &serde_json::Value) -> bool {
 
 fn extract_assets(
     assets: &serde_json::Map<String, serde_json::Value>,
-    found_uris: &mut Vec<String>,
-    found_options: &mut Vec<String>,
+    found_options: &mut Vec<SelectOption>,
 ) {
     for (_, asset) in assets {
         if is_supported_asset(asset) {
@@ -70,39 +82,43 @@ fn extract_assets(
                     desc.push_str("...");
                 }
 
-                if desc.is_empty() {
-                    found_options.push(format!("{} - {}", href, title));
+                let display = if desc.is_empty() {
+                    format!("{} [{}]", title, href)
                 } else {
-                    found_options.push(format!("{} - {} ({})", href, title, desc));
-                }
-                found_uris.push(href.to_string());
+                    format!("{} - {} [{}]", title, desc, href)
+                };
+
+                found_options.push(SelectOption {
+                    id: href.to_string(),
+                    display,
+                });
             }
         }
     }
 }
 
-fn parse_search_results(stac_response: &serde_json::Value) -> (Vec<String>, Vec<String>) {
-    let mut found_uris = Vec::new();
+fn parse_search_results(stac_response: &serde_json::Value) -> Vec<SelectOption> {
     let mut found_options = Vec::new();
 
     // Check features (items)
     if let Some(features) = stac_response.get("features").and_then(|f| f.as_array()) {
         for feature in features {
             if let Some(assets) = feature.get("assets").and_then(|a| a.as_object()) {
-                extract_assets(assets, &mut found_uris, &mut found_options);
+                extract_assets(assets, &mut found_options);
             }
         }
     }
 
     // Check if the response itself is a collection with assets
     if let Some(assets) = stac_response.get("assets").and_then(|a| a.as_object()) {
-        extract_assets(assets, &mut found_uris, &mut found_options);
+        extract_assets(assets, &mut found_options);
     }
 
-    (found_uris, found_options)
+    found_options
 }
 
-fn output_json_results(uris: &[String]) {
+fn output_json_results(options: &[SelectOption]) {
+    let uris: Vec<String> = options.iter().map(|o| o.id.clone()).collect();
     let json_out = serde_json::json!({
         "status": "success",
         "uris": uris
@@ -203,11 +219,15 @@ async fn get_selected_collection(
                     desc.push_str("...");
                 }
 
-                if desc.is_empty() {
-                    collection_options.push(format!("{} - {}", id, title));
+                let display = if desc.is_empty() {
+                    format!("{} [{}]", title, id)
                 } else {
-                    collection_options.push(format!("{} - {} ({})", id, title, desc));
-                }
+                    format!("{} - {} [{}]", title, desc, id)
+                };
+                collection_options.push(SelectOption {
+                    id: id.to_string(),
+                    display,
+                });
                 collection_ids.push(id.to_string());
             }
         }
@@ -246,7 +266,7 @@ async fn get_selected_collection(
     };
     let selection = select.prompt()?;
 
-    Ok(Some(selection.split(" - ").next().unwrap().to_string()))
+    Ok(Some(selection.id))
 }
 
 pub async fn run_search(
@@ -282,7 +302,7 @@ pub async fn run_search(
         }
 
         if mode.is_human() {
-            println!("Querying STAC API: {}", search_api);
+            eprintln!("Querying STAC API: {}", search_api);
         }
 
         let res = client
@@ -320,27 +340,27 @@ pub async fn run_search(
             }
         }
 
-        let (found_uris, found_options) = parse_search_results(&stac_response);
+        let found_options = parse_search_results(&stac_response);
 
         if !mode.is_human() {
             if mode == OutputMode::AgentJson {
-                output_json_results(&found_uris);
+                output_json_results(&found_options);
             } else {
-                for uri in &found_uris {
-                    println!("{}", uri);
+                for opt in &found_options {
+                    println!("{}", opt.id);
                 }
             }
             break;
-        } else if found_uris.is_empty() {
-            println!(
+        } else if found_options.is_empty() {
+            eprintln!(
                 "No Zarr or COG URIs found in collection {}. Restarting selection loop...\n",
                 selected_collection
             );
             current_collection = None;
             continue;
         } else {
-            let selection = if found_options.len() == 1 {
-                found_uris[0].clone()
+            let selection_id = if found_options.len() == 1 {
+                found_options[0].id.clone()
             } else {
                 let prompt_msg = format!(
                     "Found {} Data URIs. Select a dataset to use:",
@@ -358,15 +378,22 @@ pub async fn run_search(
                     }
                 };
                 let chosen = select.prompt()?;
-                chosen.split(" - ").next().unwrap().to_string()
+                chosen.id
             };
 
             // Resolve the specific channel/array from the Zarr group
-            let resolved_uri = ui::prompt_zarr_uri(&selection, mode).await?;
+            let resolved_uri = ui::prompt_zarr_uri(&selection_id, mode).await?;
 
-            println!("Selected Dataset: {}", resolved_uri);
-            println!("You can now extract this data using:");
-            println!("eider extract {} <your-vector-file.geojson>", resolved_uri);
+            if std::io::stdout().is_terminal() {
+                println!("✅ Selected Dataset: {}", resolved_uri);
+                println!("You can now extract this data using:");
+                println!("eider extract {} <your-vector-file.geojson>", resolved_uri);
+            } else {
+                // If piped, just output the URL cleanly to stdout
+                println!("{}", resolved_uri);
+                eprintln!("✅ Selected Dataset: {}", resolved_uri);
+                eprintln!("You can now extract this data using: eider extract {} <your-vector-file.geojson>", resolved_uri);
+            }
             break;
         }
     }

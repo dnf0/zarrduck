@@ -55,11 +55,9 @@ Type "printf '\033[1A\033[2K\n\033[1;36m# 2. Extract and join spatial data\033[0
 Enter
 Show
 Sleep 1s
-Type "eider extract climate_data.zarr/air_temperature scripts/demo_region.geojson --out analysis.duckdb"
+Type "eider extract climate_data.zarr/air_temperature scripts/demo_region.geojson --out analysis.duckdb --yes"
 Enter
-Sleep 3s
-Enter
-Sleep 4s
+Sleep 8s
 
 # Step 3: Temporal Resampling
 Hide

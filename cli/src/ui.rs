@@ -12,7 +12,7 @@ impl OutputMode {
     pub fn detect(json_requested: bool) -> Self {
         if json_requested {
             OutputMode::AgentJson
-        } else if std::io::stdout().is_terminal() {
+        } else if std::io::stdin().is_terminal() {
             OutputMode::Human
         } else {
             OutputMode::Agent
