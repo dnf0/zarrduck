@@ -52,6 +52,15 @@ pub fn format_success(msg: &str, mode: OutputMode) -> String {
     }
 }
 
+#[allow(dead_code)]
+pub fn format_error(msg: &str, mode: OutputMode) -> String {
+    if mode.is_human() {
+        format!("{} {}", "✖".red(), msg)
+    } else {
+        format!("- ERROR: {}", msg)
+    }
+}
+
 use color_eyre::eyre::{eyre, Result};
 
 pub async fn prompt_zarr_uri(uri: &str, is_json: bool) -> Result<String> {
@@ -132,5 +141,12 @@ mod tests {
         assert_eq!(format_success("done", OutputMode::Agent), "- SUCCESS: done");
         assert_eq!(format_success("done", OutputMode::AgentJson), "- SUCCESS: done");
         assert_eq!(format_success("done", OutputMode::Human), format!("{} done", "✔".green()));
+    }
+
+    #[test]
+    fn test_format_error() {
+        assert_eq!(format_error("abort", OutputMode::Agent), "- ERROR: abort");
+        assert_eq!(format_error("abort", OutputMode::AgentJson), "- ERROR: abort");
+        assert_eq!(format_error("abort", OutputMode::Human), format!("{} abort", "✖".red()));
     }
 }

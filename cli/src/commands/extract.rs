@@ -43,7 +43,7 @@ fn check_overwrite_protection(
                     .wrap_err("Failed to read user input")?;
 
             if !ans {
-                println!("Aborting extraction.");
+                println!("{}", ui::format_error("Aborting extraction.", mode));
                 return Ok(false);
             }
 
@@ -74,17 +74,12 @@ fn print_extraction_plan(
     println!("{}: {}", ui::format_key("Target Area", mode), ui::format_value(&chunks_str, mode));
     println!("{}: {}", ui::format_key("Data Volume", mode), ui::format_value(&vol_str, mode));
     println!();
-    if estimated_seconds < 60.0 {
-        println!(
-            "- Estimated Time: {:.0} seconds (@ 25 MB/s)\n",
-            estimated_seconds
-        );
+    let time_str = if estimated_seconds < 60.0 {
+        format!("{:.0} seconds (@ 25 MB/s)", estimated_seconds)
     } else {
-        println!(
-            "- Estimated Time: {:.1} minutes (@ 25 MB/s)\n",
-            estimated_seconds / 60.0
-        );
-    }
+        format!("{:.1} minutes (@ 25 MB/s)", estimated_seconds / 60.0)
+    };
+    println!("{}: {}\n", ui::format_key("Estimated Time", mode), ui::format_value(&time_str, mode));
 
     if !skip_prompts {
         let ans = inquire::Confirm::new("Proceed with extraction?")
@@ -93,7 +88,7 @@ fn print_extraction_plan(
             .wrap_err("Failed to read user input")?;
 
         if !ans {
-            println!("Aborting extraction.");
+            println!("{}", ui::format_error("Aborting extraction.", mode));
             return Ok(false);
         }
     }
