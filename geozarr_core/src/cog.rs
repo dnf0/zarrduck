@@ -109,20 +109,22 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
             let mut res = Vec::with_capacity(count);
             let mut ptr = offset_val as usize;
             for _ in 0..count {
-                if ptr + 4 > buffer.len() { break; }
+                if ptr + 4 > buffer.len() {
+                    break;
+                }
                 let v = if typ == 3 {
                     let sv = if header.is_little_endian {
-                        u16::from_le_bytes(buffer[ptr..ptr+2].try_into().unwrap()) as u64
+                        u16::from_le_bytes(buffer[ptr..ptr + 2].try_into().unwrap()) as u64
                     } else {
-                        u16::from_be_bytes(buffer[ptr..ptr+2].try_into().unwrap()) as u64
+                        u16::from_be_bytes(buffer[ptr..ptr + 2].try_into().unwrap()) as u64
                     };
                     ptr += 2;
                     sv
                 } else {
                     let lv = if header.is_little_endian {
-                        u32::from_le_bytes(buffer[ptr..ptr+4].try_into().unwrap()) as u64
+                        u32::from_le_bytes(buffer[ptr..ptr + 4].try_into().unwrap()) as u64
                     } else {
-                        u32::from_be_bytes(buffer[ptr..ptr+4].try_into().unwrap()) as u64
+                        u32::from_be_bytes(buffer[ptr..ptr + 4].try_into().unwrap()) as u64
                     };
                     ptr += 4;
                     lv

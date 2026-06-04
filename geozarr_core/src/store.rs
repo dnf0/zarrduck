@@ -92,7 +92,12 @@ pub fn resolve_sync_store(
 
         let store: Arc<dyn ReadableStorageTraits> = if is_cog {
             let parent = canonical_path.parent().unwrap();
-            let filename = canonical_path.file_name().unwrap().to_str().unwrap().to_string();
+            let filename = canonical_path
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string();
             let builder = opendal::services::Fs::default().root(parent.to_str().unwrap());
             let async_operator = opendal::Operator::new(builder)?.finish();
             let async_op_clone = async_operator.clone();
