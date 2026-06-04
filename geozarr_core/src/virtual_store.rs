@@ -167,7 +167,7 @@ mod tests {
         let op = opendal::Operator::new(opendal::services::Memory::default())
             .unwrap()
             .finish();
-        let store = VirtualCogStore::new(op, meta);
+        let store = VirtualCogStore::new(op, "".to_string(), meta);
 
         // Zarrs ReadableStorageTraits implementation test
         use zarrs::storage::ReadableStorageTraits;
