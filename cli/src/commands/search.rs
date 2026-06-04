@@ -1,4 +1,4 @@
-use crate::{config::EiderConfig, stac, ui, OutputFormat};
+use crate::{config::EiderConfig, stac, ui, ui::OutputMode};
 use color_eyre::eyre::{eyre, Result as EyreResult, WrapErr};
 
 fn build_stac_query(
@@ -90,14 +90,14 @@ fn output_json_results(uris: &[String]) {
 
 fn get_selected_api(
     api: Option<String>,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
     config: &EiderConfig,
 ) -> EyreResult<String> {
     if let Some(a) = api {
         return Ok(a);
     }
-    if resolved_output == &OutputFormat::Json {
-        return Err(eyre!("--api is required when using --output=json"));
+    if !mode.is_human() {
+        return Err(eyre!("--api is required in non-interactive mode"));
     }
 
     let providers = stac::get_stac_providers(config);
@@ -120,7 +120,7 @@ async fn get_selected_collection(
     client: &reqwest::Client,
     selected_api: &str,
     current_collection: Option<&String>,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
 ) -> EyreResult<Option<String>> {
     if let Some(c) = current_collection {
         return Ok(Some(c.clone()));
@@ -181,13 +181,20 @@ async fn get_selected_collection(
     if collection_ids.is_empty() {
         return Err(eyre!("No collections found at {}", collections_url));
     }
-    if resolved_output == &OutputFormat::Json {
-        let json_out = serde_json::json!({
-            "status": "success",
-            "collections": collection_ids
-        });
-        println!("{}", json_out);
-        return Ok(None);
+    if !mode.is_human() {
+        if mode == OutputMode::AgentJson {
+            let json_out = serde_json::json!({
+                "status": "success",
+                "collections": collection_ids
+            });
+            println!("{}", json_out);
+            return Ok(None);
+        } else {
+            return Err(eyre!(
+                "--collection is required in non-interactive mode. Available collections: {:?}",
+                collection_ids
+            ));
+        }
     }
 
     let mut select =
@@ -212,11 +219,11 @@ pub async fn run_search(
     collection: Option<String>,
     bbox: Option<String>,
     datetime: Option<String>,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
     config: &EiderConfig,
 ) -> EyreResult<()> {
     let client = reqwest::Client::new();
-    let selected_api = get_selected_api(api, resolved_output, config)?;
+    let selected_api = get_selected_api(api, mode, config)?;
 
     let mut current_collection = collection.clone();
     loop {
@@ -224,7 +231,7 @@ pub async fn run_search(
             &client,
             &selected_api,
             current_collection.as_ref(),
-            resolved_output,
+            mode,
         )
         .await?
         {
@@ -239,7 +246,7 @@ pub async fn run_search(
             search_api = format!("{}/search", search_api.trim_end_matches('/'));
         }
 
-        if resolved_output != &OutputFormat::Json {
+        if mode.is_human() {
             println!("Querying STAC API: {}", search_api);
         }
 
@@ -262,8 +269,14 @@ pub async fn run_search(
 
         let (found_uris, found_options) = parse_search_results(&stac_response);
 
-        if resolved_output == &OutputFormat::Json {
-            output_json_results(&found_uris);
+        if !mode.is_human() {
+            if mode == OutputMode::AgentJson {
+                output_json_results(&found_uris);
+            } else {
+                for uri in &found_uris {
+                    println!("{}", uri);
+                }
+            }
             break;
         } else if found_uris.is_empty() {
             println!(
@@ -296,7 +309,7 @@ pub async fn run_search(
             };
 
             // Resolve the specific channel/array from the Zarr group
-            let resolved_uri = ui::prompt_zarr_uri(&selection, false).await?;
+            let resolved_uri = ui::prompt_zarr_uri(&selection, mode).await?;
 
             println!("Selected Dataset: {}", resolved_uri);
             println!("You can now extract this data using:");

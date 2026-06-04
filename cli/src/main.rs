@@ -199,34 +199,27 @@ async fn main() -> EyreResult<()> {
     Ok(())
 }
 
-async fn run_cli(mut cli: Cli, config: EiderConfig) -> EyreResult<()> {
-    let resolved_output = cli
+async fn run_cli(cli: Cli, config: EiderConfig) -> EyreResult<()> {
+    let is_json = cli
         .output
-        .clone()
-        .or_else(|| {
-            config.output_format.as_deref().and_then(|s| match s {
-                "json" => Some(OutputFormat::Json),
-                "table" => Some(OutputFormat::Table),
-                _ => None,
-            })
-        })
-        .unwrap_or(OutputFormat::Table);
+        .as_ref()
+        .map(|o| *o == OutputFormat::Json)
+        .unwrap_or_else(|| config.output_format.as_deref() == Some("json"));
 
-    // Update cli struct so nested commands can just use it
-    cli.output = Some(resolved_output.clone());
+    let mode = crate::ui::OutputMode::detect(is_json);
 
-    execute_command(cli.command, resolved_output, config).await
+    execute_command(cli.command, mode, config).await
 }
 
 #[allow(clippy::too_many_lines)]
 async fn execute_command(
     command: Commands,
-    resolved_output: OutputFormat,
+    mode: crate::ui::OutputMode,
     config: EiderConfig,
 ) -> EyreResult<()> {
     match command {
         Commands::Info { uri, pin } => {
-            commands::info::run_info(uri, pin, &resolved_output, &config).await?;
+            commands::info::run_info(uri, pin, mode, &config).await?;
         }
         Commands::Extract {
             zarr_uri,
@@ -241,7 +234,7 @@ async fn execute_command(
                 out,
                 yes,
                 pin,
-                &resolved_output,
+                mode,
                 &config,
             )
             .await?;
@@ -262,7 +255,7 @@ async fn execute_command(
                 output,
                 value_column,
                 chunks,
-                &resolved_output,
+                mode,
                 &config,
             )
             .await?;
@@ -283,7 +276,7 @@ async fn execute_command(
                 collection,
                 bbox,
                 datetime,
-                &resolved_output,
+                mode,
                 &config,
             )
             .await?;
@@ -294,7 +287,7 @@ async fn execute_command(
             freq,
             agg,
         } => {
-            commands::resample::run_resample(input_db, output_db, freq, agg, &resolved_output)?;
+            commands::resample::run_resample(input_db, output_db, freq, agg, mode)?;
         }
         Commands::Ingest {
             input_file,
@@ -307,7 +300,7 @@ async fn execute_command(
                 output_zarr_uri,
                 chunks,
                 value_column,
-                &resolved_output,
+                mode,
                 &config,
             )
             .await?;

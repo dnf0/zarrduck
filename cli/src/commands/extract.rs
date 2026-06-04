@@ -1,7 +1,7 @@
 use crate::config::EiderConfig;
 use crate::duckdb_utils;
 use crate::ui;
-use crate::OutputFormat;
+use crate::ui::OutputMode;
 use color_eyre::eyre::{eyre, Result as EyreResult, WrapErr};
 use duckdb::Connection;
 use std::io::IsTerminal;
@@ -22,10 +22,10 @@ fn fetch_bounding_box(conn: &Connection, vector_path: &str) -> EyreResult<(f64, 
 fn check_overwrite_protection(
     out_path: &str,
     yes: bool,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
 ) -> EyreResult<bool> {
     if std::path::Path::new(out_path).exists() {
-        if *resolved_output == OutputFormat::Json {
+        if mode == OutputMode::AgentJson {
             return Err(eyre!(
                 "Output database '{}' already exists. Aborting to prevent overwrite.",
                 out_path
@@ -43,7 +43,7 @@ fn check_overwrite_protection(
                     .wrap_err("Failed to read user input")?;
 
             if !ans {
-                println!("Aborting extraction.");
+                println!("{}", ui::format_error("Aborting extraction.", mode));
                 return Ok(false);
             }
 
@@ -59,24 +59,27 @@ fn print_extraction_plan(
     total_chunks: u64,
     total_bytes: u64,
     skip_prompts: bool,
+    mode: OutputMode,
 ) -> EyreResult<bool> {
     // Estimate network speed at a conservative 25 MB/s
     let estimated_seconds = total_bytes as f64 / (25.0 * 1024.0 * 1024.0);
 
-    println!("\nExtraction Plan:");
-    println!("- Target Area: {} chunks", total_chunks);
-    println!("- Data Volume: {:.2} MB", total_bytes as f64 / 1_048_576.0);
-    if estimated_seconds < 60.0 {
-        println!(
-            "- Estimated Time: {:.0} seconds (@ 25 MB/s)\n",
-            estimated_seconds
-        );
+    if mode.is_human() {
+        println!("\nExtraction Plan\n───────────────");
     } else {
-        println!(
-            "- Estimated Time: {:.1} minutes (@ 25 MB/s)\n",
-            estimated_seconds / 60.0
-        );
+        println!("### Extraction Plan");
     }
+    let chunks_str = format!("{} chunks", total_chunks);
+    let vol_str = format!("{:.2} MB", total_bytes as f64 / 1_048_576.0);
+    println!("{}: {}", ui::format_key("Target Area", mode), ui::format_value(&chunks_str, mode));
+    println!("{}: {}", ui::format_key("Data Volume", mode), ui::format_value(&vol_str, mode));
+    println!();
+    let time_str = if estimated_seconds < 60.0 {
+        format!("{:.0} seconds (@ 25 MB/s)", estimated_seconds)
+    } else {
+        format!("{:.1} minutes (@ 25 MB/s)", estimated_seconds / 60.0)
+    };
+    println!("{}: {}\n", ui::format_key("Estimated Time", mode), ui::format_value(&time_str, mode));
 
     if !skip_prompts {
         let ans = inquire::Confirm::new("Proceed with extraction?")
@@ -85,7 +88,7 @@ fn print_extraction_plan(
             .wrap_err("Failed to read user input")?;
 
         if !ans {
-            println!("Aborting extraction.");
+            println!("{}", ui::format_error("Aborting extraction.", mode));
             return Ok(false);
         }
     }
@@ -98,19 +101,19 @@ pub async fn run_extract(
     out: Option<String>,
     yes: bool,
     pin: Vec<String>,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
     config: &EiderConfig,
 ) -> EyreResult<()> {
-    let zarr_uri = ui::prompt_zarr_uri(&zarr_uri, *resolved_output == OutputFormat::Json).await?;
+    let zarr_uri = ui::prompt_zarr_uri(&zarr_uri, mode).await?;
     let out_path = out.or_else(|| config.default_out.clone()).ok_or_else(|| {
         eyre!("Output path not specified. Use --out or set default_out in config.")
     })?;
 
     let skip_prompts =
-        yes || !std::io::stdin().is_terminal() || *resolved_output == OutputFormat::Json;
+        yes || !std::io::stdin().is_terminal() || mode == OutputMode::AgentJson;
 
     // Overwrite protection
-    if !check_overwrite_protection(&out_path, yes, resolved_output)? {
+    if !check_overwrite_protection(&out_path, yes, mode)? {
         return Ok(());
     }
 
@@ -125,7 +128,7 @@ pub async fn run_extract(
     duckdb_utils::inject_s3_secret(&conn, config.s3.as_ref())?;
 
     // Install and load official spatial extension
-    if *resolved_output != OutputFormat::Json {
+    if mode != OutputMode::AgentJson {
         println!("Loading DuckDB spatial extension...");
     }
     conn.execute("INSTALL spatial", [])
@@ -157,12 +160,12 @@ pub async fn run_extract(
         )
         .wrap_err("Failed to execute planning query")?;
 
-    if *resolved_output != OutputFormat::Json
-        && !print_extraction_plan(total_chunks, total_bytes, skip_prompts)?
+    if mode != OutputMode::AgentJson
+        && !print_extraction_plan(total_chunks, total_bytes, skip_prompts, mode)?
     {
         return Ok(());
     }
-    let spinner = if *resolved_output != OutputFormat::Json {
+    let spinner = if mode != OutputMode::AgentJson {
         let pb =
             indicatif::ProgressBar::with_draw_target(None, indicatif::ProgressDrawTarget::stdout());
         pb.set_style(
@@ -194,10 +197,10 @@ pub async fn run_extract(
     .wrap_err("Spatial extraction query failed")?;
     if let Some(pb) = spinner {
         pb.finish_and_clear();
-        println!("Extraction complete!");
+        println!("{}", ui::format_success("Extraction complete!", mode));
     }
 
-    if *resolved_output == OutputFormat::Json {
+    if mode == OutputMode::AgentJson {
         println!(r#"{{"status": "success", "db": "{}"}}"#, out_path);
     } else {
         println!(

@@ -1,6 +1,64 @@
+use std::io::IsTerminal;
+use owo_colors::OwoColorize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputMode {
+    Human,
+    Agent,
+    AgentJson,
+}
+
+impl OutputMode {
+    pub fn detect(json_requested: bool) -> Self {
+        if json_requested {
+            OutputMode::AgentJson
+        } else if std::io::stdout().is_terminal() {
+            OutputMode::Human
+        } else {
+            OutputMode::Agent
+        }
+    }
+
+    pub fn is_human(&self) -> bool {
+        *self == OutputMode::Human
+    }
+}
+
+pub fn format_key(key: &str, mode: OutputMode) -> String {
+    if mode.is_human() {
+        key.cyan().to_string()
+    } else {
+        key.to_string()
+    }
+}
+
+pub fn format_value(val: &str, mode: OutputMode) -> String {
+    if mode.is_human() {
+        val.magenta().to_string()
+    } else {
+        val.to_string()
+    }
+}
+
+pub fn format_success(msg: &str, mode: OutputMode) -> String {
+    if mode.is_human() {
+        format!("{} {}", "✔".green(), msg)
+    } else {
+        format!("- SUCCESS: {}", msg)
+    }
+}
+
+pub fn format_error(msg: &str, mode: OutputMode) -> String {
+    if mode.is_human() {
+        format!("{} {}", "✖".red(), msg)
+    } else {
+        format!("- ERROR: {}", msg)
+    }
+}
+
 use color_eyre::eyre::{eyre, Result};
 
-pub async fn prompt_zarr_uri(uri: &str, is_json: bool) -> Result<String> {
+pub async fn prompt_zarr_uri(uri: &str, mode: OutputMode) -> Result<String> {
     let arrays = geozarr_core::store::list_arrays(uri)
         .await
         .map_err(|e| eyre!("{e}"))?;
@@ -16,7 +74,7 @@ pub async fn prompt_zarr_uri(uri: &str, is_json: bool) -> Result<String> {
     }
 
     // It is a group containing arrays
-    if is_json {
+    if mode != OutputMode::Human {
         return Err(eyre!(
             "Provided URI '{}' is a Zarr Group containing multiple datasets ({:?}). Please provide the exact path to a dataset.",
             uri, arrays
@@ -47,4 +105,43 @@ pub async fn prompt_zarr_uri(uri: &str, is_json: bool) -> Result<String> {
     };
 
     Ok(resolved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use owo_colors::OwoColorize;
+
+    #[test]
+    fn test_detect_json() {
+        assert_eq!(OutputMode::detect(true), OutputMode::AgentJson);
+    }
+    
+    #[test]
+    fn test_format_key() {
+        assert_eq!(format_key("test", OutputMode::Agent), "test");
+        assert_eq!(format_key("test", OutputMode::AgentJson), "test");
+        assert_eq!(format_key("test", OutputMode::Human), "test".cyan().to_string());
+    }
+
+    #[test]
+    fn test_format_value() {
+        assert_eq!(format_value("val", OutputMode::Agent), "val");
+        assert_eq!(format_value("val", OutputMode::AgentJson), "val");
+        assert_eq!(format_value("val", OutputMode::Human), "val".magenta().to_string());
+    }
+
+    #[test]
+    fn test_format_success() {
+        assert_eq!(format_success("done", OutputMode::Agent), "- SUCCESS: done");
+        assert_eq!(format_success("done", OutputMode::AgentJson), "- SUCCESS: done");
+        assert_eq!(format_success("done", OutputMode::Human), format!("{} done", "✔".green()));
+    }
+
+    #[test]
+    fn test_format_error() {
+        assert_eq!(format_error("abort", OutputMode::Agent), "- ERROR: abort");
+        assert_eq!(format_error("abort", OutputMode::AgentJson), "- ERROR: abort");
+        assert_eq!(format_error("abort", OutputMode::Human), format!("{} abort", "✖".red()));
+    }
 }
