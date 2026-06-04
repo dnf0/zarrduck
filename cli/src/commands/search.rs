@@ -54,7 +54,6 @@ fn build_stac_query(
 fn is_supported_asset(asset: &serde_json::Value) -> bool {
     let t = asset.get("type").and_then(|t| t.as_str()).unwrap_or("");
     let href = asset.get("href").and_then(|h| h.as_str()).unwrap_or("");
-
     let is_zarr = t.contains("zarr") || href.ends_with(".zarr") || href.contains(".zarr/");
     let is_cog = t.contains("tiff")
         || t.contains("cog")
