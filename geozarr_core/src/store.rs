@@ -17,22 +17,28 @@ pub fn resolve_sync_store(
         let root = bucket_and_path.strip_prefix(bucket).unwrap_or("/");
         let builder = opendal::services::S3::default().bucket(bucket).root(root);
         let async_operator = opendal::Operator::new(builder)?.finish();
-        
+
         let store: Arc<dyn ReadableStorageTraits> = if is_cog {
             let async_op_clone = async_operator.clone();
             let root_str = root.to_string();
             let header_res = std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    async_op_clone.read_with(&root_str).range(0..16384).await
-                }).map_err(|e| e.to_string())
-            }).join().unwrap();
-            
+                rt.block_on(async { async_op_clone.read_with(&root_str).range(0..16384).await })
+                    .map_err(|e| e.to_string())
+            })
+            .join()
+            .unwrap();
+
             let header_bytes = header_res?.to_vec();
             let meta = crate::cog::parse_cog_metadata(&header_bytes).unwrap_or_default();
-            Arc::new(crate::virtual_store::VirtualCogStore::new(async_operator, meta))
+            Arc::new(crate::virtual_store::VirtualCogStore::new(
+                async_operator,
+                meta,
+            ))
         } else {
-            Arc::new(zarrs::storage::store::OpendalStore::new(async_operator.blocking()))
+            Arc::new(zarrs::storage::store::OpendalStore::new(
+                async_operator.blocking(),
+            ))
         };
 
         Ok(ResolvedStore {
@@ -42,21 +48,27 @@ pub fn resolve_sync_store(
     } else if path.starts_with("http://") || path.starts_with("https://") {
         let builder = opendal::services::Http::default().endpoint(path);
         let async_operator = opendal::Operator::new(builder)?.finish();
-        
+
         let store: Arc<dyn ReadableStorageTraits> = if is_cog {
             let async_op_clone = async_operator.clone();
             let header_res = std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    async_op_clone.read_with("").range(0..16384).await
-                }).map_err(|e| e.to_string())
-            }).join().unwrap();
-            
+                rt.block_on(async { async_op_clone.read_with("").range(0..16384).await })
+                    .map_err(|e| e.to_string())
+            })
+            .join()
+            .unwrap();
+
             let header_bytes = header_res?.to_vec();
             let meta = crate::cog::parse_cog_metadata(&header_bytes).unwrap_or_default();
-            Arc::new(crate::virtual_store::VirtualCogStore::new(async_operator, meta))
+            Arc::new(crate::virtual_store::VirtualCogStore::new(
+                async_operator,
+                meta,
+            ))
         } else {
-            Arc::new(zarrs::storage::store::OpendalStore::new(async_operator.blocking()))
+            Arc::new(zarrs::storage::store::OpendalStore::new(
+                async_operator.blocking(),
+            ))
         };
 
         Ok(ResolvedStore {
@@ -75,21 +87,25 @@ pub fn resolve_sync_store(
         if !canonical_path.starts_with(allowed_canon) {
             return Err("Access denied. Path is not within the allowed sandbox directory (GEOZARR_ALLOW_PATH or CWD).".into());
         }
-        
+
         let store: Arc<dyn ReadableStorageTraits> = if is_cog {
             let builder = opendal::services::Fs::default().root(canonical_path.to_str().unwrap());
             let async_operator = opendal::Operator::new(builder)?.finish();
             let async_op_clone = async_operator.clone();
             let header_res = std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    async_op_clone.read_with("").range(0..16384).await
-                }).map_err(|e| e.to_string())
-            }).join().unwrap();
-            
+                rt.block_on(async { async_op_clone.read_with("").range(0..16384).await })
+                    .map_err(|e| e.to_string())
+            })
+            .join()
+            .unwrap();
+
             let header_bytes = header_res?.to_vec();
             let meta = crate::cog::parse_cog_metadata(&header_bytes).unwrap_or_default();
-            Arc::new(crate::virtual_store::VirtualCogStore::new(async_operator, meta))
+            Arc::new(crate::virtual_store::VirtualCogStore::new(
+                async_operator,
+                meta,
+            ))
         } else {
             Arc::new(zarrs::storage::store::FilesystemStore::new(canonical_path)?)
         };

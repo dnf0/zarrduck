@@ -52,7 +52,7 @@ pub fn populate_coordinate_batch_f64(
     let stride = subset_info.strides[dim];
     let shape = subset_info.shape[dim];
     let start = subset_info.global_starts[dim];
-    
+
     let pos = cursor as u64;
     let mut current_mod = (pos / stride) % shape;
     let mut step_in_stride = pos % stride;
@@ -66,7 +66,9 @@ pub fn populate_coordinate_batch_f64(
 
         // This check is a safeguard. `count_to_fill` should only be zero if `batch_size - i` is zero,
         // which means the outer `while` loop condition `i < batch_size` is already false.
-        if count_to_fill == 0 { break; }
+        if count_to_fill == 0 {
+            break;
+        }
 
         let g_idx = start + current_mod;
 
@@ -78,7 +80,7 @@ pub fn populate_coordinate_batch_f64(
             let val = geozarr_core::coordinates::apply_transform(transform, dim, g_idx);
             out_slice[i..(i + count_to_fill)].fill(val);
         }
-        
+
         i += count_to_fill;
         step_in_stride += count_to_fill as u64;
 
@@ -100,7 +102,7 @@ pub fn populate_coordinate_batch_i64(
     let stride = subset_info.strides[dim];
     let shape = subset_info.shape[dim];
     let start = subset_info.global_starts[dim];
-    
+
     let pos = cursor as u64;
     let mut current_mod = (pos / stride) % shape;
     let mut step_in_stride = pos % stride;
@@ -112,12 +114,14 @@ pub fn populate_coordinate_batch_i64(
         let remaining_in_current_stride = stride - step_in_stride;
         let count_to_fill = (remaining_in_current_stride as usize).min(batch_size - i);
 
-        if count_to_fill == 0 { break; } 
+        if count_to_fill == 0 {
+            break;
+        }
 
         let g_idx = start + current_mod;
         let val = g_idx as i64;
         out_slice[i..(i + count_to_fill)].fill(val);
-        
+
         i += count_to_fill;
         step_in_stride += count_to_fill as u64;
 
@@ -360,11 +364,18 @@ mod tests {
         };
         let mut out = vec![0.0; 2];
         let coords = vec![100.0, 101.0, 102.0];
-        
+
         populate_coordinate_batch_f64(
-            2, 0, &subset_info, 1, Some(&coords), false, None, &mut out[..]
+            2,
+            0,
+            &subset_info,
+            1,
+            Some(&coords),
+            false,
+            None,
+            &mut out[..],
         );
-        
+
         assert_eq!(out[0], 100.0);
         assert_eq!(out[1], 101.0);
     }

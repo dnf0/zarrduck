@@ -8,17 +8,17 @@ fn bench_populate_coordinate(c: &mut Criterion) {
         shape: vec![12, 73, 144], // chunk shape from the readme
         strides: vec![73 * 144, 144, 1],
     };
-    
+
     let batch_size = 2048; // DuckDB vector size
     let mut out_slice = vec![0.0; batch_size];
-    
+
     // Simulate explicit coords arrays
     let lat_coords: Vec<f64> = (0..73).map(|i| 90.0 - (i as f64 * 2.5)).collect();
 
     c.bench_function("populate_lat_batch_2048", |b| {
         b.iter(|| {
-            for cursor_offset in (0..(12*73*144)).step_by(batch_size) {
-                let current_batch_size = std::cmp::min(batch_size, (12*73*144) - cursor_offset);
+            for cursor_offset in (0..(12 * 73 * 144)).step_by(batch_size) {
+                let current_batch_size = std::cmp::min(batch_size, (12 * 73 * 144) - cursor_offset);
                 populate_coordinate_batch_f64(
                     black_box(current_batch_size),
                     black_box(cursor_offset),

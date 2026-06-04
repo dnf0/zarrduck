@@ -81,13 +81,13 @@ fn test_read_zarr_function_compiles() {
     // DuckDB extensions are strictly tied to the exact minor version (v1.1.x vs v1.5.x)
     // and will panic on load if there's a mismatch.
     let mut exists = candidate_paths.iter().any(|p| Path::new(p).exists());
-    
+
     if !exists {
         // Try building it automatically for the test
         let _ = std::process::Command::new("cargo")
             .args(&["duckdb-ext", "build"])
             .status();
-            
+
         exists = candidate_paths.iter().any(|p| Path::new(p).exists());
     }
 
