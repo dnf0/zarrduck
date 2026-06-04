@@ -1,7 +1,6 @@
 use std::io::IsTerminal;
 use owo_colors::OwoColorize;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
     Human,
@@ -9,7 +8,6 @@ pub enum OutputMode {
     AgentJson,
 }
 
-#[allow(dead_code)]
 impl OutputMode {
     pub fn detect(json_requested: bool) -> Self {
         if json_requested {
@@ -21,6 +19,7 @@ impl OutputMode {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_human(&self) -> bool {
         *self == OutputMode::Human
     }

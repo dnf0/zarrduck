@@ -1,16 +1,16 @@
-use crate::{duckdb_utils, OutputFormat};
+use crate::{duckdb_utils, ui::OutputMode};
 use color_eyre::eyre::{eyre, Result as EyreResult, WrapErr};
 use duckdb::Connection;
 
 fn get_freq_and_agg(
     freq: Option<String>,
     agg: Option<String>,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
 ) -> EyreResult<(String, String)> {
     let selected_freq = if let Some(f) = freq {
         f
     } else {
-        if resolved_output == &OutputFormat::Json {
+        if mode == OutputMode::AgentJson {
             return Err(eyre!("--freq is required when using --output=json"));
         }
         inquire::Select::new(
@@ -24,7 +24,7 @@ fn get_freq_and_agg(
     let selected_agg = if let Some(a) = agg {
         a
     } else {
-        if resolved_output == &OutputFormat::Json {
+        if mode == OutputMode::AgentJson {
             return Err(eyre!("--agg is required when using --output=json"));
         }
         inquire::Select::new(
@@ -56,9 +56,9 @@ pub fn run_resample(
     output_db: String,
     freq: Option<String>,
     agg: Option<String>,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
 ) -> EyreResult<()> {
-    let (selected_freq, selected_agg) = get_freq_and_agg(freq, agg, resolved_output)?;
+    let (selected_freq, selected_agg) = get_freq_and_agg(freq, agg, mode)?;
 
     if !std::path::Path::new(&input_db).exists() {
         return Err(eyre!("Input database '{}' does not exist.", input_db));
@@ -70,7 +70,7 @@ pub fn run_resample(
     let (time_col, lat_col, lon_col, val_col, time_is_numeric) =
         duckdb_utils::detect_columns(&input_conn, "extracted_data")?;
 
-    if resolved_output != &OutputFormat::Json {
+    if mode != OutputMode::AgentJson {
         println!(
             "Detected schema: Time='{}' (numeric={}), Spatial='{}', '{}', Value='{}'",
             time_col, time_is_numeric, lat_col, lon_col, val_col
@@ -82,7 +82,7 @@ pub fn run_resample(
 
     // Overwrite protection for output db
     if std::path::Path::new(&output_db).exists() {
-        if resolved_output == &OutputFormat::Json {
+        if mode == OutputMode::AgentJson {
             return Err(eyre!(
                 "Output database '{}' already exists. Aborting.",
                 output_db
@@ -106,7 +106,7 @@ pub fn run_resample(
     let conn = Connection::open(&output_db)
         .wrap_err_with(|| format!("Failed to open output database '{}'", output_db))?;
 
-    let spinner = if resolved_output != &OutputFormat::Json {
+    let spinner = if mode != OutputMode::AgentJson {
         let pb =
             indicatif::ProgressBar::with_draw_target(None, indicatif::ProgressDrawTarget::stdout());
         pb.set_style(
@@ -156,7 +156,7 @@ pub fn run_resample(
         println!("Resampling complete!");
     }
 
-    if resolved_output == &OutputFormat::Json {
+    if mode == OutputMode::AgentJson {
         println!(r#"{{"status": "success", "db": "{}"}}"#, output_db);
     } else {
         println!("Data saved to table 'resampled_data' in {}", output_db);

@@ -1,4 +1,4 @@
-use crate::{config::EiderConfig, duckdb_utils, OutputFormat};
+use crate::{config::EiderConfig, duckdb_utils, ui::OutputMode};
 use color_eyre::eyre::{eyre, Result as EyreResult, WrapErr};
 
 pub async fn run_ingest(
@@ -6,7 +6,7 @@ pub async fn run_ingest(
     output_zarr_uri: String,
     chunks: Option<String>,
     value_column: Option<String>,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
     config: &EiderConfig,
 ) -> EyreResult<()> {
     if !std::path::Path::new(&input_file).exists() {
@@ -15,7 +15,7 @@ pub async fn run_ingest(
 
     let conn = duckdb_utils::setup_duckdb(config.s3.as_ref())?;
 
-    if resolved_output != &OutputFormat::Json {
+    if mode != OutputMode::AgentJson {
         println!("Loading DuckDB spatial extension...");
     }
     conn.execute("INSTALL spatial", [])
@@ -23,7 +23,7 @@ pub async fn run_ingest(
     conn.execute("LOAD spatial", [])
         .wrap_err("Failed to load spatial extension")?;
 
-    if resolved_output != &OutputFormat::Json {
+    if mode != OutputMode::AgentJson {
         println!("Reading legacy file into DuckDB...");
     }
 
@@ -50,7 +50,7 @@ pub async fn run_ingest(
         }
     }
 
-    if resolved_output != &OutputFormat::Json {
+    if mode != OutputMode::AgentJson {
         println!(
             "Calculated chunk shape: {}",
             serde_json::Value::Object(final_chunks.clone())
@@ -85,7 +85,7 @@ pub async fn run_ingest(
     };
     let query = "SELECT * FROM temp_ingest";
 
-    if resolved_output != &OutputFormat::Json {
+    if mode != OutputMode::AgentJson {
         println!("Starting streaming export to Zarr...");
     }
 
@@ -95,11 +95,11 @@ pub async fn run_ingest(
         &output_zarr_uri,
         &val_col,
         Some(serde_json::Value::Object(final_chunks).to_string()),
-        resolved_output == &OutputFormat::Json,
+        mode == OutputMode::AgentJson,
     )
     .await?;
 
-    if resolved_output == &OutputFormat::Json {
+    if mode == OutputMode::AgentJson {
         println!(r#"{{"status": "success", "uri": "{}"}}"#, output_zarr_uri);
     } else {
         println!("Ingestion complete! Data available at {}", output_zarr_uri);

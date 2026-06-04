@@ -1,7 +1,7 @@
 use crate::config::EiderConfig;
 use crate::duckdb_utils;
 use crate::ui;
-use crate::OutputFormat;
+use crate::ui::OutputMode;
 use color_eyre::eyre::{eyre, Result as EyreResult, WrapErr};
 use duckdb::Connection;
 use std::io::IsTerminal;
@@ -22,10 +22,10 @@ fn fetch_bounding_box(conn: &Connection, vector_path: &str) -> EyreResult<(f64, 
 fn check_overwrite_protection(
     out_path: &str,
     yes: bool,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
 ) -> EyreResult<bool> {
     if std::path::Path::new(out_path).exists() {
-        if *resolved_output == OutputFormat::Json {
+        if mode == OutputMode::AgentJson {
             return Err(eyre!(
                 "Output database '{}' already exists. Aborting to prevent overwrite.",
                 out_path
@@ -98,19 +98,19 @@ pub async fn run_extract(
     out: Option<String>,
     yes: bool,
     pin: Vec<String>,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
     config: &EiderConfig,
 ) -> EyreResult<()> {
-    let zarr_uri = ui::prompt_zarr_uri(&zarr_uri, *resolved_output == OutputFormat::Json).await?;
+    let zarr_uri = ui::prompt_zarr_uri(&zarr_uri, mode == OutputMode::AgentJson).await?;
     let out_path = out.or_else(|| config.default_out.clone()).ok_or_else(|| {
         eyre!("Output path not specified. Use --out or set default_out in config.")
     })?;
 
     let skip_prompts =
-        yes || !std::io::stdin().is_terminal() || *resolved_output == OutputFormat::Json;
+        yes || !std::io::stdin().is_terminal() || mode == OutputMode::AgentJson;
 
     // Overwrite protection
-    if !check_overwrite_protection(&out_path, yes, resolved_output)? {
+    if !check_overwrite_protection(&out_path, yes, mode)? {
         return Ok(());
     }
 
@@ -125,7 +125,7 @@ pub async fn run_extract(
     duckdb_utils::inject_s3_secret(&conn, config.s3.as_ref())?;
 
     // Install and load official spatial extension
-    if *resolved_output != OutputFormat::Json {
+    if mode != OutputMode::AgentJson {
         println!("Loading DuckDB spatial extension...");
     }
     conn.execute("INSTALL spatial", [])
@@ -157,12 +157,12 @@ pub async fn run_extract(
         )
         .wrap_err("Failed to execute planning query")?;
 
-    if *resolved_output != OutputFormat::Json
+    if mode != OutputMode::AgentJson
         && !print_extraction_plan(total_chunks, total_bytes, skip_prompts)?
     {
         return Ok(());
     }
-    let spinner = if *resolved_output != OutputFormat::Json {
+    let spinner = if mode != OutputMode::AgentJson {
         let pb =
             indicatif::ProgressBar::with_draw_target(None, indicatif::ProgressDrawTarget::stdout());
         pb.set_style(
@@ -197,7 +197,7 @@ pub async fn run_extract(
         println!("Extraction complete!");
     }
 
-    if *resolved_output == OutputFormat::Json {
+    if mode == OutputMode::AgentJson {
         println!(r#"{{"status": "success", "db": "{}"}}"#, out_path);
     } else {
         println!(

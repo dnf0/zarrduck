@@ -1,16 +1,16 @@
 use crate::config::EiderConfig;
 use crate::duckdb_utils;
 use crate::ui;
-use crate::OutputFormat;
+use crate::ui::OutputMode;
 use color_eyre::eyre::{eyre, Result as EyreResult};
 
 pub async fn run_info(
     uri: String,
     pin: Vec<String>,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
     config: &EiderConfig,
 ) -> EyreResult<()> {
-    let uri = ui::prompt_zarr_uri(&uri, *resolved_output == OutputFormat::Json).await?;
+    let uri = ui::prompt_zarr_uri(&uri, mode == OutputMode::AgentJson).await?;
     let conn = duckdb_utils::setup_duckdb(config.s3.as_ref())?;
     let escaped_uri = uri.replace('\'', "''");
     let pins_str = duckdb_utils::format_pins(&pin);
@@ -28,7 +28,7 @@ pub async fn run_info(
         let data_type: String = row.get(2)?;
         let crs: String = row.get(3)?;
 
-        if *resolved_output == OutputFormat::Json {
+        if mode == OutputMode::AgentJson {
             let json_out = serde_json::json!({
                 "uri": uri,
                 "array_shape": array_shape,
