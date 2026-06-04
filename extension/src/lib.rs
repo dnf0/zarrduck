@@ -5,6 +5,7 @@ pub use metadata_vtab::ReadZarrMetadataVTab;
 pub use table_function::{PlanReadZarrVTab, ReadZarrVTab};
 
 
+#[cfg(feature = "loadable-extension")]
 #[duckdb::duckdb_entrypoint_c_api(ext_name = "eider")]
 fn init(conn: duckdb::Connection) -> duckdb::Result<()> {
     conn.register_table_function::<ReadZarrVTab>("read_zarr")?;
