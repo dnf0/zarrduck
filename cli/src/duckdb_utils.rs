@@ -82,7 +82,7 @@ pub fn auto_calculate_chunks(
 }
 
 pub fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
-    let ext_name = "eider_extension.duckdb_extension";
+    let ext_name = "eider.duckdb_extension";
 
     let mut candidate_paths = vec![
         std::path::PathBuf::from(format!("./target/debug/{}", ext_name)),

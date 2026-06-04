@@ -7,12 +7,13 @@ fn test_cli_help_snapshot() {
     let assert = cmd.arg("--help").assert().success();
     let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
 
-    // We strip out versions and trailing spaces as they can make snapshots brittle
+    // We strip out versions, trailing spaces, and .exe extension (on Windows) as they can make snapshots brittle
     let cleaned_output = output
         .lines()
         .map(|l| l.trim_end())
         .collect::<Vec<_>>()
-        .join("\n");
+        .join("\n")
+        .replace("eider.exe", "eider");
 
     assert_snapshot!(cleaned_output);
 }

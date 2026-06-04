@@ -4,8 +4,8 @@ pub mod vector_writer;
 pub use metadata_vtab::ReadZarrMetadataVTab;
 pub use table_function::{PlanReadZarrVTab, ReadZarrVTab};
 
-#[cfg(feature = "loadable-extension")]
-#[duckdb::duckdb_entrypoint_c_api]
+
+#[duckdb::duckdb_entrypoint_c_api(ext_name = "eider")]
 fn init(conn: duckdb::Connection) -> duckdb::Result<()> {
     conn.register_table_function::<ReadZarrVTab>("read_zarr")?;
     conn.register_table_function::<PlanReadZarrVTab>("plan_read_zarr")?;

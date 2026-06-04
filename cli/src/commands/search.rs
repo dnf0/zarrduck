@@ -1,6 +1,7 @@
 use crate::{config::EiderConfig, stac, ui, ui::OutputMode};
 use color_eyre::eyre::{eyre, Result as EyreResult, WrapErr};
 use std::io::IsTerminal;
+use owo_colors::OwoColorize;
 
 #[derive(Clone)]
 struct SelectOption {
@@ -82,9 +83,9 @@ fn extract_assets(
                 }
 
                 let display = if desc.is_empty() {
-                    format!("{} [{}]", title, href)
+                    format!("{} [{}]", title.bold().cyan(), href.dimmed())
                 } else {
-                    format!("{} - {} [{}]", title, desc, href)
+                    format!("{} - {} [{}]", title.bold().cyan(), desc.italic(), href.dimmed())
                 };
 
                 found_options.push(SelectOption {
@@ -219,9 +220,9 @@ async fn get_selected_collection(
                 }
 
                 let display = if desc.is_empty() {
-                    format!("{} [{}]", title, id)
+                    format!("{} [{}]", title.bold().cyan(), id.dimmed())
                 } else {
-                    format!("{} - {} [{}]", title, desc, id)
+                    format!("{} - {} [{}]", title.bold().cyan(), desc.italic(), id.dimmed())
                 };
                 collection_options.push(SelectOption {
                     id: id.to_string(),
@@ -279,121 +280,113 @@ pub async fn run_search(
     let client = reqwest::Client::new();
     let selected_api = get_selected_api(api, mode, config)?;
 
-    let mut current_collection = collection.clone();
-    loop {
-        let selected_collection = match get_selected_collection(
-            &client,
-            &selected_api,
-            current_collection.as_ref(),
-            mode,
-        )
-        .await?
-        {
-            Some(c) => c,
-            None => return Ok(()),
-        };
+    let current_collection = collection.clone();
+    let selected_collection = match get_selected_collection(
+        &client,
+        &selected_api,
+        current_collection.as_ref(),
+        mode,
+    )
+    .await?
+    {
+        Some(c) => c,
+        None => return Ok(()),
+    };
 
-        let payload = build_stac_query(&selected_collection, bbox.as_ref(), datetime.as_ref())?;
+    let payload = build_stac_query(&selected_collection, bbox.as_ref(), datetime.as_ref())?;
 
-        let mut search_api = selected_api.clone();
-        if !search_api.ends_with("/search") {
-            search_api = format!("{}/search", search_api.trim_end_matches('/'));
-        }
+    let mut search_api = selected_api.clone();
+    if !search_api.ends_with("/search") {
+        search_api = format!("{}/search", search_api.trim_end_matches('/'));
+    }
 
-        if mode.is_human() {
-            eprintln!("Querying STAC API: {}", search_api);
-        }
+    if mode.is_human() {
+        eprintln!("Querying STAC API: {}", search_api);
+    }
 
-        let res = client
-            .post(&search_api)
-            .json(&payload)
-            .send()
-            .await
-            .wrap_err("Failed to send request to STAC API")?;
-        if !res.status().is_success() {
-            let status = res.status();
-            let text = res.text().await.unwrap_or_default();
-            return Err(eyre!("STAC API returned {}: {}", status, text));
-        }
+    let res = client
+        .post(&search_api)
+        .json(&payload)
+        .send()
+        .await
+        .wrap_err("Failed to send request to STAC API")?;
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        return Err(eyre!("STAC API returned {}: {}", status, text));
+    }
 
-        let mut stac_response: serde_json::Value = res
-            .json()
-            .await
-            .wrap_err("Failed to parse STAC API response")?;
+    let mut stac_response: serde_json::Value = res
+        .json()
+        .await
+        .wrap_err("Failed to parse STAC API response")?;
 
-        // If the `/search` response returned no features (or it's a dataset where the zarr is attached to the collection),
-        // let's fetch the collection itself to see if it has the assets.
-        if let Some(features) = stac_response.get("features").and_then(|f| f.as_array()) {
-            if features.is_empty() {
-                // Fetch the collection specifically
-                let collection_url = format!(
-                    "{}/collections/{}",
-                    selected_api.trim_end_matches('/'),
-                    selected_collection
-                );
-                if let Ok(col_res) = client.get(&collection_url).send().await {
-                    if let Ok(col_json) = col_res.json::<serde_json::Value>().await {
-                        stac_response = col_json;
-                    }
-                }
-            }
-        }
-
-        let found_options = parse_search_results(&stac_response);
-
-        if !mode.is_human() {
-            if mode == OutputMode::AgentJson {
-                output_json_results(&found_options);
-            } else {
-                for opt in &found_options {
-                    println!("{}", opt.id);
-                }
-            }
-            break;
-        } else if found_options.is_empty() {
-            eprintln!(
-                "No Zarr or COG URIs found in collection {}. Restarting selection loop...\n",
+    // If the `/search` response returned no features (or it's a dataset where the zarr is attached to the collection),
+    // let's fetch the collection itself to see if it has the assets.
+    if let Some(features) = stac_response.get("features").and_then(|f| f.as_array()) {
+        if features.is_empty() {
+            // Fetch the collection specifically
+            let collection_url = format!(
+                "{}/collections/{}",
+                selected_api.trim_end_matches('/'),
                 selected_collection
             );
-            current_collection = None;
-            continue;
-        } else {
-            let selection_id = if found_options.len() == 1 {
-                found_options[0].id.clone()
-            } else {
-                let prompt_msg = format!(
-                    "Found {} Data URIs. Select a dataset to use:",
-                    found_options.len()
-                );
-                let mut select =
-                    inquire::Select::new(&prompt_msg, found_options).with_page_size(10);
-                select.scorer = &|input, _, string_value, _| {
-                    let input = input.to_lowercase();
-                    let val = string_value.to_lowercase();
-                    if input.split_whitespace().all(|word| val.contains(word)) {
-                        Some(1)
-                    } else {
-                        None
-                    }
-                };
-                let chosen = select.prompt()?;
-                chosen.id
-            };
-
-            // Resolve the specific channel/array from the Zarr group
-            let resolved_uri = ui::prompt_zarr_uri(&selection_id, mode).await?;
-
-            if std::io::stdout().is_terminal() {
-                println!("✅ Selected Dataset: {}", resolved_uri);
-                println!("You can now extract this data using:");
-                println!("eider extract {} <your-vector-file.geojson>", resolved_uri);
-            } else {
-                // If piped, just output the URL cleanly to stdout
-                println!("{}", resolved_uri);
-                eprintln!("✅ Selected Dataset: {}", resolved_uri);
-                eprintln!("You can now extract this data using: eider extract {} <your-vector-file.geojson>", resolved_uri);
+            if let Ok(col_res) = client.get(&collection_url).send().await {
+                if let Ok(col_json) = col_res.json::<serde_json::Value>().await {
+                    stac_response = col_json;
+                }
             }
-            break;
+        }
+    }
+
+    let found_options = parse_search_results(&stac_response);
+
+    if !mode.is_human() {
+        if mode == OutputMode::AgentJson {
+            output_json_results(&found_options);
+        } else {
+            for opt in &found_options {
+                println!("{}", opt.id);
+            }
+        }
+    } else if found_options.is_empty() {
+        return Err(eyre!(
+            "No Zarr or COG URIs found in collection {}.",
+            selected_collection
+        ));
+    } else {
+        let selection_id = if found_options.len() == 1 {
+            found_options[0].id.clone()
+        } else {
+            let prompt_msg = format!(
+                "Found {} Data URIs. Select a dataset to use:",
+                found_options.len()
+            );
+            let mut select =
+                inquire::Select::new(&prompt_msg, found_options).with_page_size(10);
+            select.scorer = &|input, _, string_value, _| {
+                let input = input.to_lowercase();
+                let val = string_value.to_lowercase();
+                if input.split_whitespace().all(|word| val.contains(word)) {
+                    Some(1)
+                } else {
+                    None
+                }
+            };
+            let chosen = select.prompt()?;
+            chosen.id
+        };
+
+        // Resolve the specific channel/array from the Zarr group
+        let resolved_uri = ui::prompt_zarr_uri(&selection_id, mode).await?;
+
+        if std::io::stdout().is_terminal() {
+            println!("{} Selected Dataset: {}", "✔".green(), resolved_uri.magenta());
+            println!("You can now extract this data using:");
+            println!("  eider extract {} <your-vector-file.geojson>", resolved_uri.cyan());
+        } else {
+            // If piped, just output the URL cleanly to stdout
+            println!("{}", resolved_uri);
         }
     }
     Ok(())

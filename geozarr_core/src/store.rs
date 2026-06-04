@@ -6,6 +6,107 @@ pub struct ResolvedStore {
     pub is_remote: bool,
 }
 
+pub struct AsyncToSyncOpendalStore {
+    operator: opendal::Operator,
+}
+
+impl AsyncToSyncOpendalStore {
+    pub fn new(operator: opendal::Operator) -> Self {
+        Self { operator }
+    }
+}
+
+impl ReadableStorageTraits for AsyncToSyncOpendalStore {
+    fn get(&self, key: &zarrs::storage::StoreKey) -> Result<Option<bytes::Bytes>, zarrs::storage::StorageError> {
+        let op = self.operator.clone();
+        let key_str = key.as_str().to_string();
+        
+        let res = std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                match op.read(&key_str).await {
+                    Ok(bytes) => Ok(Some(bytes::Bytes::from(bytes.to_vec()))),
+                    Err(e) if e.kind() == opendal::ErrorKind::NotFound => Ok(None),
+                    Err(e) => Err(zarrs::storage::StorageError::Other(e.to_string())),
+                }
+            })
+        }).join().unwrap();
+        
+        res
+    }
+
+    fn get_partial_values_key(
+        &self,
+        key: &zarrs::storage::StoreKey,
+        byte_ranges: &[zarrs::byte_range::ByteRange],
+    ) -> Result<Option<Vec<bytes::Bytes>>, zarrs::storage::StorageError> {
+        let op = self.operator.clone();
+        let key_str = key.as_str().to_string();
+        let ranges = byte_ranges.to_vec();
+        
+        let res = std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                match op.read(&key_str).await {
+                    Ok(bytes) => {
+                        let mut out = Vec::with_capacity(ranges.len());
+                        for r in ranges {
+                            let start = match r {
+                                zarrs::byte_range::ByteRange::FromStart(offset, _) => offset,
+                                _ => 0,
+                            };
+                            let end = match r {
+                                zarrs::byte_range::ByteRange::FromStart(offset, Some(len)) => offset + len,
+                                _ => bytes.len() as u64,
+                            };
+                            let slice = bytes.slice(start as usize..end as usize);
+                            out.push(bytes::Bytes::from(slice.to_vec()));
+                        }
+                        Ok(Some(out))
+                    },
+                    Err(e) if e.kind() == opendal::ErrorKind::NotFound => Ok(None),
+                    Err(e) => Err(zarrs::storage::StorageError::Other(e.to_string())),
+                }
+            })
+        }).join().unwrap();
+        
+        res
+    }
+
+    fn size_key(&self, key: &zarrs::storage::StoreKey) -> Result<Option<u64>, zarrs::storage::StorageError> {
+        let op = self.operator.clone();
+        let key_str = key.as_str().to_string();
+        
+        let res = std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                match op.stat(&key_str).await {
+                    Ok(meta) => Ok(Some(meta.content_length())),
+                    Err(e) if e.kind() == opendal::ErrorKind::NotFound => Ok(None),
+                    Err(e) => Err(zarrs::storage::StorageError::Other(e.to_string())),
+                }
+            })
+        }).join().unwrap();
+        
+        res
+    }
+}
+
+impl zarrs::storage::ListableStorageTraits for AsyncToSyncOpendalStore {
+    fn list(&self) -> Result<zarrs::storage::StoreKeys, zarrs::storage::StorageError> {
+        Err(zarrs::storage::StorageError::Other("list not supported".into()))
+    }
+    fn list_prefix(&self, _prefix: &zarrs::storage::StorePrefix) -> Result<zarrs::storage::StoreKeys, zarrs::storage::StorageError> {
+        Err(zarrs::storage::StorageError::Other("list_prefix not supported".into()))
+    }
+    fn list_dir(&self, _prefix: &zarrs::storage::StorePrefix) -> Result<zarrs::storage::StoreKeysPrefixes, zarrs::storage::StorageError> {
+        Err(zarrs::storage::StorageError::Other("list_dir not supported".into()))
+    }
+    fn size_prefix(&self, _prefix: &zarrs::storage::StorePrefix) -> Result<u64, zarrs::storage::StorageError> {
+        Err(zarrs::storage::StorageError::Other("size_prefix not supported".into()))
+    }
+}
+
 pub fn resolve_sync_store(
     path: &str,
 ) -> std::result::Result<ResolvedStore, Box<dyn std::error::Error>> {
@@ -37,9 +138,7 @@ pub fn resolve_sync_store(
                 meta,
             ))
         } else {
-            Arc::new(zarrs::storage::store::OpendalStore::new(
-                async_operator.blocking(),
-            ))
+            Arc::new(AsyncToSyncOpendalStore::new(async_operator))
         };
 
         Ok(ResolvedStore {
@@ -68,9 +167,7 @@ pub fn resolve_sync_store(
                 meta,
             ))
         } else {
-            Arc::new(zarrs::storage::store::OpendalStore::new(
-                async_operator.blocking(),
-            ))
+            Arc::new(AsyncToSyncOpendalStore::new(async_operator))
         };
 
         Ok(ResolvedStore {
