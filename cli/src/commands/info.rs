@@ -45,11 +45,31 @@ pub async fn run_info(
                 "### GeoZarr Dataset Info".to_string()
             };
             println!("{}", title);
-            println!("{}: {}", ui::format_key("URI", mode), ui::format_value(&uri, mode));
-            println!("{}: {}", ui::format_key("Shape", mode), ui::format_value(&array_shape, mode));
-            println!("{}: {}", ui::format_key("Chunks", mode), ui::format_value(&chunk_shape, mode));
-            println!("{}: {}", ui::format_key("Type", mode), ui::format_value(&data_type, mode));
-            println!("{}: {}", ui::format_key("CRS", mode), ui::format_value(&crs, mode));
+            println!(
+                "{}: {}",
+                ui::format_key("URI", mode),
+                ui::format_value(&uri, mode)
+            );
+            println!(
+                "{}: {}",
+                ui::format_key("Shape", mode),
+                ui::format_value(&array_shape, mode)
+            );
+            println!(
+                "{}: {}",
+                ui::format_key("Chunks", mode),
+                ui::format_value(&chunk_shape, mode)
+            );
+            println!(
+                "{}: {}",
+                ui::format_key("Type", mode),
+                ui::format_value(&data_type, mode)
+            );
+            println!(
+                "{}: {}",
+                ui::format_key("CRS", mode),
+                ui::format_value(&crs, mode)
+            );
         }
     } else {
         return Err(eyre!("Failed to read metadata for {}", uri));

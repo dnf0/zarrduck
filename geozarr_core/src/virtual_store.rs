@@ -59,7 +59,10 @@ impl ReadableStorageTraits for VirtualCogStore {
                 "filters": null,
                 "order": "C"
             }}"#,
-                self.meta.image_length, self.meta.image_width, self.meta.tile_length, self.meta.tile_width
+                self.meta.image_length,
+                self.meta.image_width,
+                self.meta.tile_length,
+                self.meta.tile_width
             );
             return Ok(Some(Bytes::from(json)));
         }
@@ -67,31 +70,30 @@ impl ReadableStorageTraits for VirtualCogStore {
         let chunks: Vec<&str> = key.as_str().split('.').collect();
         if chunks.len() == 2 {
             if let (Ok(y), Ok(x)) = (chunks[0].parse::<usize>(), chunks[1].parse::<usize>()) {
+                let grid_width =
+                    (self.meta.image_width as f64 / self.meta.tile_width as f64).ceil() as usize;
+                let flat_idx = y * grid_width + x;
 
-            let grid_width = (self.meta.image_width as f64 / self.meta.tile_width as f64)
-                .ceil() as usize;
-            let flat_idx = y * grid_width + x;
+                if flat_idx < self.meta.tile_offsets.len() {
+                    let offset = self.meta.tile_offsets[flat_idx];
+                    let length = self.meta.tile_byte_counts[flat_idx];
 
-                    if flat_idx < self.meta.tile_offsets.len() {
-                        let offset = self.meta.tile_offsets[flat_idx];
-                        let length = self.meta.tile_byte_counts[flat_idx];
+                    let op = self.operator.clone();
+                    let fname = self.filename.clone();
+                    let range = offset..offset + length;
+                    // Spawning a new thread to block on the async read
+                    let bytes_res = std::thread::spawn(move || {
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        rt.block_on(async { op.read_with(&fname).range(range).await })
+                            .map_err(|e| e.to_string())
+                    })
+                    .join()
+                    .unwrap();
 
-                        let op = self.operator.clone();
-                        let fname = self.filename.clone();
-                        let range = offset..offset + length;
-                        // Spawning a new thread to block on the async read
-                        let bytes_res = std::thread::spawn(move || {
-                            let rt = tokio::runtime::Runtime::new().unwrap();
-                            rt.block_on(async { op.read_with(&fname).range(range).await })
-                                .map_err(|e| e.to_string())
-                        })
-                        .join()
-                        .unwrap();
-
-                        if let Ok(bytes) = bytes_res {
-                            return Ok(Some(Bytes::from(bytes.to_vec())));
-                        }
+                    if let Ok(bytes) = bytes_res {
+                        return Ok(Some(Bytes::from(bytes.to_vec())));
                     }
+                }
             }
         }
         Ok(None)
@@ -167,7 +169,7 @@ mod tests {
         let op = opendal::Operator::new(opendal::services::Memory::default())
             .unwrap()
             .finish();
-        let store = VirtualCogStore::new(op, meta);
+        let store = VirtualCogStore::new(op, "".to_string(), meta);
 
         // Zarrs ReadableStorageTraits implementation test
         use zarrs::storage::ReadableStorageTraits;
