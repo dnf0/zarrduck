@@ -3,6 +3,7 @@ import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 
 import styles from './index.module.css';
 
@@ -43,7 +44,7 @@ export default function Home(): JSX.Element {
                 Eider connects DuckDB's vectorized execution engine directly to multi-dimensional arrays in cloud storage via OpenDAL and Zarrs. It bridges the gap between data-science Python pipelines and fast analytical SQL.
               </p>
               <div className="glass-panel margin-top--lg margin-bottom--xl">
-                <img src="/eider/img/demo.gif" alt="Eider STAC Discovery TUI Demo" style={{borderRadius: '8px'}} />
+                <img src={useBaseUrl('/img/demo.gif')} alt="Eider STAC Discovery TUI Demo" style={{borderRadius: '8px'}} />
               </div>
             </div>
           </div>
