@@ -1,0 +1,21 @@
+import { HeadToHeadPlot, ScalingPlot } from '@site/src/components/BenchmarkPlots';
+
+# Performance Benchmarks
+
+Eider was designed to push the physical limits of network I/O and single-core SIMD throughput. All benchmarks use the NCEP CDAS reanalysis surface air temperature dataset.
+
+## Head-to-Head: Eider vs Python Ecosystem
+
+Query: Extract all grid cells within the California bounding box (−125°–−115°, 30°–45°), returning 32,830 rows from a remote Zarr store.
+
+<HeadToHeadPlot />
+
+Eider matches or beats the fastest available Python Zarr library (even the Rust-backed `zarrs` pipeline) because it avoids generating physical numpy arrays inside Python, instead streaming directly into DuckDB vectors.
+
+## Code Generation Latency
+
+To achieve these speeds, Eider lazily evaluates coordinates (Lat/Lon) via affine transform dynamically, rather than fetching them over the network. 
+
+<ScalingPlot />
+
+Generating a block of 2,048 projected coordinates natively inside the extension costs **~9.5 µs**, making the math essentially free compared to network latency.
