@@ -228,16 +228,8 @@ async fn execute_command(
             yes,
             pin,
         } => {
-            commands::extract::run_extract(
-                zarr_uri,
-                vector_path,
-                out,
-                yes,
-                pin,
-                mode,
-                &config,
-            )
-            .await?;
+            commands::extract::run_extract(zarr_uri, vector_path, out, yes, pin, mode, &config)
+                .await?;
         }
         Commands::Shell { db_path } => {
             commands::shell::run_shell(db_path)?;
@@ -271,15 +263,7 @@ async fn execute_command(
             bbox,
             datetime,
         } => {
-            commands::search::run_search(
-                api,
-                collection,
-                bbox,
-                datetime,
-                mode,
-                &config,
-            )
-            .await?;
+            commands::search::run_search(api, collection, bbox, datetime, mode, &config).await?;
         }
         Commands::Resample {
             input_db,

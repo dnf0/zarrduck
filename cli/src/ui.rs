@@ -1,5 +1,5 @@
-use std::io::IsTerminal;
 use owo_colors::OwoColorize;
+use std::io::IsTerminal;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
@@ -116,32 +116,50 @@ mod tests {
     fn test_detect_json() {
         assert_eq!(OutputMode::detect(true), OutputMode::AgentJson);
     }
-    
+
     #[test]
     fn test_format_key() {
         assert_eq!(format_key("test", OutputMode::Agent), "test");
         assert_eq!(format_key("test", OutputMode::AgentJson), "test");
-        assert_eq!(format_key("test", OutputMode::Human), "test".cyan().to_string());
+        assert_eq!(
+            format_key("test", OutputMode::Human),
+            "test".cyan().to_string()
+        );
     }
 
     #[test]
     fn test_format_value() {
         assert_eq!(format_value("val", OutputMode::Agent), "val");
         assert_eq!(format_value("val", OutputMode::AgentJson), "val");
-        assert_eq!(format_value("val", OutputMode::Human), "val".magenta().to_string());
+        assert_eq!(
+            format_value("val", OutputMode::Human),
+            "val".magenta().to_string()
+        );
     }
 
     #[test]
     fn test_format_success() {
         assert_eq!(format_success("done", OutputMode::Agent), "- SUCCESS: done");
-        assert_eq!(format_success("done", OutputMode::AgentJson), "- SUCCESS: done");
-        assert_eq!(format_success("done", OutputMode::Human), format!("{} done", "✔".green()));
+        assert_eq!(
+            format_success("done", OutputMode::AgentJson),
+            "- SUCCESS: done"
+        );
+        assert_eq!(
+            format_success("done", OutputMode::Human),
+            format!("{} done", "✔".green())
+        );
     }
 
     #[test]
     fn test_format_error() {
         assert_eq!(format_error("abort", OutputMode::Agent), "- ERROR: abort");
-        assert_eq!(format_error("abort", OutputMode::AgentJson), "- ERROR: abort");
-        assert_eq!(format_error("abort", OutputMode::Human), format!("{} abort", "✖".red()));
+        assert_eq!(
+            format_error("abort", OutputMode::AgentJson),
+            "- ERROR: abort"
+        );
+        assert_eq!(
+            format_error("abort", OutputMode::Human),
+            format!("{} abort", "✖".red())
+        );
     }
 }

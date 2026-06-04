@@ -19,11 +19,7 @@ fn fetch_bounding_box(conn: &Connection, vector_path: &str) -> EyreResult<(f64, 
     Ok(bounds)
 }
 
-fn check_overwrite_protection(
-    out_path: &str,
-    yes: bool,
-    mode: OutputMode,
-) -> EyreResult<bool> {
+fn check_overwrite_protection(out_path: &str, yes: bool, mode: OutputMode) -> EyreResult<bool> {
     if std::path::Path::new(out_path).exists() {
         if mode == OutputMode::AgentJson {
             return Err(eyre!(
@@ -71,15 +67,27 @@ fn print_extraction_plan(
     }
     let chunks_str = format!("{} chunks", total_chunks);
     let vol_str = format!("{:.2} MB", total_bytes as f64 / 1_048_576.0);
-    println!("{}: {}", ui::format_key("Target Area", mode), ui::format_value(&chunks_str, mode));
-    println!("{}: {}", ui::format_key("Data Volume", mode), ui::format_value(&vol_str, mode));
+    println!(
+        "{}: {}",
+        ui::format_key("Target Area", mode),
+        ui::format_value(&chunks_str, mode)
+    );
+    println!(
+        "{}: {}",
+        ui::format_key("Data Volume", mode),
+        ui::format_value(&vol_str, mode)
+    );
     println!();
     let time_str = if estimated_seconds < 60.0 {
         format!("{:.0} seconds (@ 25 MB/s)", estimated_seconds)
     } else {
         format!("{:.1} minutes (@ 25 MB/s)", estimated_seconds / 60.0)
     };
-    println!("{}: {}\n", ui::format_key("Estimated Time", mode), ui::format_value(&time_str, mode));
+    println!(
+        "{}: {}\n",
+        ui::format_key("Estimated Time", mode),
+        ui::format_value(&time_str, mode)
+    );
 
     if !skip_prompts {
         let ans = inquire::Confirm::new("Proceed with extraction?")
@@ -109,8 +117,7 @@ pub async fn run_extract(
         eyre!("Output path not specified. Use --out or set default_out in config.")
     })?;
 
-    let skip_prompts =
-        yes || !std::io::stdin().is_terminal() || mode == OutputMode::AgentJson;
+    let skip_prompts = yes || !std::io::stdin().is_terminal() || mode == OutputMode::AgentJson;
 
     // Overwrite protection
     if !check_overwrite_protection(&out_path, yes, mode)? {

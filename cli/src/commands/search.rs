@@ -38,45 +38,67 @@ fn build_stac_query(
     Ok(payload)
 }
 
+fn is_supported_asset(asset: &serde_json::Value) -> bool {
+    let t = asset.get("type").and_then(|t| t.as_str()).unwrap_or("");
+    let href = asset.get("href").and_then(|h| h.as_str()).unwrap_or("");
+
+    let is_zarr = t.contains("zarr") || href.ends_with(".zarr") || href.contains(".zarr/");
+    let is_cog = t.contains("tiff")
+        || t.contains("cog")
+        || href.ends_with(".tif")
+        || href.ends_with(".tiff");
+
+    is_zarr || is_cog
+}
+
+fn extract_assets(
+    assets: &serde_json::Map<String, serde_json::Value>,
+    found_uris: &mut Vec<String>,
+    found_options: &mut Vec<String>,
+) {
+    for (_, asset) in assets {
+        if is_supported_asset(asset) {
+            if let Some(href) = asset.get("href").and_then(|h| h.as_str()) {
+                let title = asset.get("title").and_then(|t| t.as_str()).unwrap_or(href);
+                let mut desc = asset
+                    .get("description")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("")
+                    .replace('\n', " ");
+                if desc.len() > 80 {
+                    desc.truncate(77);
+                    desc.push_str("...");
+                }
+
+                if desc.is_empty() {
+                    found_options.push(format!("{} - {}", href, title));
+                } else {
+                    found_options.push(format!("{} - {} ({})", href, title, desc));
+                }
+                found_uris.push(href.to_string());
+            }
+        }
+    }
+}
+
 fn parse_search_results(stac_response: &serde_json::Value) -> (Vec<String>, Vec<String>) {
     let mut found_uris = Vec::new();
     let mut found_options = Vec::new();
 
+    // Check features (items)
     if let Some(features) = stac_response.get("features").and_then(|f| f.as_array()) {
         for feature in features {
             if let Some(assets) = feature.get("assets").and_then(|a| a.as_object()) {
-                for (_, asset) in assets {
-                    if let Some(href) = asset.get("href").and_then(|h| h.as_str()) {
-                        let is_zarr_type = asset
-                            .get("type")
-                            .and_then(|t| t.as_str())
-                            .is_some_and(|t| t.contains("zarr"));
-                        let is_zarr_href = href.ends_with(".zarr") || href.contains(".zarr/");
-
-                        if is_zarr_type || is_zarr_href {
-                            let title = asset.get("title").and_then(|t| t.as_str()).unwrap_or(href);
-                            let mut desc = asset
-                                .get("description")
-                                .and_then(|d| d.as_str())
-                                .unwrap_or("")
-                                .replace('\n', " ");
-                            if desc.len() > 80 {
-                                desc.truncate(77);
-                                desc.push_str("...");
-                            }
-
-                            if desc.is_empty() {
-                                found_options.push(format!("{} - {}", href, title));
-                            } else {
-                                found_options.push(format!("{} - {} ({})", href, title, desc));
-                            }
-                            found_uris.push(href.to_string());
-                        }
-                    }
-                }
+                extract_assets(assets, &mut found_uris, &mut found_options);
             }
         }
     }
+
+    // Check if the response itself is a collection with assets
+    if let Some(assets) = stac_response.get("assets").and_then(|a| a.as_object()) {
+        extract_assets(assets, &mut found_uris, &mut found_options);
+    }
+
     (found_uris, found_options)
 }
 
@@ -157,6 +179,19 @@ async fn get_selected_collection(
     {
         for col in collections {
             if let Some(id) = col.get("id").and_then(|id| id.as_str()) {
+                let mut has_supported_data = false;
+                if let Some(assets) = col.get("assets").and_then(|a| a.as_object()) {
+                    has_supported_data = assets.values().any(is_supported_asset);
+                }
+                if !has_supported_data {
+                    if let Some(item_assets) = col.get("item_assets").and_then(|a| a.as_object()) {
+                        has_supported_data = item_assets.values().any(is_supported_asset);
+                    }
+                }
+                if !has_supported_data {
+                    continue; // Skip collections that don't declare Zarr or COG assets
+                }
+
                 let title = col.get("title").and_then(|t| t.as_str()).unwrap_or(id);
                 let mut desc = col
                     .get("description")
@@ -262,10 +297,28 @@ pub async fn run_search(
             return Err(eyre!("STAC API returned {}: {}", status, text));
         }
 
-        let stac_response: serde_json::Value = res
+        let mut stac_response: serde_json::Value = res
             .json()
             .await
             .wrap_err("Failed to parse STAC API response")?;
+
+        // If the `/search` response returned no features (or it's a dataset where the zarr is attached to the collection),
+        // let's fetch the collection itself to see if it has the assets.
+        if let Some(features) = stac_response.get("features").and_then(|f| f.as_array()) {
+            if features.is_empty() {
+                // Fetch the collection specifically
+                let collection_url = format!(
+                    "{}/collections/{}",
+                    selected_api.trim_end_matches('/'),
+                    selected_collection
+                );
+                if let Ok(col_res) = client.get(&collection_url).send().await {
+                    if let Ok(col_json) = col_res.json::<serde_json::Value>().await {
+                        stac_response = col_json;
+                    }
+                }
+            }
+        }
 
         let (found_uris, found_options) = parse_search_results(&stac_response);
 
@@ -280,7 +333,7 @@ pub async fn run_search(
             break;
         } else if found_uris.is_empty() {
             println!(
-                "No Zarr URIs found in collection {}. Restarting selection loop...\n",
+                "No Zarr or COG URIs found in collection {}. Restarting selection loop...\n",
                 selected_collection
             );
             current_collection = None;
@@ -290,7 +343,7 @@ pub async fn run_search(
                 found_uris[0].clone()
             } else {
                 let prompt_msg = format!(
-                    "Found {} Zarr URIs. Select a dataset to use:",
+                    "Found {} Data URIs. Select a dataset to use:",
                     found_options.len()
                 );
                 let mut select =
