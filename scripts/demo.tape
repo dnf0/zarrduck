@@ -1,13 +1,20 @@
 Output docs/src/demo.gif
 
 Set FontSize 16
+Set FontFamily "Geist Mono, Berkeley Mono, Fira Code, JetBrains Mono, Menlo, Apple Color Emoji"
 Set Width 1200
-Set Height 800
-Set TypingSpeed 50ms
+Set Height 900
+Set Padding 18
+Set LineHeight 1.12
+Set TypingSpeed 28ms
+Set CursorBlink false
+Set Framerate 30
 Set Theme "Dracula"
 
 Hide
 Type "export PATH=$PWD/target/debug:$PATH"
+Enter
+Type "export PS1='❯ '"
 Enter
 Type "rm -f *.duckdb"
 Enter
