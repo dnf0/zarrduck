@@ -16,15 +16,15 @@
 - Create: `docs_new/` (via scaffolding)
 - Modify: `docs_new/package.json`
 
-- [ ] **Step 1: Scaffold the Docusaurus site**
+- [ ] **Step 1: Scaffold the Docusaurus site and clean up**
 
-Run: `cd /Users/danielfisher/repos/zarrduck && npx -y create-docusaurus@latest docs_new classic --typescript`
-Expected: Successfully generates the base template.
+Run: `cd /Users/danielfisher/repos/zarrduck && npx -y create-docusaurus@latest docs_new classic --typescript && rm -rf docs_new/blog`
+Expected: Successfully generates the base template without the default blog.
 
-- [ ] **Step 2: Install required plugins for Mermaid and Plotly**
+- [ ] **Step 2: Install required plugins and types**
 
-Run: `cd /Users/danielfisher/repos/zarrduck/docs_new && npm install react-plotly.js plotly.js mdx-mermaid @docusaurus/theme-mermaid`
-Expected: Dependencies installed in `package.json`.
+Run: `cd /Users/danielfisher/repos/zarrduck/docs_new && npm install react-plotly.js plotly.js @docusaurus/theme-mermaid && npm install --save-dev @types/react-plotly.js @types/plotly.js`
+Expected: Dependencies and devDependencies installed in `package.json`.
 
 - [ ] **Step 3: Configure Docusaurus plugins**
 
@@ -61,8 +61,9 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/dnf0/eider/tree/main/',
+          editUrl: 'https://github.com/dnf0/eider/tree/main/docs/',
         },
+        blog: false,
         theme: {
           customCss: './src/css/custom.css',
         },
