@@ -104,7 +104,7 @@ fn print_extraction_plan(
 }
 
 pub async fn run_extract(
-    zarr_uri: String,
+    mut zarr_uri: String,
     vector_path: String,
     out: Option<String>,
     yes: bool,
@@ -112,6 +112,17 @@ pub async fn run_extract(
     mode: OutputMode,
     config: &EiderConfig,
 ) -> EyreResult<()> {
+    if zarr_uri == "-" {
+        let mut buffer = String::new();
+        std::io::stdin()
+            .read_line(&mut buffer)
+            .wrap_err("Failed to read Zarr URI from standard input")?;
+        zarr_uri = buffer.trim().to_string();
+        if zarr_uri.is_empty() {
+            return Err(eyre!("Empty Zarr URI received from standard input"));
+        }
+    }
+
     let zarr_uri = ui::prompt_zarr_uri(&zarr_uri, mode).await?;
     let out_path = out.or_else(|| config.default_out.clone()).ok_or_else(|| {
         eyre!("Output path not specified. Use --out or set default_out in config.")
