@@ -18,5 +18,3 @@ criterion = "0.5"
 [[bench]]
 name = "scanner_bench"
 harness = false
-
-
