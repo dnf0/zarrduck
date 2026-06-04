@@ -296,7 +296,7 @@ pub async fn run_search(
             };
 
             // Resolve the specific channel/array from the Zarr group
-            let resolved_uri = ui::prompt_zarr_uri(&selection, false).await?;
+            let resolved_uri = ui::prompt_zarr_uri(&selection, mode).await?;
 
             println!("Selected Dataset: {}", resolved_uri);
             println!("You can now extract this data using:");

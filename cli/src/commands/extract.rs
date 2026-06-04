@@ -104,7 +104,7 @@ pub async fn run_extract(
     mode: OutputMode,
     config: &EiderConfig,
 ) -> EyreResult<()> {
-    let zarr_uri = ui::prompt_zarr_uri(&zarr_uri, mode == OutputMode::AgentJson).await?;
+    let zarr_uri = ui::prompt_zarr_uri(&zarr_uri, mode).await?;
     let out_path = out.or_else(|| config.default_out.clone()).ok_or_else(|| {
         eyre!("Output path not specified. Use --out or set default_out in config.")
     })?;

@@ -19,13 +19,11 @@ impl OutputMode {
         }
     }
 
-    #[allow(dead_code)]
     pub fn is_human(&self) -> bool {
         *self == OutputMode::Human
     }
 }
 
-#[allow(dead_code)]
 pub fn format_key(key: &str, mode: OutputMode) -> String {
     if mode.is_human() {
         key.cyan().to_string()
@@ -34,7 +32,6 @@ pub fn format_key(key: &str, mode: OutputMode) -> String {
     }
 }
 
-#[allow(dead_code)]
 pub fn format_value(val: &str, mode: OutputMode) -> String {
     if mode.is_human() {
         val.magenta().to_string()
@@ -43,7 +40,6 @@ pub fn format_value(val: &str, mode: OutputMode) -> String {
     }
 }
 
-#[allow(dead_code)]
 pub fn format_success(msg: &str, mode: OutputMode) -> String {
     if mode.is_human() {
         format!("{} {}", "✔".green(), msg)
@@ -52,7 +48,6 @@ pub fn format_success(msg: &str, mode: OutputMode) -> String {
     }
 }
 
-#[allow(dead_code)]
 pub fn format_error(msg: &str, mode: OutputMode) -> String {
     if mode.is_human() {
         format!("{} {}", "✖".red(), msg)
@@ -63,7 +58,7 @@ pub fn format_error(msg: &str, mode: OutputMode) -> String {
 
 use color_eyre::eyre::{eyre, Result};
 
-pub async fn prompt_zarr_uri(uri: &str, is_json: bool) -> Result<String> {
+pub async fn prompt_zarr_uri(uri: &str, mode: OutputMode) -> Result<String> {
     let arrays = geozarr_core::store::list_arrays(uri)
         .await
         .map_err(|e| eyre!("{e}"))?;
@@ -79,7 +74,7 @@ pub async fn prompt_zarr_uri(uri: &str, is_json: bool) -> Result<String> {
     }
 
     // It is a group containing arrays
-    if is_json {
+    if mode != OutputMode::Human {
         return Err(eyre!(
             "Provided URI '{}' is a Zarr Group containing multiple datasets ({:?}). Please provide the exact path to a dataset.",
             uri, arrays

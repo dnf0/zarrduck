@@ -11,7 +11,7 @@ pub async fn run_info(
     mode: OutputMode,
     config: &EiderConfig,
 ) -> EyreResult<()> {
-    let uri = ui::prompt_zarr_uri(&uri, mode == OutputMode::AgentJson).await?;
+    let uri = ui::prompt_zarr_uri(&uri, mode).await?;
     let conn = duckdb_utils::setup_duckdb(config.s3.as_ref())?;
     let escaped_uri = uri.replace('\'', "''");
     let pins_str = duckdb_utils::format_pins(&pin);
