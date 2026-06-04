@@ -8,7 +8,7 @@ zarrs = { version = "0.16.4", features = ["opendal", "async"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 opendal = { version = "0.48", features = ["services-s3", "services-http", "services-fs"] }
-tokio = { version = "1.0", features = ["sync", "rt", "macros"] }
+tokio = { version = "1.0", features = ["sync", "rt", "macros", "rt-multi-thread"] }
 bytes = "1.11.1"
 
 [dev-dependencies]
@@ -18,3 +18,19 @@ criterion = "0.5"
 [[bench]]
 name = "scanner_bench"
 harness = false
+
+[[bin]]
+name = "test_async_zarrs"
+path = "src/test_async_zarrs.rs"
+
+[[bin]]
+name = "test_async_zarrs2"
+path = "src/test_async_zarrs2.rs"
+
+[[bin]]
+name = "test_async_zarrs3"
+path = "src/test_async_zarrs3.rs"
+
+[[bin]]
+name = "test_async_metadata"
+path = "src/test_async_metadata.rs"

@@ -9,6 +9,9 @@ resolver = "2"
 [profile.dev]
 debug = 0 # Disable debug info to save disk space (duckdb-sys debug symbols are massive)
 
+[profile.test]
+debug = 0 # Disable debug info for tests as well to avoid Windows LNK1201 PDB error
+
 [profile.release]
 opt-level = "s"      # Optimize for size
 strip = true         # Strip symbols from binary
