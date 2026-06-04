@@ -1,8 +1,8 @@
 // geozarr_core/src/virtual_store.rs
-use zarrs::storage::{ReadableStorageTraits, StoreKey, StorePrefix, ListableStorageTraits};
-use zarrs::byte_range::ByteRange;
-use bytes::Bytes;
 use crate::cog::CogMetadata;
+use bytes::Bytes;
+use zarrs::byte_range::ByteRange;
+use zarrs::storage::{ListableStorageTraits, ReadableStorageTraits, StoreKey, StorePrefix};
 
 pub struct VirtualCogStore {
     operator: opendal::Operator,
@@ -13,7 +13,8 @@ pub struct VirtualCogStore {
 impl VirtualCogStore {
     pub fn new(operator: opendal::Operator, meta: CogMetadata) -> Self {
         // Synthesize a .zmetadata JSON
-        let json = format!(r#"{{
+        let json = format!(
+            r#"{{
             "metadata": {{
                 ".zgroup": {{ "zarr_format": 2 }},
                 "data/.zarray": {{
@@ -28,8 +29,10 @@ impl VirtualCogStore {
                 }}
             }},
             "zarr_consolidated_format": 1
-        }}"#, meta.image_length, meta.image_width, meta.tile_length, meta.tile_width);
-        
+        }}"#,
+            meta.image_length, meta.image_width, meta.tile_length, meta.tile_width
+        );
+
         Self {
             operator,
             meta,
@@ -43,7 +46,7 @@ impl ReadableStorageTraits for VirtualCogStore {
         if key.as_str() == ".zmetadata" {
             return Ok(Some(self.zmetadata_bytes.clone()));
         }
-        
+
         if key.as_str().starts_with("data/") {
             // "data/0.0"
             let parts: Vec<&str> = key.as_str().split('/').collect();
@@ -52,24 +55,26 @@ impl ReadableStorageTraits for VirtualCogStore {
                 if chunks.len() == 2 {
                     let y: usize = chunks[0].parse().unwrap_or(0);
                     let x: usize = chunks[1].parse().unwrap_or(0);
-                    
-                    let grid_width = (self.meta.image_width as f64 / self.meta.tile_width as f64).ceil() as usize;
+
+                    let grid_width = (self.meta.image_width as f64 / self.meta.tile_width as f64)
+                        .ceil() as usize;
                     let flat_idx = y * grid_width + x;
-                    
+
                     if flat_idx < self.meta.tile_offsets.len() {
                         let offset = self.meta.tile_offsets[flat_idx];
                         let length = self.meta.tile_byte_counts[flat_idx];
-                        
+
                         let op = self.operator.clone();
-                        let range = offset..offset+length;
+                        let range = offset..offset + length;
                         // Spawning a new thread to block on the async read
                         let bytes_res = std::thread::spawn(move || {
                             let rt = tokio::runtime::Runtime::new().unwrap();
-                            rt.block_on(async {
-                                op.read_with("").range(range).await
-                            }).map_err(|e| e.to_string())
-                        }).join().unwrap();
-                        
+                            rt.block_on(async { op.read_with("").range(range).await })
+                                .map_err(|e| e.to_string())
+                        })
+                        .join()
+                        .unwrap();
+
                         if let Ok(bytes) = bytes_res {
                             return Ok(Some(Bytes::from(bytes.to_vec())));
                         }
@@ -91,11 +96,11 @@ impl ReadableStorageTraits for VirtualCogStore {
             for r in byte_ranges {
                 let start = match r {
                     ByteRange::FromStart(offset, _) => *offset,
-                    _ => 0
+                    _ => 0,
                 };
                 let end = match r {
                     ByteRange::FromStart(offset, Some(len)) => *offset + *len,
-                    _ => bytes.len() as u64
+                    _ => bytes.len() as u64,
                 };
                 let slice = bytes.slice(start as usize..end as usize);
                 out.push(slice);
@@ -115,10 +120,16 @@ impl ListableStorageTraits for VirtualCogStore {
     fn list(&self) -> Result<zarrs::storage::StoreKeys, zarrs::storage::StorageError> {
         Ok(vec![StoreKey::new(".zmetadata").unwrap()])
     }
-    fn list_prefix(&self, _prefix: &StorePrefix) -> Result<zarrs::storage::StoreKeys, zarrs::storage::StorageError> {
+    fn list_prefix(
+        &self,
+        _prefix: &StorePrefix,
+    ) -> Result<zarrs::storage::StoreKeys, zarrs::storage::StorageError> {
         Ok(vec![])
     }
-    fn list_dir(&self, _prefix: &StorePrefix) -> Result<zarrs::storage::StoreKeysPrefixes, zarrs::storage::StorageError> {
+    fn list_dir(
+        &self,
+        _prefix: &StorePrefix,
+    ) -> Result<zarrs::storage::StoreKeysPrefixes, zarrs::storage::StorageError> {
         unimplemented!("Not needed for minimal test")
     }
     fn size_prefix(&self, _prefix: &StorePrefix) -> Result<u64, zarrs::storage::StorageError> {
@@ -140,13 +151,18 @@ mod tests {
             tile_offsets: vec![100, 200, 300, 400],
             tile_byte_counts: vec![50, 50, 50, 50],
         };
-        
-        let op = opendal::Operator::new(opendal::services::Memory::default()).unwrap().finish();
+
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
         let store = VirtualCogStore::new(op, meta);
-        
+
         // Zarrs ReadableStorageTraits implementation test
         use zarrs::storage::ReadableStorageTraits;
-        let md = store.get(&zarrs::storage::StoreKey::new(".zmetadata").unwrap()).unwrap().unwrap();
+        let md = store
+            .get(&zarrs::storage::StoreKey::new(".zmetadata").unwrap())
+            .unwrap()
+            .unwrap();
         let md_str = String::from_utf8(md.to_vec()).unwrap();
         assert!(md_str.contains("zarr_format"));
         assert!(md_str.contains("1024"));

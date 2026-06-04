@@ -142,7 +142,11 @@ impl GeoZarrDataset {
                 continue;
             }
 
-            let (min_val_opt, max_val_opt) = constraints.bounds.get(name).copied().unwrap_or((None, None));
+            let (min_val_opt, max_val_opt) = constraints
+                .bounds
+                .get(name)
+                .copied()
+                .unwrap_or((None, None));
 
             if let Some(coord_vals) = self.coords.get(name) {
                 let normalize_query = |v: f64| -> f64 {

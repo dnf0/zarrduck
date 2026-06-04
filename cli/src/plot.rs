@@ -37,7 +37,13 @@ fn detect_value_column(conn: &Connection, table: &str) -> Result<String> {
     Ok(val_col)
 }
 
-fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&str>, pin: &[String]) -> Result<()> {
+fn plot_hist(
+    conn: &Connection,
+    table: &str,
+    val_col: &str,
+    group_by: Option<&str>,
+    pin: &[String],
+) -> Result<()> {
     let group_select = if let Some(g) = group_by {
         format!("\"{}\",", g)
     } else {
@@ -135,7 +141,13 @@ fn plot_hist(conn: &Connection, table: &str, val_col: &str, group_by: Option<&st
     Ok(())
 }
 
-fn plot_line(conn: &Connection, table: &str, val_col: &str, group_by: Option<&str>, pin: &[String]) -> Result<()> {
+fn plot_line(
+    conn: &Connection,
+    table: &str,
+    val_col: &str,
+    group_by: Option<&str>,
+    pin: &[String],
+) -> Result<()> {
     if group_by.is_some() {
         println!("Warning: group-by is not yet supported for line plots in this MVP. Showing overall line.");
     }

@@ -142,7 +142,8 @@ pub async fn run_extract(
         "SELECT total_chunks, total_bytes FROM plan_read_zarr(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?{})",
         pins_str
     );
-    let mut plan_query = conn.prepare(&plan_query_str)
+    let mut plan_query = conn
+        .prepare(&plan_query_str)
         .wrap_err("Failed to prepare planning query")?;
 
     let (total_chunks, total_bytes): (u64, u64) = plan_query

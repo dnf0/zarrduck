@@ -300,10 +300,7 @@ pub async fn run_search(
 
             println!("Selected Dataset: {}", resolved_uri);
             println!("You can now extract this data using:");
-            println!(
-                "eider extract {} <your-vector-file.geojson>",
-                resolved_uri
-            );
+            println!("eider extract {} <your-vector-file.geojson>", resolved_uri);
             break;
         }
     }
