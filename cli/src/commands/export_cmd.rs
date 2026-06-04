@@ -1,6 +1,6 @@
 use crate::config::EiderConfig;
 use crate::duckdb_utils;
-use crate::OutputFormat;
+use crate::ui::OutputMode;
 use color_eyre::eyre::Result as EyreResult;
 use duckdb::Connection;
 
@@ -10,7 +10,7 @@ pub async fn run_export_cmd(
     output: String,
     value_column: String,
     chunks: Option<String>,
-    resolved_output: &OutputFormat,
+    mode: OutputMode,
     config: &EiderConfig,
 ) -> EyreResult<()> {
     let conn = if let Some(db_path) = db {
@@ -29,7 +29,7 @@ pub async fn run_export_cmd(
         &output,
         &value_column,
         chunks,
-        *resolved_output == OutputFormat::Json,
+        mode == OutputMode::AgentJson,
     )
     .await?;
 
