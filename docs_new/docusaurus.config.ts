@@ -29,11 +29,12 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/dnf0/eider/tree/main/',
+          editUrl: 'https://github.com/dnf0/eider/tree/main/docs/',
         },
         theme: {
           customCss: './src/css/custom.css',
         },
+        blog: false,
       } satisfies Preset.Options,
     ],
   ],
