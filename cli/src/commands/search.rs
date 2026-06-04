@@ -1,6 +1,6 @@
 use crate::{config::EiderConfig, stac, ui, ui::OutputMode};
 use color_eyre::eyre::{eyre, Result as EyreResult, WrapErr};
-use std::io::IsTerminal;
+
 use owo_colors::OwoColorize;
 
 #[derive(Clone)]
@@ -83,9 +83,9 @@ fn extract_assets(
                 }
 
                 let display = if desc.is_empty() {
-                    format!("{} [{}]", title.bold().cyan(), href.dimmed())
+                    title.bold().cyan().to_string()
                 } else {
-                    format!("{} - {} [{}]", title.bold().cyan(), desc.italic(), href.dimmed())
+                    format!("{} - {}", title.bold().cyan(), desc.italic())
                 };
 
                 found_options.push(SelectOption {
@@ -220,9 +220,9 @@ async fn get_selected_collection(
                 }
 
                 let display = if desc.is_empty() {
-                    format!("{} [{}]", title.bold().cyan(), id.dimmed())
+                    title.bold().cyan().to_string()
                 } else {
-                    format!("{} - {} [{}]", title.bold().cyan(), desc.italic(), id.dimmed())
+                    format!("{} - {}", title.bold().cyan(), desc.italic())
                 };
                 collection_options.push(SelectOption {
                     id: id.to_string(),
@@ -380,14 +380,8 @@ pub async fn run_search(
         // Resolve the specific channel/array from the Zarr group
         let resolved_uri = ui::prompt_zarr_uri(&selection_id, mode).await?;
 
-        if std::io::stdout().is_terminal() {
-            println!("{} Selected Dataset: {}", "✔".green(), resolved_uri.magenta());
-            println!("You can now extract this data using:");
-            println!("  eider extract {} <your-vector-file.geojson>", resolved_uri.cyan());
-        } else {
-            // If piped, just output the URL cleanly to stdout
-            println!("{}", resolved_uri);
-        }
+        // Just output the URL cleanly to stdout to support seamless piping
+        println!("{}", resolved_uri);
     }
     Ok(())
 }
