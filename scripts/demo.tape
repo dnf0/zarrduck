@@ -23,6 +23,8 @@ Enter
 Sleep 1s
 Type "export EIDER_LOCAL_STAC='http://localhost:8123 - Local Demo Catalog'"
 Enter
+Type "python3 scripts/generate_demo_data.py"
+Enter
 Type "clear"
 Enter
 Show
