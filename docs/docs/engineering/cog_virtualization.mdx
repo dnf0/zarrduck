@@ -7,7 +7,7 @@ sequenceDiagram
     participant User
     participant Eider
     participant HTTP
-    
+
     User->>Eider: SELECT * FROM read_zarr('test.tif')
     Eider->>HTTP: GET test.tif (Range: bytes=0-16384)
     HTTP-->>Eider: Returns TIFF Header & IFD

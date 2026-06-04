@@ -23,8 +23,8 @@ export function HeadToHeadPlot() {
           marker: { color: ['#636efa', '#EF553B', '#00cc96', '#ab63fa'] }
         }
       ]}
-      layout={{ 
-        title: 'Query Latency: California Bounding Box (ms)', 
+      layout={{
+        title: 'Query Latency: California Bounding Box (ms)',
         yaxis: { title: 'Milliseconds (Lower is better)' },
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor: 'rgba(0,0,0,0)',
@@ -59,8 +59,8 @@ export function ScalingPlot() {
           line: { width: 4 }
         }
       ]}
-      layout={{ 
-        title: 'Throughput Scaling (Thread = 1)', 
+      layout={{
+        title: 'Throughput Scaling (Thread = 1)',
         yaxis: { title: 'Query Time (ms)' },
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor: 'rgba(0,0,0,0)',

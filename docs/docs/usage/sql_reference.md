@@ -4,7 +4,7 @@ The `read_zarr` table function is the core of Eider.
 
 ## Basic Syntax
 ```sql
-SELECT time, lat, lon, value 
+SELECT time, lat, lon, value
 FROM read_zarr('s3://bucket/data.zarr');
 ```
 

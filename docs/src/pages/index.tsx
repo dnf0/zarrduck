@@ -48,7 +48,7 @@ export default function Home(): JSX.Element {
               </div>
             </div>
           </div>
-          
+
           <div className="row text--left margin-top--lg">
             <div className="col col--4">
               <h3>Fast & Vectorized</h3>
