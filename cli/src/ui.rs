@@ -1,3 +1,53 @@
+use std::io::IsTerminal;
+use owo_colors::OwoColorize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputMode {
+    Human,
+    Agent,
+    AgentJson,
+}
+
+impl OutputMode {
+    pub fn detect(json_requested: bool) -> Self {
+        if json_requested {
+            OutputMode::AgentJson
+        } else if std::io::stdout().is_terminal() {
+            OutputMode::Human
+        } else {
+            OutputMode::Agent
+        }
+    }
+
+    pub fn is_human(&self) -> bool {
+        *self == OutputMode::Human
+    }
+}
+
+pub fn format_key(key: &str, mode: OutputMode) -> String {
+    if mode.is_human() {
+        key.cyan().to_string()
+    } else {
+        key.to_string()
+    }
+}
+
+pub fn format_value(val: &str, mode: OutputMode) -> String {
+    if mode.is_human() {
+        val.magenta().to_string()
+    } else {
+        val.to_string()
+    }
+}
+
+pub fn format_success(msg: &str, mode: OutputMode) -> String {
+    if mode.is_human() {
+        format!("{} {}", "✔".green(), msg)
+    } else {
+        format!("- SUCCESS: {}", msg)
+    }
+}
+
 use color_eyre::eyre::{eyre, Result};
 
 pub async fn prompt_zarr_uri(uri: &str, is_json: bool) -> Result<String> {
