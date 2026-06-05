@@ -29,7 +29,8 @@ async fn search_json_rejects_bad_bbox() {
         .arg("--output=json")
         .assert()
         .failure()
-        .stdout(predicate::str::contains(r#""status":"error""#));
+        .stdout(predicate::str::contains(r#""status":"error""#))
+        .stdout(predicate::str::contains(r#""message":"#));
 }
 
 #[test]
