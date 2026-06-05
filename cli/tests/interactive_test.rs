@@ -1,34 +1,42 @@
 #![cfg(unix)]
 
+mod common;
+use common::*;
 use rexpect::spawn;
 
+#[tokio::test]
+async fn search_interactive_reaches_dataset_prompt() {
+    let server = mock_stac().await;
+    let bin = env!("CARGO_BIN_EXE_eider");
+    // Provide --api so we skip the provider prompt and hit the collection list
+    // served deterministically by the mock server.
+    let cmd = format!("{} search --api {}", bin, server.uri());
+    let mut p = spawn(&cmd, Some(10_000)).unwrap();
+    // The collection is zarr-bearing, so we should reach a selection prompt or
+    // (if a single result) proceed; either way no network flakiness.
+    let res = p.exp_regex("(?i)Select a STAC Collection|Found .* Data URIs|Select a dataset");
+    assert!(res.is_ok(), "did not reach an interactive selection prompt");
+}
+
 #[test]
-fn test_cli_search_interactive() {
-    // This requires the eider binary to be built already.
-    // We typically get the binary path from `env!("CARGO_BIN_EXE_eider")`,
-    // which is set by cargo when running integration tests.
-    let bin_path = env!("CARGO_BIN_EXE_eider");
-
-    // Spawn the search command with a 10s timeout to allow network requests to finish
-    let mut p = spawn(&format!("{} search", bin_path), Some(10000)).unwrap();
-
-    // Wait for the prompt for STAC provider
-    p.exp_regex("(?i)Select a STAC Provider").unwrap();
-
-    // Send an arrow down to select a different provider (or just enter to select the first one)
-    p.send_line("").unwrap();
-
-    // Next it will try to fetch the collections and prompt for collection.
-    // However, this requires a network request. To avoid flaky tests, we'll
-    // just assert it starts fetching or prompts for collection.
-    // If we just want to ensure it handles interactivity, reaching the prompt
-    // is often enough, but let's see if we can get to the next prompt.
-    // Let's just expect it reaches the "Fetching collections" or "Select a collection" prompt.
-    // To make it robust against network, we might just expect "Fetching".
-
-    let result = p.exp_regex("(?i)Select a STAC Collection|(?i)error");
-    assert!(
-        result.is_ok(),
-        "Failed to reach the collection prompt or error gracefully"
-    );
+fn shell_launches_or_reports_missing_duckdb() {
+    if !duckdb_cli_available() {
+        eprintln!("skipping shell REPL test: `duckdb` CLI not on PATH");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let db = make_extracted_db_numeric_time(&dir);
+    let bin = env!("CARGO_BIN_EXE_eider");
+    // TERM=dumb suppresses DuckDB's ANSI cursor-position probes (\x1b[6n)
+    // which otherwise corrupt input sent over a rexpect PTY.
+    let cmd = format!("env TERM=dumb {} shell {}", bin, db.display());
+    let mut p = spawn(&cmd, Some(30_000)).unwrap();
+    p.exp_regex("(?i)Starting DuckDB shell").unwrap();
+    // DuckDB banner appears; wait for the "usage hints" line.
+    p.exp_regex("(?i)usage hints").unwrap();
+    // Run a query and quit the REPL.
+    p.send_line("SELECT count(*) FROM extracted_data;").unwrap();
+    p.exp_regex("3").unwrap();
+    p.send_line(".quit").unwrap();
+    p.exp_eof().unwrap();
 }
