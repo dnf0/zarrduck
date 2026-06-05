@@ -126,7 +126,7 @@ jobs:
         run: cargo audit
 
       - name: Build extension
-        run: cargo duckdb-ext build
+        run: cargo duckdb-ext build -o target/debug/eider.duckdb_extension -d v1.5.2 -- --no-default-features --features loadable-extension
 
       - name: Generate code coverage
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info
