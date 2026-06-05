@@ -27,9 +27,10 @@ fn info_json_reports_shape_and_crs() {
         .success()
         .stdout(predicate::str::contains(r#""array_shape""#))
         .stdout(predicate::str::contains("938"))
-        // The climate_data.zarr fixture lacks an explicit CRS attribute, so the
-        // extension reports "UNKNOWN" rather than "EPSG:4326". We still verify that
-        // the crs field is present in the output.
+        // The fixture stores CRS as `geozarr.spatial_reference.crs` (nested), but
+        // GeoZarrMetadata expects the flat key `geozarr.crs`; the nested value is
+        // unreachable to the parser so the extension reports "UNKNOWN". We still
+        // verify that the crs field is present in the output.
         .stdout(predicate::str::contains(r#""crs""#));
 }
 

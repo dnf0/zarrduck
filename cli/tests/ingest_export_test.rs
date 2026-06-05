@@ -8,11 +8,12 @@ use predicates::prelude::*;
 // (excluded) plus the lon/lat/value property columns.
 
 #[test]
-fn ingest_geojson_to_zarr_then_zarr_store_exists() {
+fn ingest_geojson_writes_readable_zarr() {
     geozarr_ext_path();
     let dir = tempfile::tempdir().unwrap();
     let out_zarr = dir.path().join("ingested.zarr");
 
+    // Step 1: ingest GeoJSON into a Zarr store.
     eider(&dir)
         .env("GEOZARR_ALLOW_PATH", dir.path())
         .arg("ingest")
@@ -24,13 +25,18 @@ fn ingest_geojson_to_zarr_then_zarr_store_exists() {
         .success()
         .stdout(predicate::str::contains(r#""status": "success""#));
 
-    // The ingest/export pipeline writes a single-array Zarr store: the array is
-    // created at path "/" within the store root. zarrs 0.16 writes Zarr v3 format
-    // (zarr.json) at the store root rather than Zarr v2 (.zarray).
-    assert!(
-        out_zarr.join("zarr.json").exists() || out_zarr.join(".zarray").exists(),
-        "ingest should produce zarr.json or .zarray at the store root"
-    );
+    // Step 2: round-trip — read the store back with `info`. The export pipeline
+    // writes a single-array Zarr v3 store (zarrs 0.16) with the array at path
+    // "/" inside the store root. `read_zarr_metadata` opens the same path, so
+    // pointing `info` at the store root must return metadata including
+    // `"array_shape"`.
+    eider(&dir)
+        .arg("info")
+        .arg(out_zarr.to_str().unwrap())
+        .arg("--output=json")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#""array_shape""#));
 }
 
 #[test]
