@@ -751,4 +751,22 @@ mod tests {
             result.err()
         );
     }
+
+    fn mem(ddl: &str) -> Connection {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(ddl).unwrap();
+        c
+    }
+
+    #[test]
+    fn detects_non_coordinate_value_column() {
+        let c = mem("CREATE TABLE t (time BIGINT, lat DOUBLE, lon DOUBLE, air_temperature DOUBLE);");
+        assert_eq!(detect_value_column(&c, "t").unwrap(), "air_temperature");
+    }
+
+    #[test]
+    fn errors_when_only_coordinates() {
+        let c = mem("CREATE TABLE t (time BIGINT, lat DOUBLE, lon DOUBLE);");
+        assert!(detect_value_column(&c, "t").is_err());
+    }
 }
