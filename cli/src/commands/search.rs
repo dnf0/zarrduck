@@ -403,3 +403,86 @@ pub async fn run_search(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn build_query_minimal() {
+        let q = build_stac_query("era5", None, None).unwrap();
+        assert_eq!(q["collections"][0], "era5");
+        assert_eq!(q["limit"], 10);
+        assert!(q.get("bbox").is_none());
+    }
+
+    #[test]
+    fn build_query_with_valid_bbox() {
+        let b = "-10,-5,10,5".to_string();
+        let q = build_stac_query("c", Some(&b), None).unwrap();
+        assert_eq!(q["bbox"], json!([-10.0, -5.0, 10.0, 5.0]));
+    }
+
+    #[test]
+    fn build_query_rejects_wrong_bbox_len() {
+        let b = "1,2,3".to_string();
+        assert!(build_stac_query("c", Some(&b), None).is_err());
+    }
+
+    #[test]
+    fn build_query_rejects_non_numeric_bbox() {
+        let b = "a,b,c,d".to_string();
+        assert!(build_stac_query("c", Some(&b), None).is_err());
+    }
+
+    #[test]
+    fn build_query_with_datetime() {
+        let dt = "2020-01-01/2020-12-31".to_string();
+        let q = build_stac_query("c", None, Some(&dt)).unwrap();
+        assert_eq!(q["datetime"], "2020-01-01/2020-12-31");
+    }
+
+    #[test]
+    fn supported_asset_detects_zarr_and_cog() {
+        assert!(is_supported_asset(&json!({"type": "application/vnd+zarr", "href": ""})));
+        assert!(is_supported_asset(&json!({"type": "", "href": "x/data.zarr/"})));
+        assert!(is_supported_asset(&json!({"type": "image/tiff", "href": ""})));
+        assert!(is_supported_asset(&json!({"type": "", "href": "a.tif"})));
+    }
+
+    #[test]
+    fn supported_asset_rejects_other() {
+        assert!(!is_supported_asset(&json!({"type": "application/json", "href": "a.json"})));
+    }
+
+    #[test]
+    fn parse_results_from_features() {
+        let resp = json!({
+            "features": [{
+                "assets": { "data": { "type": "application/vnd+zarr", "href": "s3://b/x.zarr" } }
+            }]
+        });
+        let opts = parse_search_results(&resp);
+        assert_eq!(opts.len(), 1);
+        assert_eq!(opts[0].id, "s3://b/x.zarr");
+    }
+
+    #[test]
+    fn parse_results_from_collection_assets() {
+        let resp = json!({
+            "assets": { "data": { "type": "application/vnd+zarr", "href": "s3://b/y.zarr" } }
+        });
+        let opts = parse_search_results(&resp);
+        assert_eq!(opts.len(), 1);
+        assert_eq!(opts[0].id, "s3://b/y.zarr");
+    }
+
+    #[test]
+    fn parse_results_skips_unsupported() {
+        let resp = json!({
+            "assets": { "thumb": { "type": "image/png", "href": "a.png" } }
+        });
+        assert!(parse_search_results(&resp).is_empty());
+    }
+}
