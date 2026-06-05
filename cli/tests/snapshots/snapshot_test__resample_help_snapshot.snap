@@ -1,0 +1,18 @@
+---
+source: cli/tests/snapshot_test.rs
+assertion_line: 32
+expression: clean(&out)
+---
+Temporally resample extracted GeoZarr data
+
+Usage: eider resample [OPTIONS] <INPUT_DB> <OUTPUT_DB>
+
+Arguments:
+  <INPUT_DB>   The input DuckDB file containing the 'extracted_data' table
+  <OUTPUT_DB>  The output DuckDB file to save the resampled data
+
+Options:
+      --freq <FREQ>      The temporal frequency (e.g., month, year, day)
+      --agg <AGG>        The aggregate function to apply (e.g., avg, sum, max)
+      --output <OUTPUT>  Output format (table or json) [possible values: table, json]
+  -h, --help             Print help

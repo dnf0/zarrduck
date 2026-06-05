@@ -12,6 +12,12 @@ jobs:
   ci-checks:
     name: CI Checks
     runs-on: ${{ matrix.os }}
+    # Disable debug info: each integration-test binary statically links bundled
+    # DuckDB, and the resulting .pdb files exhaust the Windows runner's disk
+    # (LNK1201). Tests don't need debug symbols.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     strategy:
       matrix:
         include:
@@ -43,6 +49,30 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Cache DuckDB extensions
+        uses: actions/cache@v4
+        with:
+          path: .duckdb_ext_cache
+          key: ${{ runner.os }}-duckdb-ext-cache-v1
+
+      - name: Install DuckDB CLI (for shell REPL tests)
+        shell: bash
+        run: |
+          # Pin to the libduckdb version the duckdb crate (=1.10502.0) bundles
+          # (v1.5.2). `eider shell` loads the eider extension (stamped v1.5.2)
+          # into this CLI, so the versions must match exactly.
+          mkdir -p "$HOME/.local/bin"
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            curl -L https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-linux-amd64.zip -o duckdb.zip
+            unzip -o duckdb.zip -d "$HOME/.local/bin"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            curl -L https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-osx-universal.zip -o duckdb.zip
+            unzip -o duckdb.zip -d "$HOME/.local/bin"
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+        continue-on-error: true
+
       - name: Install Python
         uses: actions/setup-python@v5
 
@@ -71,8 +101,23 @@ jobs:
       - name: Build extension and test
         shell: bash
         run: |
-          cargo duckdb-ext build
-          cargo test --no-default-features
+          # Build a LOADABLE extension: name it eider.duckdb_extension (the init
+          # symbol is derived from the filename), stamp the runtime DuckDB version
+          # (libduckdb bundled by the =1.10502.0 crate reports v1.5.2), and omit
+          # `bundled` so the host DuckDB's C API is used instead of a static copy.
+          #
+          # Windows: the loadable extension can't currently be built on MSVC — the
+          # loadable (non-bundled) build uses pre-generated bindings that mismatch
+          # Windows' type layout (E0308), buildtime_bindgen needs headers that only
+          # `bundled` provides, and `bundled` itself reintroduces the static-link
+          # "API not initialized" failure. So skip the extension build on Windows;
+          # the extension-backed tests self-skip when the artifact is absent.
+          if [ "$RUNNER_OS" != "Windows" ]; then
+            cargo duckdb-ext build -o target/debug/eider.duckdb_extension -d v1.5.2 -- --no-default-features --features loadable-extension
+          else
+            echo "Skipping loadable extension build on Windows (unsupported); extension-backed tests self-skip."
+          fi
+          cargo test
 
   audit-and-coverage:
     name: Security Audit & Coverage
@@ -98,7 +143,7 @@ jobs:
         run: cargo audit
 
       - name: Build extension
-        run: cargo duckdb-ext build
+        run: cargo duckdb-ext build -o target/debug/eider.duckdb_extension -d v1.5.2 -- --no-default-features --features loadable-extension
 
       - name: Generate code coverage
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info

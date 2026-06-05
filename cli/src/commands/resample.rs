@@ -37,18 +37,54 @@ fn get_freq_and_agg(
         .to_string()
     };
 
+    validate_agg(&selected_agg)?;
+    Ok((selected_freq, selected_agg))
+}
+
+pub(crate) fn validate_agg(agg: &str) -> EyreResult<()> {
     let allowed_aggs = [
         "sum", "avg", "min", "max", "count", "mean", "median", "mode", "stddev", "variance",
     ];
-    if !allowed_aggs.contains(&selected_agg.to_lowercase().as_str()) {
+    if !allowed_aggs.contains(&agg.to_lowercase().as_str()) {
         return Err(eyre!(
             "Invalid aggregation function: '{}'. Allowed: {:?}",
-            selected_agg,
+            agg,
             allowed_aggs
         ));
     }
+    Ok(())
+}
 
-    Ok((selected_freq, selected_agg))
+pub(crate) fn build_resample_query(
+    freq: &str,
+    agg: &str,
+    time_col: &str,
+    lat_col: &str,
+    lon_col: &str,
+    val_col: &str,
+    time_is_numeric: bool,
+) -> String {
+    let time_expr = if time_is_numeric {
+        format!("to_timestamp(CAST({} AS BIGINT))", time_col)
+    } else {
+        time_col.to_string()
+    };
+    format!(
+        "CREATE TABLE resampled_data AS
+         SELECT
+             date_trunc('{}', {}) as {},
+             {}, {},
+             {}({}) as value
+         FROM source_db.extracted_data
+         GROUP BY 1, 2, 3",
+        freq.replace('\'', "''"),
+        time_expr,
+        time_col,
+        lat_col,
+        lon_col,
+        agg,
+        val_col
+    )
 }
 
 pub fn run_resample(
@@ -124,27 +160,14 @@ pub fn run_resample(
     conn.execute(&format!("ATTACH '{}' AS source_db", input_db), [])
         .wrap_err("Failed to attach input database")?;
 
-    let time_expr = if time_is_numeric {
-        format!("to_timestamp(CAST({} AS BIGINT))", time_col)
-    } else {
-        time_col.clone()
-    };
-
-    let query = format!(
-        "CREATE TABLE resampled_data AS
-         SELECT
-             date_trunc('{}', {}) as {},
-             {}, {},
-             {}({}) as value
-         FROM source_db.extracted_data
-         GROUP BY 1, 2, 3",
-        selected_freq.replace("'", "''"),
-        time_expr,
-        time_col,
-        lat_col,
-        lon_col,
-        selected_agg,
-        val_col
+    let query = build_resample_query(
+        &selected_freq,
+        &selected_agg,
+        &time_col,
+        &lat_col,
+        &lon_col,
+        &val_col,
+        time_is_numeric,
     );
 
     // Note: Since this is a blocking call, we run it directly on this thread. The tokio runtime isn't heavily needed here since it's local.
@@ -164,4 +187,43 @@ pub fn run_resample(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_agg_accepts_known() {
+        for a in [
+            "sum", "avg", "min", "max", "count", "mean", "median", "mode", "stddev", "variance",
+        ] {
+            assert!(validate_agg(a).is_ok(), "{a} should be valid");
+        }
+    }
+
+    #[test]
+    fn validate_agg_is_case_insensitive() {
+        assert!(validate_agg("AVG").is_ok());
+    }
+
+    #[test]
+    fn validate_agg_rejects_unknown() {
+        assert!(validate_agg("hack; DROP TABLE").is_err());
+    }
+
+    #[test]
+    fn build_resample_query_numeric_time_wraps_timestamp() {
+        let q = build_resample_query("year", "avg", "time", "lat", "lon", "value", true);
+        assert!(q.contains("to_timestamp(CAST(time AS BIGINT))"));
+        assert!(q.contains("date_trunc('year'"));
+        assert!(q.contains("avg(value)"));
+    }
+
+    #[test]
+    fn build_resample_query_text_time_uses_column_directly() {
+        let q = build_resample_query("month", "sum", "time", "lat", "lon", "value", false);
+        assert!(q.contains("date_trunc('month', time)"));
+        assert!(!q.contains("to_timestamp"));
+    }
 }

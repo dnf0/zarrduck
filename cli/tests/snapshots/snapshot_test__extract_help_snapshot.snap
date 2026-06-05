@@ -1,0 +1,19 @@
+---
+source: cli/tests/snapshot_test.rs
+assertion_line: 40
+expression: clean(&out)
+---
+Extract Zarr data intersecting with vector polygons
+
+Usage: eider extract [OPTIONS] <ZARR_URI> <VECTOR_PATH>
+
+Arguments:
+  <ZARR_URI>     The Zarr array URI
+  <VECTOR_PATH>  Path to the vector boundaries (GeoJSON, Shapefile)
+
+Options:
+      --out <OUT>        Output DuckDB database file
+  -y, --yes              Bypass confirmation prompts
+      --pin <DIM=INDEX>  Pins for dimensions (e.g. --pin time=0)
+      --output <OUTPUT>  Output format (table or json) [possible values: table, json]
+  -h, --help             Print help

@@ -1,0 +1,18 @@
+---
+source: cli/tests/plot_test.rs
+assertion_line: 61
+expression: "run_plot(\"heatmap\")"
+---
+Plotting heatmap from table extracted_data (Value: air_temperature)
+
+Heatmap of air_temperature (Spatial):
+
+   20.00 ┤ ████
+   10.00 ┤ ████
+          └────
+           30.00
+           40.00
+
+Legend:
+██ 5.00   ██ 5.50   ██ 6.00   ██ 6.50   ██ 7.00
+██ 7.50   ██ 8.00   ██ 8.50   ██ 9.00   ██ 9.50   ██ 10.00
