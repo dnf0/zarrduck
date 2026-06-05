@@ -31,22 +31,25 @@ pub fn climate_zarr() -> PathBuf {
     repo_root().join("climate_data.zarr")
 }
 
-/// Locate the built eider DuckDB extension, or fail loudly with guidance.
-pub fn geozarr_ext_path() -> PathBuf {
-    let candidates = [
+/// Locate the built eider DuckDB extension if present (non-panicking).
+pub fn find_geozarr_ext() -> Option<PathBuf> {
+    [
         repo_root().join("target/debug/eider.duckdb_extension"),
         repo_root().join("target/release/eider.duckdb_extension"),
-    ];
-    candidates
-        .iter()
-        .find(|p| p.exists())
-        .cloned()
-        .unwrap_or_else(|| {
-            panic!(
-                "eider.duckdb_extension not found in target/{{debug,release}}. \
-                 Build it first with: cargo duckdb-ext build"
-            )
-        })
+    ]
+    .into_iter()
+    .find(|p| p.exists())
+}
+
+/// Locate the built eider DuckDB extension, or fail loudly with guidance.
+pub fn geozarr_ext_path() -> PathBuf {
+    find_geozarr_ext().unwrap_or_else(|| {
+        panic!(
+            "eider.duckdb_extension not found in target/{{debug,release}}. Build it first with: \
+             cargo duckdb-ext build -o target/debug/eider.duckdb_extension -d v1.5.2 \
+             -- --no-default-features --features loadable-extension"
+        )
+    })
 }
 
 /// True when the external `duckdb` CLI is on PATH (gates shell REPL tests).
@@ -68,6 +71,13 @@ pub fn eider(dir: &TempDir) -> Command {
         "DUCKDB_EXTENSION_DIRECTORY",
         repo_root().join(".duckdb_ext_cache"),
     );
+    // Point the binary at the built extension by absolute path so it loads
+    // regardless of the test's cwd or the binary's target dir (e.g. under
+    // `cargo llvm-cov`, which builds into a separate target directory). Only set
+    // when the extension exists, so non-extension tests are unaffected.
+    if let Some(ext) = find_geozarr_ext() {
+        cmd.env("EIDER_EXTENSION_PATH", ext);
+    }
     cmd
 }
 

@@ -23,12 +23,15 @@ pub fn run_shell(db_path: String) -> EyreResult<()> {
         }
     }
 
-    let ext_path = candidate_paths
-        .into_iter()
-        .find(|p| p.exists())
-        .unwrap_or_else(|| cwd.join("target").join("debug").join(ext_name))
-        .to_string_lossy()
-        .into_owned();
+    let ext_path = match std::env::var("EIDER_EXTENSION_PATH") {
+        Ok(p) if !p.is_empty() => p,
+        _ => candidate_paths
+            .into_iter()
+            .find(|p| p.exists())
+            .unwrap_or_else(|| cwd.join("target").join("debug").join(ext_name))
+            .to_string_lossy()
+            .into_owned(),
+    };
 
     let duckdb_version = Command::new("duckdb").arg("-version").output();
     let mut load_ext = false;

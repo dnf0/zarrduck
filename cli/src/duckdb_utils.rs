@@ -84,6 +84,17 @@ pub fn auto_calculate_chunks(
 pub fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
     let ext_name = "eider.duckdb_extension";
 
+    // Explicit override (set by tests and useful for non-standard layouts where
+    // the extension isn't next to the binary or under ./target/debug).
+    if let Ok(explicit) = std::env::var("EIDER_EXTENSION_PATH") {
+        if !explicit.is_empty() {
+            return conn
+                .execute(&format!("LOAD '{}'", explicit.replace('\'', "''")), [])
+                .map(|_| ())
+                .wrap_err_with(|| format!("Failed to load extension at {}", explicit));
+        }
+    }
+
     let mut candidate_paths = vec![
         std::path::PathBuf::from(format!("./target/debug/{}", ext_name)),
         std::path::PathBuf::from(format!("../target/debug/{}", ext_name)),
