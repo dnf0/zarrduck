@@ -25,14 +25,18 @@ Enter
 Sleep 1s
 Type "export EIDER_LOCAL_STAC='http://localhost:8123 - Local Demo Catalog'"
 Enter
-Type "python3 scripts/generate_demo_data.py && cargo build -p eider && cargo duckdb-ext build && clear"
+Type "python3 scripts/generate_demo_data.py && cargo build -p eider && cargo duckdb-ext build"
 Enter
 Sleep 15s
+Type "source scripts/header.sh"
+Enter
+Type "clear"
+Enter
 Show
 
 # Step 1: STAC Discovery
 Hide
-Type "printf '\033[1A\033[2K\033[1;36m# 1. Discover cloud-native GeoZarr assets via STAC\033[0m\n'"
+Type "header '1. Discover cloud-native GeoZarr assets via STAC'"
 Enter
 Show
 Sleep 1s
@@ -50,7 +54,7 @@ Sleep 4s
 
 # Step 2: Zonal Extraction
 Hide
-Type "printf '\033[1A\033[2K\n\033[1;36m# 2. Extract and join spatial data\033[0m\n'"
+Type "header '2. Extract and join spatial data'"
 Enter
 Show
 Sleep 1s
@@ -60,7 +64,7 @@ Sleep 8s
 
 # Step 3: Temporal Resampling
 Hide
-Type "printf '\033[1A\033[2K\n\033[1;36m# 3. Automatically aggregate time-series data using interactive menus\033[0m\n'"
+Type "header '3. Automatically aggregate time-series data using interactive menus'"
 Enter
 Show
 Sleep 1s
@@ -78,7 +82,7 @@ Sleep 3s
 
 # Step 4: Interactive Analysis
 Hide
-Type "printf '\033[1A\033[2K\n\033[1;36m# 4. Drop into a spatial-enabled shell\033[0m\n'"
+Type "header '4. Drop into a spatial-enabled shell'"
 Enter
 Show
 Sleep 1s
@@ -95,7 +99,7 @@ Sleep 2s
 
 # Step 5: Data Visualization
 Hide
-Type "printf '\033[1A\033[2K\n\033[1;36m# 5. Interactive data visualization\033[0m\n'"
+Type "header '5. Interactive data visualization'"
 Enter
 Show
 Sleep 1s
