@@ -180,3 +180,82 @@ pub fn format_pins_where(pins: &[String]) -> String {
         format!(" WHERE {}", conditions.join(" AND "))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use duckdb::Connection;
+
+    #[test]
+    fn format_pins_empty_is_blank() {
+        assert_eq!(format_pins(&[]), "");
+    }
+
+    #[test]
+    fn format_pins_joins_with_prefix() {
+        let pins = vec!["time=0".to_string(), "lat=5".to_string()];
+        assert_eq!(format_pins(&pins), ", pins := 'time=0,lat=5'");
+    }
+
+    #[test]
+    fn format_pins_where_empty_is_blank() {
+        assert_eq!(format_pins_where(&[]), "");
+    }
+
+    #[test]
+    fn format_pins_where_builds_conditions() {
+        let pins = vec!["time=0".to_string(), "lat=5".to_string()];
+        assert_eq!(
+            format_pins_where(&pins),
+            " WHERE \"time\" = 0 AND \"lat\" = 5"
+        );
+    }
+
+    #[test]
+    fn format_pins_where_passes_through_malformed() {
+        let pins = vec!["garbage".to_string()];
+        assert_eq!(format_pins_where(&pins), " WHERE garbage");
+    }
+
+    fn mem_with_table(ddl: &str) -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(ddl).unwrap();
+        conn
+    }
+
+    #[test]
+    fn detect_columns_finds_standard_names() {
+        let conn = mem_with_table(
+            "CREATE TABLE extracted_data (time BIGINT, lat DOUBLE, lon DOUBLE, air_temperature DOUBLE);",
+        );
+        let (t, la, lo, v, numeric) = detect_columns(&conn, "extracted_data").unwrap();
+        assert_eq!((t.as_str(), la.as_str(), lo.as_str(), v.as_str()), ("time", "lat", "lon", "air_temperature"));
+        assert!(numeric);
+    }
+
+    #[test]
+    fn detect_columns_marks_timestamp_non_numeric() {
+        let conn = mem_with_table(
+            "CREATE TABLE t (time TIMESTAMP, lat DOUBLE, lon DOUBLE, val DOUBLE);",
+        );
+        let (_, _, _, _, numeric) = detect_columns(&conn, "t").unwrap();
+        assert!(!numeric);
+    }
+
+    #[test]
+    fn detect_columns_errors_without_time() {
+        let conn = mem_with_table("CREATE TABLE t (lat DOUBLE, lon DOUBLE, val DOUBLE);");
+        assert!(detect_columns(&conn, "t").is_err());
+    }
+
+    #[test]
+    fn auto_calculate_chunks_defaults() {
+        let conn = mem_with_table(
+            "CREATE TABLE t (time BIGINT, lat DOUBLE, lon DOUBLE, val DOUBLE);",
+        );
+        let map = auto_calculate_chunks(&conn, "t").unwrap();
+        assert_eq!(map.get("time").unwrap(), &serde_json::json!(10));
+        assert_eq!(map.get("lat").unwrap(), &serde_json::json!(100));
+        assert_eq!(map.get("lon").unwrap(), &serde_json::json!(100));
+    }
+}
