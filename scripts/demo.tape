@@ -25,14 +25,9 @@ Enter
 Sleep 1s
 Type "export EIDER_LOCAL_STAC='http://localhost:8123 - Local Demo Catalog'"
 Enter
-Type "python3 scripts/generate_demo_data.py"
+Type "python3 scripts/generate_demo_data.py && cargo build -p eider && cargo duckdb-ext build && clear"
 Enter
-Type "cargo build -p eider"
-Enter
-Type "cargo duckdb-ext build"
-Enter
-Type "clear"
-Enter
+Sleep 15s
 Show
 
 # Step 1: STAC Discovery
