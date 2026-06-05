@@ -105,7 +105,15 @@ jobs:
           # symbol is derived from the filename), stamp the runtime DuckDB version
           # (libduckdb bundled by the =1.10502.0 crate reports v1.5.2), and omit
           # `bundled` so the host DuckDB's C API is used instead of a static copy.
-          cargo duckdb-ext build -o target/debug/eider.duckdb_extension -d v1.5.2 -- --no-default-features --features loadable-extension
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            # On Windows the `build` subcommand can't locate the cdylib because the
+            # extension's lib target `eider` collides with the cli's bin `eider`;
+            # build the package alone (no cli bin) and package the dll explicitly.
+            cargo build --package eider_extension --no-default-features --features loadable-extension
+            cargo duckdb-ext package --library-path target/debug/eider.dll --extension-path target/debug/eider.duckdb_extension --extension-version v0.1.0 --duckdb-platform windows_amd64 --duckdb-version v1.5.2
+          else
+            cargo duckdb-ext build -o target/debug/eider.duckdb_extension -d v1.5.2 -- --no-default-features --features loadable-extension
+          fi
           cargo test
 
   audit-and-coverage:
