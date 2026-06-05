@@ -299,17 +299,13 @@ pub async fn run_search(
     let selected_api = get_selected_api(api, mode, config)?;
 
     let current_collection = collection.clone();
-    let selected_collection = match get_selected_collection(
-        &client,
-        &selected_api,
-        current_collection.as_ref(),
-        mode,
-    )
-    .await?
-    {
-        Some(c) => c,
-        None => return Ok(()),
-    };
+    let selected_collection =
+        match get_selected_collection(&client, &selected_api, current_collection.as_ref(), mode)
+            .await?
+        {
+            Some(c) => c,
+            None => return Ok(()),
+        };
 
     let payload = build_stac_query(&selected_collection, bbox.as_ref(), datetime.as_ref())?;
 
@@ -380,8 +376,7 @@ pub async fn run_search(
                 "Found {} Data URIs. Select a dataset to use:",
                 found_options.len()
             );
-            let mut select =
-                inquire::Select::new(&prompt_msg, found_options).with_page_size(10);
+            let mut select = inquire::Select::new(&prompt_msg, found_options).with_page_size(10);
             select.scorer = &|input, _, string_value, _| {
                 let input = input.to_lowercase();
                 let val = string_value.to_lowercase();
