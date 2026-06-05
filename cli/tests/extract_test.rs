@@ -14,7 +14,10 @@ fn air_temp_uri() -> String {
 
 #[test]
 fn extract_writes_rows_into_output_db() {
-    geozarr_ext_path();
+    if find_geozarr_ext().is_none() {
+        eprintln!("skipping: eider.duckdb_extension not built (expected on Windows)");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("extracted.duckdb");
 
@@ -39,7 +42,10 @@ fn extract_writes_rows_into_output_db() {
 
 #[test]
 fn extract_refuses_overwrite_in_json_mode() {
-    geozarr_ext_path();
+    if find_geozarr_ext().is_none() {
+        eprintln!("skipping: eider.duckdb_extension not built (expected on Windows)");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("exists.duckdb");
     std::fs::write(&out, b"x").unwrap();

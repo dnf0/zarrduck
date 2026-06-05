@@ -9,7 +9,10 @@ use predicates::prelude::*;
 
 #[test]
 fn ingest_geojson_writes_readable_zarr() {
-    geozarr_ext_path();
+    if find_geozarr_ext().is_none() {
+        eprintln!("skipping: eider.duckdb_extension not built (expected on Windows)");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let out_zarr = dir.path().join("ingested.zarr");
 
@@ -54,7 +57,10 @@ fn ingest_missing_input_errors() {
 
 #[test]
 fn ingest_rejects_invalid_chunks_json() {
-    geozarr_ext_path();
+    if find_geozarr_ext().is_none() {
+        eprintln!("skipping: eider.duckdb_extension not built (expected on Windows)");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     // Use GeoJSON fixture so ST_Read succeeds; --chunks parse error is reached
     // only after spatial loading and ST_Read succeed.

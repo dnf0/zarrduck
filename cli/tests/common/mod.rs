@@ -42,6 +42,7 @@ pub fn find_geozarr_ext() -> Option<PathBuf> {
 }
 
 /// Locate the built eider DuckDB extension, or fail loudly with guidance.
+#[allow(dead_code)]
 pub fn geozarr_ext_path() -> PathBuf {
     find_geozarr_ext().unwrap_or_else(|| {
         panic!(
