@@ -12,7 +12,13 @@ class StacHandler(BaseHTTPRequestHandler):
                 "collections": [{
                     "id": "cmip6-cesm2-historical",
                     "title": "CMIP6 CESM2 Historical Surface Temperature",
-                    "description": "Near-surface air temperature from NCAR CESM2 historical runs (CMIP6). Monthly means, ~1° resolution, 1850–2014."
+                    "description": "Near-surface air temperature from NCAR CESM2 historical runs (CMIP6). Monthly means, ~1° resolution, 1850–2014.",
+                    "assets": {
+                        "data": {
+                            "href": "https://storage.googleapis.com/cmip6/CMIP6/CMIP/NCAR/CESM2/historical/r1i1p1f1/Amon/tas/gn/v20190308/tas",
+                            "type": "application/vnd+zarr"
+                        }
+                    }
                 }]
             }).encode())
         else:
