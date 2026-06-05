@@ -14,12 +14,12 @@ fn test_cog_virtualization_e2e() -> Result<()> {
 
     // Load the extension via native Rust API to bypass duckdb dynamic extension version mismatches
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<eider::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<eider::ReadGeoVTab>("read_geo")?;
 
     // Read the chunk subset through the virtual store
     // This will test if the geozarr_core can intercept the .tif extension,
     // parse the headers, and present it to zarrs correctly.
-    let query = format!("SELECT COUNT(*) FROM read_zarr('{}')", cog_path);
+    let query = format!("SELECT COUNT(*) FROM read_geo('{}')", cog_path);
 
     let mut stmt = conn.prepare(&query)?;
     let mut rows = stmt.query([])?;

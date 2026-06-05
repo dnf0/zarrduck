@@ -1,6 +1,6 @@
 #![allow(clippy::type_complexity)]
 
-use crate::table_function::{GlobalState, LocalState, ReadZarrBindData};
+use crate::table_function::{GlobalState, LocalState, ReadGeoBindData};
 use duckdb::core::DataChunkHandle;
 use geozarr_core::types::ChunkBuffer;
 use std::sync::Mutex;
@@ -141,7 +141,7 @@ pub fn write_chunk_unified<T, Extract, Insert>(
     output: &mut DataChunkHandle,
     local_state: &mut LocalState,
     global_state: &Mutex<GlobalState>,
-    bind_data: &ReadZarrBindData,
+    bind_data: &ReadGeoBindData,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     T: ElementOwned + Clone,
@@ -152,7 +152,7 @@ where
         usize,
         usize,
         &Vec<T>,
-        &ReadZarrBindData,
+        &ReadGeoBindData,
     ) -> Result<(), Box<dyn std::error::Error>>,
 {
     let rank = bind_data.shape.len();

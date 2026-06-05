@@ -24,7 +24,7 @@ fn zarr_to_duckdb_logical_type(data_type: &DataType) -> std::result::Result<Logi
     }
 }
 
-pub struct ReadZarrBindData {
+pub struct ReadGeoBindData {
     pub path: String,
     pub shape: Vec<u64>,
     pub chunk_shape: Vec<u64>,
@@ -62,17 +62,17 @@ pub struct LocalState {
     pub subset_info: Option<geozarr_core::scanner::SubsetInfo>,
 }
 
-pub struct ReadZarrInitData {
+pub struct ReadGeoInitData {
     pub global_state: Mutex<GlobalState>,
     pub local_states: Mutex<HashMap<std::thread::ThreadId, LocalState>>,
     pub projected_columns: Vec<usize>,
 }
 
-pub struct ReadZarrVTab;
+pub struct ReadGeoVTab;
 
-impl VTab for ReadZarrVTab {
-    type InitData = ReadZarrInitData;
-    type BindData = ReadZarrBindData;
+impl VTab for ReadGeoVTab {
+    type InitData = ReadGeoInitData;
+    type BindData = ReadGeoBindData;
 
     fn parameters() -> Option<Vec<LogicalTypeHandle>> {
         Some(vec![LogicalTypeHandle::from(LogicalTypeId::Varchar)])
@@ -92,11 +92,18 @@ impl VTab for ReadZarrVTab {
 
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
         if bind.get_parameter_count() < 1 {
-            return Err("read_zarr requires at least 1 parameter (path)".into());
+            return Err("read_geo requires at least 1 parameter (path)".into());
         }
 
         let path = bind.get_parameter(0).to_string();
-        let dataset = geozarr_core::dataset::ZarrDataset::open(&path)?;
+        
+        // Very basic dispatch: if path contains "search", it's STAC
+        let dataset = if path.contains("/search") || path.contains("items") {
+             // For now just error out until full implementation
+             return Err("STAC FeatureCollections not fully implemented yet".into());
+        } else {
+             geozarr_core::dataset::ZarrDataset::open(&path)?
+        };
 
         let schema = dataset
             .schema()
@@ -137,7 +144,7 @@ impl VTab for ReadZarrVTab {
         let constraints = geozarr_core::query_planner::QueryConstraints { bounds, pins };
         let (bounds_min, bounds_max) = dataset.compute_bounds(&constraints);
 
-        Ok(ReadZarrBindData {
+        Ok(ReadGeoBindData {
             path,
             shape: dataset.shape,
             chunk_shape: dataset.chunk_shape,
@@ -155,7 +162,7 @@ impl VTab for ReadZarrVTab {
     }
 
     fn init(_init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
-        let bind_data = unsafe { &*_init.get_bind_data::<ReadZarrBindData>() };
+        let bind_data = unsafe { &*_init.get_bind_data::<ReadGeoBindData>() };
 
         let rank = bind_data.shape.len();
         let mut chunk_bounds_min = vec![0; rank];
@@ -173,7 +180,7 @@ impl VTab for ReadZarrVTab {
 
         let _exhausted = bind_data.shape.contains(&0);
 
-        Ok(ReadZarrInitData {
+        Ok(ReadGeoInitData {
             global_state: std::sync::Mutex::new(GlobalState {
                 grid_iterator: geozarr_core::scanner::GridIterator::new(
                     &bind_data.bounds_min,
@@ -192,7 +199,7 @@ impl VTab for ReadZarrVTab {
     }
 
     fn func(
-        func: &duckdb::vtab::TableFunctionInfo<ReadZarrVTab>,
+        func: &duckdb::vtab::TableFunctionInfo<ReadGeoVTab>,
         output: &mut DataChunkHandle,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let bind_data = func.get_bind_data();
@@ -238,34 +245,34 @@ impl VTab for ReadZarrVTab {
     }
 }
 
-pub struct PlanReadZarrBindData {
+pub struct PlanReadGeoBindData {
     pub total_chunks: u64,
     pub total_bytes: u64,
     pub rank: usize,
 }
 
-pub struct PlanReadZarrInitData {
+pub struct PlanReadGeoInitData {
     pub done: std::sync::atomic::AtomicBool,
     pub projected_columns: Vec<usize>,
 }
 
-pub struct PlanReadZarrVTab;
+pub struct PlanReadGeoVTab;
 
-impl VTab for PlanReadZarrVTab {
-    type InitData = PlanReadZarrInitData;
-    type BindData = PlanReadZarrBindData;
+impl VTab for PlanReadGeoVTab {
+    type InitData = PlanReadGeoInitData;
+    type BindData = PlanReadGeoBindData;
 
     fn parameters() -> Option<Vec<LogicalTypeHandle>> {
-        ReadZarrVTab::parameters()
+        ReadGeoVTab::parameters()
     }
 
     fn named_parameters() -> Option<Vec<(String, LogicalTypeHandle)>> {
-        ReadZarrVTab::named_parameters()
+        ReadGeoVTab::named_parameters()
     }
 
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
-        // Reuse ReadZarrVTab logic to compute bounds
-        let read_bind = ReadZarrVTab::bind(bind)?;
+        // Reuse ReadGeoVTab logic to compute bounds
+        let read_bind = ReadGeoVTab::bind(bind)?;
 
         let rank = read_bind.shape.len();
         let mut total_chunks = 1u64;
@@ -289,7 +296,7 @@ impl VTab for PlanReadZarrVTab {
         bind.add_result_column("total_chunks", LogicalTypeId::Bigint.into());
         bind.add_result_column("total_bytes", LogicalTypeId::Bigint.into());
 
-        Ok(PlanReadZarrBindData {
+        Ok(PlanReadGeoBindData {
             total_chunks,
             total_bytes,
             rank,
@@ -297,7 +304,7 @@ impl VTab for PlanReadZarrVTab {
     }
 
     fn init(_init: &InitInfo) -> Result<Self::InitData, Box<dyn std::error::Error>> {
-        Ok(PlanReadZarrInitData {
+        Ok(PlanReadGeoInitData {
             done: std::sync::atomic::AtomicBool::new(false),
             projected_columns: _init
                 .get_column_indices()

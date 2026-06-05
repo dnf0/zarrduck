@@ -4,7 +4,7 @@ use std::path::Path;
 #[test]
 fn test_new_data_types() -> Result<()> {
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<eider::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<eider::ReadGeoVTab>("read_geo")?;
 
     // We don't set GEOZARR_ALLOW_PATH dynamically to avoid race conditions in parallel tests.
     // Instead, the tests will be run with GEOZARR_ALLOW_PATH set for the whole test process
@@ -31,7 +31,7 @@ fn test_new_data_types() -> Result<()> {
     let bool_data: Vec<bool> = vec![true, false, true, true, false];
     bool_array.store_chunk_elements(&[0], &bool_data).unwrap();
 
-    let query_bool = format!("SELECT * FROM read_zarr('{}/bool')", store_path.display());
+    let query_bool = format!("SELECT * FROM read_geo('{}/bool')", store_path.display());
     let mut stmt_bool = conn.prepare(&query_bool)?;
     let mut rows_bool = stmt_bool.query([])?;
 
@@ -56,7 +56,7 @@ fn test_new_data_types() -> Result<()> {
     let i8_data: Vec<i8> = vec![-10, 20, -30, 40, -50];
     i8_array.store_chunk_elements(&[0], &i8_data).unwrap();
 
-    let query_i8 = format!("SELECT * FROM read_zarr('{}/i8')", store_path.display());
+    let query_i8 = format!("SELECT * FROM read_geo('{}/i8')", store_path.display());
     let mut stmt_i8 = conn.prepare(&query_i8)?;
     let mut rows_i8 = stmt_i8.query([])?;
 
@@ -70,7 +70,7 @@ fn test_new_data_types() -> Result<()> {
 }
 
 #[test]
-fn test_read_zarr_function_compiles() {
+fn test_read_geo_function_compiles() {
     let candidate_paths = vec![
         "../target/debug/eider_extension.duckdb_extension",
         "target/debug/eider_extension.duckdb_extension",
@@ -99,7 +99,7 @@ fn test_read_zarr_function_compiles() {
 
 fn setup_mock_zarr() -> Result<(duckdb::Connection, tempfile::TempDir, std::path::PathBuf)> {
     let conn = duckdb::Connection::open_in_memory()?;
-    conn.register_table_function::<eider::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<eider::ReadGeoVTab>("read_geo")?;
 
     let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let store_path = temp_dir.path().join("test.zarr");
@@ -161,7 +161,7 @@ fn test_schema_basic_types() -> Result<()> {
     let (conn, _temp_dir, store_path) = setup_mock_zarr()?;
 
     let query_info = format!(
-        "DESCRIBE SELECT * FROM read_zarr('{}')",
+        "DESCRIBE SELECT * FROM read_geo('{}')",
         store_path.display()
     );
     let mut info_stmt = conn.prepare(&query_info)?;
@@ -186,14 +186,14 @@ fn test_schema_basic_types() -> Result<()> {
     assert_eq!(column_types, vec!["BIGINT", "DOUBLE", "FLOAT"]);
 
     let max_lat: f64 = conn.query_row(
-        &format!("SELECT max(lat) FROM read_zarr('{}')", store_path.display()),
+        &format!("SELECT max(lat) FROM read_geo('{}')", store_path.display()),
         [],
         |row| row.get(0),
     )?;
     assert_eq!(max_lat, 64.0);
 
     let count: i64 = conn.query_row(
-        &format!("SELECT count(*) FROM read_zarr('{}')", store_path.display()),
+        &format!("SELECT count(*) FROM read_geo('{}')", store_path.display()),
         [],
         |row| row.get(0),
     )?;
@@ -207,7 +207,7 @@ fn test_schema_named_parameters() -> Result<()> {
     let (conn, _temp_dir, store_path) = setup_mock_zarr()?;
 
     let query_params = format!(
-        "SELECT count(*) FROM read_zarr('{}', lat_min := 50.0, lat_max := 55.0)",
+        "SELECT count(*) FROM read_geo('{}', lat_min := 50.0, lat_max := 55.0)",
         store_path.display()
     );
     let mut stmt_params = conn.prepare(&query_params)?;
@@ -222,7 +222,7 @@ fn test_schema_projection_pushdown_value() -> Result<()> {
     let (conn, _temp_dir, store_path) = setup_mock_zarr()?;
 
     let query_proj = format!(
-        "SELECT SUM(value) FROM read_zarr('{}')",
+        "SELECT SUM(value) FROM read_geo('{}')",
         store_path.display()
     );
     let mut stmt_proj = conn.prepare(&query_proj)?;
@@ -237,7 +237,7 @@ fn test_schema_null_mapping() -> Result<()> {
     let (conn, _temp_dir, store_path) = setup_mock_zarr()?;
 
     let query_null = format!(
-        "SELECT count(value) FROM read_zarr('{}')",
+        "SELECT count(value) FROM read_geo('{}')",
         store_path.display()
     );
     let mut stmt_null = conn.prepare(&query_null)?;
@@ -251,7 +251,7 @@ fn test_schema_null_mapping() -> Result<()> {
 fn test_schema_projection_pushdown_coord() -> Result<()> {
     let (conn, _temp_dir, store_path) = setup_mock_zarr()?;
 
-    let query_coord_proj = format!("SELECT SUM(lat) FROM read_zarr('{}')", store_path.display());
+    let query_coord_proj = format!("SELECT SUM(lat) FROM read_geo('{}')", store_path.display());
     let mut stmt_coord_proj = conn.prepare(&query_coord_proj)?;
     let sum_lat: f64 = stmt_coord_proj.query_row([], |row| row.get(0))?;
     assert_eq!(sum_lat, 10900.0);
@@ -266,7 +266,7 @@ fn test_schema_corrupted_chunk() -> Result<()> {
     let chunk_path = store_path.join("c").join("0").join("0");
     std::fs::write(&chunk_path, vec![0u8; 1]).unwrap();
     let query_corrupt = format!(
-        "SELECT SUM(value) FROM read_zarr('{}')",
+        "SELECT SUM(value) FROM read_geo('{}')",
         store_path.display()
     );
     let mut stmt_corrupt = conn.prepare(&query_corrupt)?;
@@ -281,7 +281,7 @@ fn test_schema_corrupted_chunk() -> Result<()> {
 #[test]
 fn test_geozarr_spatial_metadata() -> duckdb::Result<()> {
     let conn = duckdb::Connection::open_in_memory()?;
-    conn.register_table_function::<eider::ReadZarrVTab>("read_zarr")?;
+    conn.register_table_function::<eider::ReadGeoVTab>("read_geo")?;
     conn.register_table_function::<eider::metadata_vtab::ReadZarrMetadataVTab>(
         "read_zarr_metadata",
     )?;
@@ -339,7 +339,7 @@ fn test_geozarr_spatial_metadata() -> duckdb::Result<()> {
     // y_idx=1, x_idx=0 -> y: 90 + (1 * -10) = 80.0 | x: -180 + (0 * 10) = -180.0
 
     let query_data = format!(
-        "SELECT y, x, value FROM read_zarr('{}') ORDER BY y DESC, x ASC",
+        "SELECT y, x, value FROM read_geo('{}') ORDER BY y DESC, x ASC",
         store_path.display()
     );
     let mut stmt_data = conn.prepare(&query_data)?;
