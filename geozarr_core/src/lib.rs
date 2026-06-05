@@ -2,6 +2,7 @@ pub mod cog;
 pub mod coordinate_resolver;
 pub mod coordinates;
 pub mod dataset;
+pub mod geo_dataset;
 
 pub mod metadata;
 pub mod query_planner;
