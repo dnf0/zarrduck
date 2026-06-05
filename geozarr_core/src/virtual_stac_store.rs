@@ -71,7 +71,9 @@ impl ReadableStorageTraits for VirtualStacStore {
     ) -> Result<Option<Vec<Bytes>>, zarrs::storage::StorageError> {
         let key_str = key.as_str();
         if key_str == ".zgroup" || key_str == ".zmetadata" {
-            return Err(zarrs::storage::StorageError::Other("partial read not supported on metadata".into()));
+            return Err(zarrs::storage::StorageError::Other(
+                "partial read not supported on metadata".into(),
+            ));
         }
 
         if let Some(slash_idx) = key_str.find('/') {
@@ -94,7 +96,7 @@ impl ReadableStorageTraits for VirtualStacStore {
         if key_str == ".zmetadata" {
             return Ok(Some(self.zmetadata_bytes.len() as u64));
         }
-        
+
         if let Some(slash_idx) = key_str.find('/') {
             let child_name = &key_str[..slash_idx];
             let child_key_str = &key_str[slash_idx + 1..];
@@ -110,15 +112,29 @@ impl ReadableStorageTraits for VirtualStacStore {
 
 impl ListableStorageTraits for VirtualStacStore {
     fn list(&self) -> Result<zarrs::storage::StoreKeys, zarrs::storage::StorageError> {
-        Err(zarrs::storage::StorageError::Other("list not supported".into()))
+        Err(zarrs::storage::StorageError::Other(
+            "list not supported".into(),
+        ))
     }
-    fn list_prefix(&self, _prefix: &StorePrefix) -> Result<zarrs::storage::StoreKeys, zarrs::storage::StorageError> {
-        Err(zarrs::storage::StorageError::Other("list_prefix not supported".into()))
+    fn list_prefix(
+        &self,
+        _prefix: &StorePrefix,
+    ) -> Result<zarrs::storage::StoreKeys, zarrs::storage::StorageError> {
+        Err(zarrs::storage::StorageError::Other(
+            "list_prefix not supported".into(),
+        ))
     }
-    fn list_dir(&self, _prefix: &StorePrefix) -> Result<zarrs::storage::StoreKeysPrefixes, zarrs::storage::StorageError> {
-        Err(zarrs::storage::StorageError::Other("list_dir not supported".into()))
+    fn list_dir(
+        &self,
+        _prefix: &StorePrefix,
+    ) -> Result<zarrs::storage::StoreKeysPrefixes, zarrs::storage::StorageError> {
+        Err(zarrs::storage::StorageError::Other(
+            "list_dir not supported".into(),
+        ))
     }
     fn size_prefix(&self, _prefix: &StorePrefix) -> Result<u64, zarrs::storage::StorageError> {
-        Err(zarrs::storage::StorageError::Other("size_prefix not supported".into()))
+        Err(zarrs::storage::StorageError::Other(
+            "size_prefix not supported".into(),
+        ))
     }
 }

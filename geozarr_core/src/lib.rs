@@ -9,5 +9,5 @@ pub mod scanner;
 pub mod store;
 pub mod types;
 pub mod validator;
-pub mod virtual_store;
 pub mod virtual_stac_store;
+pub mod virtual_store;
