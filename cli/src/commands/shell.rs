@@ -34,7 +34,7 @@ pub fn run_shell(db_path: String) -> EyreResult<()> {
     let mut load_ext = false;
     if let Ok(out) = duckdb_version {
         let version_str = String::from_utf8_lossy(&out.stdout);
-        if version_str.starts_with("v1.1.") {
+        if version_str.starts_with("v1.") {
             load_ext = true;
         }
     }
@@ -42,7 +42,7 @@ pub fn run_shell(db_path: String) -> EyreResult<()> {
     let init_commands = if load_ext {
         format!("INSTALL spatial; LOAD spatial; LOAD '{}';", ext_path)
     } else {
-        println!("Note: Local DuckDB CLI version differs from v1.1.x. The GeoZarr extension will not be loaded.");
+        println!("Note: Local DuckDB CLI version differs from v1.x. The GeoZarr extension will not be loaded.");
         "INSTALL spatial; LOAD spatial;".to_string()
     };
 
