@@ -18,6 +18,8 @@ Type "export PS1='❯ '"
 Enter
 Type "rm -f *.duckdb"
 Enter
+Type "pkill -f mock_stac.py || true"
+Enter
 Type "python3 scripts/mock_stac.py 8123 &"
 Enter
 Sleep 1s
