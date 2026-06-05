@@ -96,6 +96,41 @@ pub fn make_extracted_db_numeric_time(dir: &TempDir) -> PathBuf {
     db_path
 }
 
+/// Build a deterministic `.duckdb` file with a 3-timestamp × 2-lat × 2-lon grid
+/// (12 rows total) suitable for non-degenerate heatmap and line/hist plots.
+///
+/// Grid:
+///   lat ∈ {10.0, 20.0}, lon ∈ {30.0, 40.0}
+///   times: 2020-01-15, 2020-06-15, 2021-01-15
+///   air_temperature varies across all cells (2.0 – 13.0)
+pub fn make_plot_db(dir: &TempDir) -> PathBuf {
+    let db_path = dir.path().join("plot.duckdb");
+    let conn = Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE extracted_data (
+             time BIGINT,
+             lat DOUBLE,
+             lon DOUBLE,
+             air_temperature DOUBLE
+         );
+         INSERT INTO extracted_data VALUES
+             (1579046400, 10.0, 30.0,  2.0),
+             (1579046400, 10.0, 40.0,  4.0),
+             (1579046400, 20.0, 30.0,  6.0),
+             (1579046400, 20.0, 40.0,  8.0),
+             (1592179200, 10.0, 30.0,  3.0),
+             (1592179200, 10.0, 40.0,  5.0),
+             (1592179200, 20.0, 30.0,  7.0),
+             (1592179200, 20.0, 40.0,  9.0),
+             (1610668800, 10.0, 30.0, 10.0),
+             (1610668800, 10.0, 40.0, 11.0),
+             (1610668800, 20.0, 30.0, 12.0),
+             (1610668800, 20.0, 40.0, 13.0);",
+    )
+    .unwrap();
+    db_path
+}
+
 /// Start an in-process mock STAC server. Mirrors scripts/mock_stac.py:
 /// GET /collections lists one zarr-bearing collection; POST /search returns one
 /// feature with a zarr asset. Returns the running server (keep it alive for the
