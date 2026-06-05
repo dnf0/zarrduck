@@ -72,7 +72,7 @@ enum Commands {
 
         /// The destination path for the Zarr array (e.g., s3://bucket/output.zarr)
         #[arg(long)]
-        output: String,
+        dest: String,
 
         /// The column containing the actual values (all others are coordinates)
         #[arg(long)]
@@ -237,14 +237,14 @@ async fn execute_command(
         Commands::Export {
             db,
             query,
-            output,
+            dest,
             value_column,
             chunks,
         } => {
             commands::export_cmd::run_export_cmd(
                 db,
                 query,
-                output,
+                dest,
                 value_column,
                 chunks,
                 mode,
