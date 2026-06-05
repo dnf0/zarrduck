@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use zarrs::array::{Array, ArrayMetadata, DataType};
 
-pub struct GeoZarrDataset {
+pub struct ZarrDataset {
     pub array: Arc<Array<dyn zarrs::storage::ReadableStorageTraits>>,
     pub shape: Vec<u64>,
     pub chunk_shape: Vec<u64>,
@@ -17,7 +17,7 @@ pub struct GeoZarrDataset {
     pub fill_value_bytes: Option<Vec<u8>>,
 }
 
-impl GeoZarrDataset {
+impl ZarrDataset {
     pub fn open(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let resolved_store = crate::store::resolve_sync_store(path)?;
         let is_remote = resolved_store.is_remote;
@@ -279,7 +279,7 @@ mod tests {
             "order": "C"
         }"#;
         let metadata_bare: ArrayMetadata = serde_json::from_str(json_meta).unwrap();
-        let names = GeoZarrDataset::resolve_dimension_names(&metadata_bare, 3);
+        let names = ZarrDataset::resolve_dimension_names(&metadata_bare, 3);
         assert_eq!(names, vec!["dim_0", "dim_1", "dim_2"]);
     }
 
@@ -299,7 +299,7 @@ mod tests {
             }
         }"#;
         let metadata_attrs: ArrayMetadata = serde_json::from_str(json_meta).unwrap();
-        let names = GeoZarrDataset::resolve_dimension_names(&metadata_attrs, 3);
+        let names = ZarrDataset::resolve_dimension_names(&metadata_attrs, 3);
         assert_eq!(names, vec!["time", "lat", "lon"]);
     }
 }

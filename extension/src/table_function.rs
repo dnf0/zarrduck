@@ -96,7 +96,7 @@ impl VTab for ReadZarrVTab {
         }
 
         let path = bind.get_parameter(0).to_string();
-        let dataset = geozarr_core::dataset::GeoZarrDataset::open(&path)?;
+        let dataset = geozarr_core::dataset::ZarrDataset::open(&path)?;
 
         let schema = dataset
             .schema()
