@@ -154,13 +154,13 @@ pub async fn run_extract(
     conn.execute("LOAD spatial", [])
         .wrap_err("Failed to load spatial extension")?;
 
-    // Calculate the bounding box of the vector file to pass to read_zarr for spatial pushdown
+    // Calculate the bounding box of the vector file to pass to read_geo for spatial pushdown
     let (lon_min, lat_min, lon_max, lat_max) = fetch_bounding_box(&conn, &vector_path)?;
 
     let pins_str = duckdb_utils::format_pins(&pin);
 
     let plan_query_str = format!(
-        "SELECT total_chunks, total_bytes FROM plan_read_zarr(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?{})",
+        "SELECT total_chunks, total_bytes FROM plan_read_geo(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?{})",
         pins_str
     );
     let mut plan_query = conn
@@ -202,7 +202,7 @@ pub async fn run_extract(
     let query = format!(
         "CREATE OR REPLACE TABLE extracted_data AS
                  SELECT z.*, v.* EXCLUDE (geom)
-                 FROM read_zarr(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?{}) z, ST_Read(?) v
+                 FROM read_geo(?, lon_min=?, lat_min=?, lon_max=?, lat_max=?{}) z, ST_Read(?) v
                  WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat))",
         pins_str
     );

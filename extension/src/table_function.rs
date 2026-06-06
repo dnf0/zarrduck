@@ -96,13 +96,13 @@ impl VTab for ReadGeoVTab {
         }
 
         let path = bind.get_parameter(0).to_string();
-        
+
         // Very basic dispatch: if path contains "search", it's STAC
         let dataset = if path.contains("/search") || path.contains("items") {
-             // For now just error out until full implementation
-             return Err("STAC FeatureCollections not fully implemented yet".into());
+            // For now just error out until full implementation
+            return Err("STAC FeatureCollections not fully implemented yet".into());
         } else {
-             geozarr_core::dataset::ZarrDataset::open(&path)?
+            geozarr_core::dataset::ZarrDataset::open(&path)?
         };
 
         let schema = dataset

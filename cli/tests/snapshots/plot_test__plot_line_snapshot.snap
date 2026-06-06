@@ -1,0 +1,24 @@
+---
+source: cli/tests/plot_test.rs
+assertion_line: 56
+expression: "run_plot(\"line\")"
+---
+Plotting line from table extracted_data (Value: air_temperature)
+
+ 13.00 ┤          ╭
+ 12.27 ┤          │
+ 11.53 ┤         ╭╯
+ 10.80 ┤        ╭╯
+ 10.07 ┤       ╭╯
+  9.33 ┤       │
+  8.60 ┤      ╭╯
+  7.87 ┤  ╭╮  │
+  7.13 ┤  ││ ╭╯
+  6.40 ┤  ││ │
+  5.67 ┤ ╭╯│ │
+  4.93 ┤ │ │╭╯
+  4.20 ┤ │ ││
+  3.47 ┤╭╯ ││
+  2.73 ┤│  ╰╯
+  2.00 ┼╯
+        air_temperature over time

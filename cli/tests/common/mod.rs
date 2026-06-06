@@ -31,22 +31,26 @@ pub fn climate_zarr() -> PathBuf {
     repo_root().join("climate_data.zarr")
 }
 
-/// Locate the built eider DuckDB extension, or fail loudly with guidance.
-pub fn geozarr_ext_path() -> PathBuf {
-    let candidates = [
+/// Locate the built eider DuckDB extension if present (non-panicking).
+pub fn find_geozarr_ext() -> Option<PathBuf> {
+    [
         repo_root().join("target/debug/eider.duckdb_extension"),
         repo_root().join("target/release/eider.duckdb_extension"),
-    ];
-    candidates
-        .iter()
-        .find(|p| p.exists())
-        .cloned()
-        .unwrap_or_else(|| {
-            panic!(
-                "eider.duckdb_extension not found in target/{{debug,release}}. \
-                 Build it first with: cargo duckdb-ext build"
-            )
-        })
+    ]
+    .into_iter()
+    .find(|p| p.exists())
+}
+
+/// Locate the built eider DuckDB extension, or fail loudly with guidance.
+#[allow(dead_code)]
+pub fn geozarr_ext_path() -> PathBuf {
+    find_geozarr_ext().unwrap_or_else(|| {
+        panic!(
+            "eider.duckdb_extension not found in target/{{debug,release}}. Build it first with: \
+             cargo duckdb-ext build -o target/debug/eider.duckdb_extension -d v1.5.2 \
+             -- --no-default-features --features loadable-extension"
+        )
+    })
 }
 
 /// True when the external `duckdb` CLI is on PATH (gates shell REPL tests).
@@ -68,6 +72,13 @@ pub fn eider(dir: &TempDir) -> Command {
         "DUCKDB_EXTENSION_DIRECTORY",
         repo_root().join(".duckdb_ext_cache"),
     );
+    // Point the binary at the built extension by absolute path so it loads
+    // regardless of the test's cwd or the binary's target dir (e.g. under
+    // `cargo llvm-cov`, which builds into a separate target directory). Only set
+    // when the extension exists, so non-extension tests are unaffected.
+    if let Some(ext) = find_geozarr_ext() {
+        cmd.env("EIDER_EXTENSION_PATH", ext);
+    }
     cmd
 }
 
@@ -96,6 +107,41 @@ pub fn make_extracted_db_numeric_time(dir: &TempDir) -> PathBuf {
     db_path
 }
 
+/// Build a deterministic `.duckdb` file with a 3-timestamp × 2-lat × 2-lon grid
+/// (12 rows total) suitable for non-degenerate heatmap and line/hist plots.
+///
+/// Grid:
+///   lat ∈ {10.0, 20.0}, lon ∈ {30.0, 40.0}
+///   times: 2020-01-15, 2020-06-15, 2021-01-15
+///   air_temperature varies across all cells (2.0 – 13.0)
+pub fn make_plot_db(dir: &TempDir) -> PathBuf {
+    let db_path = dir.path().join("plot.duckdb");
+    let conn = Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE extracted_data (
+             time BIGINT,
+             lat DOUBLE,
+             lon DOUBLE,
+             air_temperature DOUBLE
+         );
+         INSERT INTO extracted_data VALUES
+             (1579046400, 10.0, 30.0,  2.0),
+             (1579046400, 10.0, 40.0,  4.0),
+             (1579046400, 20.0, 30.0,  6.0),
+             (1579046400, 20.0, 40.0,  8.0),
+             (1592179200, 10.0, 30.0,  3.0),
+             (1592179200, 10.0, 40.0,  5.0),
+             (1592179200, 20.0, 30.0,  7.0),
+             (1592179200, 20.0, 40.0,  9.0),
+             (1610668800, 10.0, 30.0, 10.0),
+             (1610668800, 10.0, 40.0, 11.0),
+             (1610668800, 20.0, 30.0, 12.0),
+             (1610668800, 20.0, 40.0, 13.0);",
+    )
+    .unwrap();
+    db_path
+}
+
 /// Start an in-process mock STAC server. Mirrors scripts/mock_stac.py:
 /// GET /collections lists one zarr-bearing collection; POST /search returns one
 /// feature with a zarr asset. Returns the running server (keep it alive for the
@@ -119,6 +165,11 @@ pub async fn mock_stac() -> MockServer {
 
     let search_body = serde_json::json!({
         "features": [{
+            "id": "cmip6-cesm2-item",
+            "links": [
+                { "rel": "self", "href": "https://example.com/stac/items/cmip6-cesm2-item" }
+            ],
+            "properties": { "datetime": "2020-01-01T00:00:00Z" },
             "assets": {
                 "data": {
                     "href": "https://example.com/cmip6/tas.zarr",

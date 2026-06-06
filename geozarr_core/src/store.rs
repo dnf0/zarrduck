@@ -496,34 +496,33 @@ pub fn resolve_async_store(
 }
 
 pub async fn list_arrays(uri: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    if uri.starts_with("http://") || uri.starts_with("https://") {
-        if !uri.ends_with(".zarr")
-            && !uri.ends_with(".zarr/")
-            && !uri.ends_with(".tif")
-            && !uri.ends_with(".tiff")
-        {
-            if let Ok(resp) = reqwest::blocking::get(uri) {
-                if let Ok(json) = resp.json::<serde_json::Value>() {
-                    if json.get("stac_version").is_some()
-                        && json.get("type").and_then(|t| t.as_str()) == Some("Feature")
-                    {
-                        if let Some(assets) = json.get("assets").and_then(|a| a.as_object()) {
-                            let mut cog_assets = Vec::new();
-                            for (name, asset) in assets {
-                                let t = asset.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                                let href = asset.get("href").and_then(|h| h.as_str()).unwrap_or("");
-                                let is_asset_cog = t.contains("tiff")
-                                    || t.contains("cog")
-                                    || href.ends_with(".tif")
-                                    || href.ends_with(".tiff");
-                                if is_asset_cog {
-                                    cog_assets.push(name.to_string());
-                                }
+    if (uri.starts_with("http://") || uri.starts_with("https://"))
+        && !uri.ends_with(".zarr")
+        && !uri.ends_with(".zarr/")
+        && !uri.ends_with(".tif")
+        && !uri.ends_with(".tiff")
+    {
+        if let Ok(resp) = reqwest::blocking::get(uri) {
+            if let Ok(json) = resp.json::<serde_json::Value>() {
+                if json.get("stac_version").is_some()
+                    && json.get("type").and_then(|t| t.as_str()) == Some("Feature")
+                {
+                    if let Some(assets) = json.get("assets").and_then(|a| a.as_object()) {
+                        let mut cog_assets = Vec::new();
+                        for (name, asset) in assets {
+                            let t = asset.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                            let href = asset.get("href").and_then(|h| h.as_str()).unwrap_or("");
+                            let is_asset_cog = t.contains("tiff")
+                                || t.contains("cog")
+                                || href.ends_with(".tif")
+                                || href.ends_with(".tiff");
+                            if is_asset_cog {
+                                cog_assets.push(name.to_string());
                             }
-                            if !cog_assets.is_empty() {
-                                cog_assets.sort();
-                                return Ok(cog_assets);
-                            }
+                        }
+                        if !cog_assets.is_empty() {
+                            cog_assets.sort();
+                            return Ok(cog_assets);
                         }
                     }
                 }
