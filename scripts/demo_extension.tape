@@ -39,21 +39,17 @@ Enter
 Sleep 2s
 
 # Beat 2: Inspect the Zarr array as a SQL table
-Hide
-Type "header '2. Inspect the array as a SQL table'"
-Enter
-Show
 Sleep 1s
+Type "-- 2. Inspect the array as a SQL table"
+Enter
 Type "SELECT array_shape, chunk_shape, data_type FROM read_zarr_metadata('climate_data.zarr/air_temperature');"
 Enter
 Sleep 3s
 
 # Beat 3: Run analytical SQL directly over the Zarr array
-Hide
-Type "header '3. Run analytical SQL directly over the Zarr array'"
-Enter
-Show
 Sleep 1s
+Type "-- 3. Run analytical SQL directly over the Zarr array"
+Enter
 Type "SELECT lat, AVG(value) AS mean_temp FROM read_geo('climate_data.zarr/air_temperature', lat_min := 30, lat_max := 50) GROUP BY lat ORDER BY lat LIMIT 8;"
 Enter
 Sleep 5s
