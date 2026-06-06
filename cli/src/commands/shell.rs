@@ -33,19 +33,27 @@ pub fn run_shell(db_path: String) -> EyreResult<()> {
             .into_owned(),
     };
 
-    let duckdb_version = Command::new("duckdb").arg("-version").output();
-    let mut load_ext = false;
-    if let Ok(out) = duckdb_version {
-        let version_str = String::from_utf8_lossy(&out.stdout);
-        if version_str.starts_with("v1.") {
-            load_ext = true;
-        }
-    }
+    // Probe whether this DuckDB CLI can actually load the extension. The
+    // extension is version-locked to the DuckDB it was built against, so a CLI
+    // of a different version (or no extension built) can't load it. Rather than
+    // let a failed LOAD abort the whole shell, only include it when the probe
+    // succeeds and otherwise launch with just spatial.
+    let escaped_ext = ext_path.replace('\'', "''");
+    let load_ext = Command::new("duckdb")
+        .arg("-unsigned")
+        .arg("-c")
+        .arg(format!("LOAD '{}';", escaped_ext))
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
 
     let init_commands = if load_ext {
-        format!("INSTALL spatial; LOAD spatial; LOAD '{}';", ext_path)
+        format!("INSTALL spatial; LOAD spatial; LOAD '{}';", escaped_ext)
     } else {
-        println!("Note: Local DuckDB CLI version differs from v1.x. The GeoZarr extension will not be loaded.");
+        println!(
+            "Note: the eider GeoZarr extension could not be loaded into your local \
+             DuckDB CLI (version mismatch or extension not built); continuing without it."
+        );
         "INSTALL spatial; LOAD spatial;".to_string()
     };
 
