@@ -35,6 +35,8 @@ This project bridges the gap with two tools:
 
 ## Quick Start (Reading)
 
+![Querying Zarr directly in DuckDB with the eider extension](docs/static/img/demo-extension.gif)
+
 Download the `.duckdb_extension` binary for your platform from the [Releases page](https://github.com/dnf0/eider/releases), or build it from source.
 
 ```sql
