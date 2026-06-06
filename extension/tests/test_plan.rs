@@ -1,10 +1,10 @@
 use duckdb::{Connection, Result};
 
 #[test]
-fn test_plan_read_zarr() -> Result<()> {
+fn test_plan_read_geo() -> Result<()> {
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<eider::ReadZarrVTab>("read_zarr")?;
-    conn.register_table_function::<eider::PlanReadZarrVTab>("plan_read_zarr")?;
+    conn.register_table_function::<eider::ReadGeoVTab>("read_geo")?;
+    conn.register_table_function::<eider::PlanReadGeoVTab>("plan_read_geo")?;
 
     let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let store_path = temp_dir.path().join("test_plan.zarr");
@@ -25,7 +25,7 @@ fn test_plan_read_zarr() -> Result<()> {
     let array = builder.build(Arc::clone(&store), "/").unwrap();
     array.store_metadata().unwrap();
 
-    let query = format!("SELECT * FROM plan_read_zarr('{}')", store_path.display());
+    let query = format!("SELECT * FROM plan_read_geo('{}')", store_path.display());
     let mut stmt = conn.prepare(&query)?;
     let mut rows = stmt.query([])?;
 
@@ -42,10 +42,10 @@ fn test_plan_read_zarr() -> Result<()> {
 }
 
 #[test]
-fn test_plan_read_zarr_bounding_box_and_types() -> Result<()> {
+fn test_plan_read_geo_bounding_box_and_types() -> Result<()> {
     let conn = Connection::open_in_memory()?;
-    conn.register_table_function::<eider::ReadZarrVTab>("read_zarr")?;
-    conn.register_table_function::<eider::PlanReadZarrVTab>("plan_read_zarr")?;
+    conn.register_table_function::<eider::ReadGeoVTab>("read_geo")?;
+    conn.register_table_function::<eider::PlanReadGeoVTab>("plan_read_geo")?;
 
     let temp_dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
     let store_path = temp_dir.path().join("test_plan_bbox.zarr");
@@ -106,7 +106,7 @@ fn test_plan_read_zarr_bounding_box_and_types() -> Result<()> {
     // chunk bytes = 50 bytes.
     // total_bytes = 3 * 50 = 150 bytes.
     let query = format!(
-        "SELECT * FROM plan_read_zarr('{}', lat_min=10, lat_max=24, lon_min=5, lon_max=9)",
+        "SELECT * FROM plan_read_geo('{}', lat_min=10, lat_max=24, lon_min=5, lon_max=9)",
         store_path.display()
     );
     let mut stmt = conn.prepare(&query)?;

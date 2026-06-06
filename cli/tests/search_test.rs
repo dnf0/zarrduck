@@ -14,8 +14,9 @@ async fn search_json_lists_zarr_uris() {
         .assert()
         .success()
         .stdout(predicate::str::contains(r#""status":"success""#))
+        // search now emits the STAC feature's self link (read_geo resolves it).
         .stdout(predicate::str::contains(
-            "https://example.com/cmip6/tas.zarr",
+            "https://example.com/stac/items/cmip6-cesm2-item",
         ));
 }
 

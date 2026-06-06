@@ -165,6 +165,11 @@ pub async fn mock_stac() -> MockServer {
 
     let search_body = serde_json::json!({
         "features": [{
+            "id": "cmip6-cesm2-item",
+            "links": [
+                { "rel": "self", "href": "https://example.com/stac/items/cmip6-cesm2-item" }
+            ],
+            "properties": { "datetime": "2020-01-01T00:00:00Z" },
             "assets": {
                 "data": {
                     "href": "https://example.com/cmip6/tas.zarr",

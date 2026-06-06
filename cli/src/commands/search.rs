@@ -64,58 +64,53 @@ fn is_supported_asset(asset: &serde_json::Value) -> bool {
     is_zarr || is_cog
 }
 
-fn extract_assets(
-    assets: &serde_json::Map<String, serde_json::Value>,
-    found_options: &mut Vec<SelectOption>,
-) {
-    for (_, asset) in assets {
-        if is_supported_asset(asset) {
-            if let Some(href) = asset.get("href").and_then(|h| h.as_str()) {
-                let title = asset.get("title").and_then(|t| t.as_str()).unwrap_or(href);
-                let mut desc = asset
-                    .get("description")
-                    .and_then(|d| d.as_str())
-                    .unwrap_or("")
-                    .replace('\n', " ");
-                if desc.len() > 80 {
-                    desc.truncate(77);
-                    desc.push_str("...");
-                }
-
-                let mut display = if desc.is_empty() {
-                    title.bold().cyan().to_string()
-                } else {
-                    format!("{} - {}", title.bold().cyan(), desc.italic())
-                };
-
-                if found_options.len() % 2 == 1 {
-                    display = display.on_truecolor(30, 30, 30).to_string();
-                }
-
-                found_options.push(SelectOption {
-                    id: href.to_string(),
-                    display,
-                });
-            }
-        }
-    }
-}
-
 fn parse_search_results(stac_response: &serde_json::Value) -> Vec<SelectOption> {
     let mut found_options = Vec::new();
 
-    // Check features (items)
     if let Some(features) = stac_response.get("features").and_then(|f| f.as_array()) {
         for feature in features {
-            if let Some(assets) = feature.get("assets").and_then(|a| a.as_object()) {
-                extract_assets(assets, &mut found_options);
+            // Find self link
+            let mut self_href = None;
+            if let Some(links) = feature.get("links").and_then(|l| l.as_array()) {
+                for link in links {
+                    if link.get("rel").and_then(|r| r.as_str()) == Some("self") {
+                        self_href = link
+                            .get("href")
+                            .and_then(|h| h.as_str())
+                            .map(|s| s.to_string());
+                        break;
+                    }
+                }
+            }
+
+            if let Some(href) = self_href {
+                // Check if it has any supported data assets
+                let mut has_supported_data = false;
+                if let Some(assets) = feature.get("assets").and_then(|a| a.as_object()) {
+                    has_supported_data = assets.values().any(is_supported_asset);
+                }
+
+                if has_supported_data {
+                    let id = feature
+                        .get("id")
+                        .and_then(|i| i.as_str())
+                        .unwrap_or(&href)
+                        .to_string();
+                    let datetime = feature
+                        .get("properties")
+                        .and_then(|p| p.get("datetime"))
+                        .and_then(|d| d.as_str())
+                        .unwrap_or("");
+
+                    let mut display = format!("{} ({})", id.bold().cyan(), datetime.italic());
+                    if found_options.len() % 2 == 1 {
+                        display = display.on_truecolor(30, 30, 30).to_string();
+                    }
+
+                    found_options.push(SelectOption { id: href, display });
+                }
             }
         }
-    }
-
-    // Check if the response itself is a collection with assets
-    if let Some(assets) = stac_response.get("assets").and_then(|a| a.as_object()) {
-        extract_assets(assets, &mut found_options);
     }
 
     found_options
@@ -365,7 +360,7 @@ pub async fn run_search(
         }
     } else if found_options.is_empty() {
         return Err(eyre!(
-            "No Zarr or COG URIs found in collection {}.",
+            "No STAC Items with supported assets found in collection {}.",
             selected_collection
         ));
     } else {
@@ -373,7 +368,7 @@ pub async fn run_search(
             found_options[0].id.clone()
         } else {
             let prompt_msg = format!(
-                "Found {} Data URIs. Select a dataset to use:",
+                "Found {} STAC Items. Select a scene to use:",
                 found_options.len()
             );
             let mut select = inquire::Select::new(&prompt_msg, found_options).with_page_size(10);
@@ -461,24 +456,29 @@ mod tests {
 
     #[test]
     fn parse_results_from_features() {
+        // Search keys results on the STAC feature's self link (resolved later by
+        // read_geo), and only includes features that have a supported asset.
         let resp = json!({
             "features": [{
+                "id": "item-1",
+                "links": [{ "rel": "self", "href": "https://stac.test/items/item-1" }],
                 "assets": { "data": { "type": "application/vnd+zarr", "href": "s3://b/x.zarr" } }
             }]
         });
         let opts = parse_search_results(&resp);
         assert_eq!(opts.len(), 1);
-        assert_eq!(opts[0].id, "s3://b/x.zarr");
+        assert_eq!(opts[0].id, "https://stac.test/items/item-1");
     }
 
     #[test]
-    fn parse_results_from_collection_assets() {
+    fn parse_results_skips_feature_without_self_link() {
+        // A feature with a supported asset but no rel=self link is skipped.
         let resp = json!({
-            "assets": { "data": { "type": "application/vnd+zarr", "href": "s3://b/y.zarr" } }
+            "features": [{
+                "assets": { "data": { "type": "application/vnd+zarr", "href": "s3://b/y.zarr" } }
+            }]
         });
-        let opts = parse_search_results(&resp);
-        assert_eq!(opts.len(), 1);
-        assert_eq!(opts[0].id, "s3://b/y.zarr");
+        assert!(parse_search_results(&resp).is_empty());
     }
 
     #[test]
