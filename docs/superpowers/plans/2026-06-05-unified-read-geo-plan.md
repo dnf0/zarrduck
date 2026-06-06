@@ -179,7 +179,7 @@ Rename `ReadZarrInitData` -> `ReadGeoInitData`
 In `ReadGeoVTab::bind`, wrap the initialization:
 ```rust
         let path = bind.get_parameter(0).to_string();
-        
+
         // Very basic dispatch: if path contains "search", it's STAC
         let dataset = if path.contains("/search") || path.contains("items") {
              // For now just error out until full implementation
@@ -219,7 +219,7 @@ fn test_stac_filter_pushdown() {
     bounds.insert("lat".to_string(), (Some(40.0), Some(45.0)));
     bounds.insert("lon".to_string(), (Some(-10.0), Some(10.0)));
     let constraints = crate::query_planner::QueryConstraints { bounds, pins: std::collections::HashMap::new() };
-    
+
     let url = crate::feature_collection::build_stac_url("https://example.com/search", &constraints);
     assert!(url.contains("bbox=-10,40,10,45"));
 }
@@ -231,15 +231,15 @@ fn test_stac_filter_pushdown() {
 // geozarr_core/src/feature_collection.rs
 pub fn build_stac_url(base_url: &str, constraints: &crate::query_planner::QueryConstraints) -> String {
     let mut url = base_url.to_string();
-    
+
     let lat_bounds = constraints.bounds.get("lat").copied().unwrap_or((None, None));
     let lon_bounds = constraints.bounds.get("lon").copied().unwrap_or((None, None));
-    
+
     if let (Some(lon_min), Some(lat_min), Some(lon_max), Some(lat_max)) = (lon_bounds.0, lat_bounds.0, lon_bounds.1, lat_bounds.1) {
         let separator = if url.contains('?') { "&" } else { "?" };
         url = format!("{}{separator}bbox={},{},{},{}", url, lon_min, lat_min, lon_max, lat_max);
     }
-    
+
     url
 }
 ```

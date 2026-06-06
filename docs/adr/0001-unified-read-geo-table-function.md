@@ -11,7 +11,7 @@ Trying to map an entire STAC catalog or `FeatureCollection` into a single, perfe
 
 ## Decision
 
-We will introduce a new unified entry point for the DuckDB extension: `read_geo(url)`. 
+We will introduce a new unified entry point for the DuckDB extension: `read_geo(url)`.
 
 Inside the extension, a "Decision Layer" will parse the URL and dispatch to a specific implementation of a new Rust `Dataset` trait:
 
