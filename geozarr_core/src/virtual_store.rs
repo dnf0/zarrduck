@@ -95,7 +95,23 @@ impl ReadableStorageTraits for VirtualCogStore {
                     .unwrap();
 
                     if let Ok(bytes) = bytes_res {
-                        return Ok(Some(Bytes::from(bytes.to_vec())));
+                        let raw = bytes.to_vec();
+                        let decoded = match self.meta.compression_kind() {
+                            Ok(crate::cog::CogCompression::None) => raw,
+                            Ok(crate::cog::CogCompression::Deflate) => {
+                                use std::io::Read;
+                                let mut d = flate2::read::ZlibDecoder::new(&raw[..]);
+                                let mut out = Vec::new();
+                                d.read_to_end(&mut out).map_err(|e| {
+                                    zarrs::storage::StorageError::Other(format!(
+                                        "deflate decode failed: {e}"
+                                    ))
+                                })?;
+                                out
+                            }
+                            Err(e) => return Err(zarrs::storage::StorageError::Other(e)),
+                        };
+                        return Ok(Some(Bytes::from(decoded)));
                     }
                 }
             }
@@ -212,5 +228,47 @@ mod tests {
         assert!(zattrs.contains("\"lat\"") && zattrs.contains("\"lon\""));
         assert!(zattrs.contains("EPSG:4326"));
         assert!(zattrs.contains("spatial_transform"));
+    }
+
+    #[tokio::test]
+    async fn test_deflate_tile_is_inflated() {
+        use std::io::Write;
+        use zarrs::storage::ReadableStorageTraits;
+        // raw 2x4 i16 LE tile = 16 bytes
+        let raw: Vec<u8> = (0..16u8).collect();
+        let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(&raw).unwrap();
+        let compressed = enc.finish().unwrap();
+
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        op.write("tile.bin", compressed.clone()).await.unwrap();
+
+        let meta = crate::cog::CogMetadata {
+            image_width: 4,
+            image_length: 2,
+            tile_width: 4,
+            tile_length: 2,
+            tile_offsets: vec![0],
+            tile_byte_counts: vec![compressed.len() as u64],
+            is_little_endian: true,
+            bits_per_sample: 16,
+            sample_format: 2,
+            samples_per_pixel: 1,
+            compression: 8,
+            predictor: 1,
+            ..Default::default()
+        };
+        let store = VirtualCogStore::new(op, "tile.bin".to_string(), meta);
+        let out = store
+            .get(&zarrs::storage::StoreKey::new("0.0").unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            out.to_vec(),
+            raw,
+            "deflate tile must be inflated to raw bytes"
+        );
     }
 }

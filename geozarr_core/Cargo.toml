@@ -11,6 +11,7 @@ opendal = { version = "0.48", features = ["services-s3", "services-http", "servi
 tokio = { version = "1.0", features = ["sync", "rt", "macros", "rt-multi-thread"] }
 bytes = "1.11.1"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
+flate2 = "1"
 [dev-dependencies]
 tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread"] }
 criterion = "0.5"
