@@ -37,6 +37,12 @@ pub fn parse_tiff_header(buffer: &[u8]) -> Result<TiffHeader, String> {
     })
 }
 
+#[derive(Debug, PartialEq)]
+pub enum CogCompression {
+    None,
+    Deflate,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct CogMetadata {
     pub image_width: u32,
@@ -51,6 +57,7 @@ pub struct CogMetadata {
     pub samples_per_pixel: u16, // 277; default 1
     pub compression: u16,       // 259; 1=none (default)
     pub predictor: u16,         // 317; 1=none (default)
+    pub nodata: Option<f64>,    // GDAL_NODATA tag 42113
 }
 
 impl CogMetadata {
@@ -90,6 +97,35 @@ impl CogMetadata {
             ));
         }
         Ok(format!("{endian}{kind}{bytes}"))
+    }
+
+    /// Resolve the TIFF Compression+Predictor tags to a supported kind, or error.
+    pub fn compression_kind(&self) -> Result<CogCompression, String> {
+        let comp = match self.compression {
+            1 => CogCompression::None,
+            8 | 32946 => CogCompression::Deflate,
+            other => {
+                return Err(format!(
+                "unsupported COG compression {other} (only uncompressed and Deflate are supported)"
+            ))
+            }
+        };
+        if self.predictor != 1 {
+            return Err(format!(
+                "unsupported COG predictor {} (only predictor=1/none is supported)",
+                self.predictor
+            ));
+        }
+        Ok(comp)
+    }
+
+    /// Parse a GDAL_NODATA ASCII tag value to a number (returns None for NaN/unparseable).
+    pub fn parse_nodata(s: &str) -> Option<f64> {
+        let t = s.trim().trim_end_matches('\0').trim();
+        match t.parse::<f64>() {
+            Ok(v) if v.is_finite() => Some(v),
+            _ => None,
+        }
     }
 }
 
@@ -193,6 +229,15 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
             339 => meta.sample_format = extract_single_val() as u16,
             259 => meta.compression = extract_single_val() as u16,
             317 => meta.predictor = extract_single_val() as u16,
+            42113 => {
+                let start = val_or_offset as usize;
+                let end = (start + count as usize).min(buffer.len());
+                if start <= end {
+                    if let Ok(s) = std::str::from_utf8(&buffer[start..end]) {
+                        meta.nodata = CogMetadata::parse_nodata(s);
+                    }
+                }
+            }
             324 => {
                 if count == 1 {
                     meta.tile_offsets.push(extract_single_val() as u64);
@@ -332,5 +377,28 @@ mod tests {
             ..Default::default()
         };
         assert!(bad.zarr_dtype().is_err());
+    }
+
+    #[test]
+    fn test_compression_and_predictor_and_nodata() {
+        let mut m = CogMetadata {
+            compression: 1,
+            predictor: 1,
+            ..Default::default()
+        };
+        assert!(matches!(m.compression_kind(), Ok(CogCompression::None)));
+        m.compression = 8;
+        assert!(matches!(m.compression_kind(), Ok(CogCompression::Deflate)));
+        m.compression = 32946; // old-style deflate
+        assert!(matches!(m.compression_kind(), Ok(CogCompression::Deflate)));
+        m.compression = 5; // LZW
+        assert!(m.compression_kind().is_err());
+        // predictor != 1 with deflate is rejected
+        m.compression = 8;
+        m.predictor = 2;
+        assert!(m.compression_kind().is_err());
+        // nodata parse
+        assert_eq!(CogMetadata::parse_nodata("  -9999  "), Some(-9999.0));
+        assert_eq!(CogMetadata::parse_nodata("nan"), None);
     }
 }
