@@ -1,27 +1,52 @@
 # Installation
 
-Eider consists of a loadable DuckDB extension (`eider_extension`) and a CLI tool (`eider`).
+Eider ships as two pieces that work together: a loadable **DuckDB extension** (queried from SQL) and the **`eider` CLI**.
 
-## Binary Releases
-Download the `.duckdb_extension` binary for your platform from the [Releases page](https://github.com/dnf0/eider/releases).
+## DuckDB extension
 
-```sql
--- Allow unsigned extensions
-SET allow_unsigned_extensions = true;
--- Load the extension
-LOAD '/path/to/eider_extension.duckdb_extension';
+### From a release
+
+Download the `eider-<platform>.duckdb_extension` for your platform from the
+[Releases page](https://github.com/dnf0/eider/releases) and rename it to
+`eider.duckdb_extension` — DuckDB derives the load entry point from the filename.
+
+Launch DuckDB allowing unsigned extensions. The flag must be set **at startup**
+(`SET allow_unsigned_extensions` cannot be changed at runtime), and `LOAD`
+requires an **absolute** path:
+
+```bash
+duckdb -unsigned
 ```
 
-## Compiling from Source
-Requires the Rust toolchain and Cargo.
+```sql
+LOAD '/absolute/path/to/eider.duckdb_extension';
+```
+
+### From source
+
+Requires the Rust toolchain and `cargo-duckdb-ext-tools`
+(`cargo install cargo-duckdb-ext-tools`):
+
 ```bash
 git clone https://github.com/dnf0/eider.git
 cd eider
-cargo build --release
+cargo duckdb-ext build -o target/debug/eider.duckdb_extension \
+  -d v1.5.2 -- --no-default-features --features loadable-extension
 ```
-The CLI binary will be at `target/release/eider`, and the extension at `target/release/libeider_extension.dylib` (or `.so`).
 
-## Authentication
-Eider uses OpenDAL. Configure access by setting standard environment variables:
-- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
-- `GEOZARR_ALLOW_PATH` (to enable local filesystem access: `export GEOZARR_ALLOW_PATH=/`)
+## CLI
+
+Download the `eider` binary from the [Releases page](https://github.com/dnf0/eider/releases),
+or build from source:
+
+```bash
+cargo build --release -p eider   # binary at target/release/eider
+```
+
+## Authentication & access
+
+Eider streams data through [Apache OpenDAL](https://opendal.apache.org/).
+Configure access with standard environment variables:
+
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` — for `s3://`
+- `GEOZARR_ALLOW_PATH` — permit local filesystem reads, e.g. `export GEOZARR_ALLOW_PATH=/`
