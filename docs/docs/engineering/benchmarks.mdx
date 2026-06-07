@@ -1,21 +1,39 @@
-import { HeadToHeadPlot, ScalingPlot } from '@site/src/components/BenchmarkPlots';
-
 # Performance Benchmarks
 
-Eider was designed to push the physical limits of network I/O and single-core SIMD throughput. All benchmarks use the NCEP CDAS reanalysis surface air temperature dataset.
+Eider's hot paths are microbenchmarked with
+[criterion](https://github.com/bheisler/criterion.rs). These are
+single-machine microbenchmarks of specific operations — not cross-tool or
+cross-dataset comparisons — included to show where time goes inside the
+extension. Run them yourself with the commands in
+[Reproducing these numbers](#reproducing-these-numbers).
 
-## Head-to-Head: Eider vs Python Ecosystem
+## Measured results
 
-Query: Extract all grid cells within the California bounding box (−125°–−115°, 30°–45°), returning 32,830 rows from a remote Zarr store.
+| Benchmark | What it measures | Median |
+|---|---|---|
+| `populate_lat_batch_2048` | Generating 2,048 coordinate values from an affine transform (no network) | ~10.2 µs |
+| `scanner_read_chunk_subset_remote` | Reading a chunk subset from a remote store through the scanner | ~3.4 µs |
 
-<HeadToHeadPlot />
+**Coordinate generation is essentially free relative to I/O.** Because Eider
+computes lat/lon from the array's affine transform on the fly
+(`translation + index × scale`) rather than fetching coordinate arrays, a full
+batch of 2,048 values costs microseconds — negligible next to the network round
+trips that dominate a remote read. See
+[Spatial Pruning](./spatial_pruning.mdx) for how that transform is also used to
+prune chunks.
 
-Eider matches or beats the fastest available Python Zarr library (even the Rust-backed `zarrs` pipeline) because it avoids generating physical numpy arrays inside Python, instead streaming directly into DuckDB vectors.
+## Reproducing these numbers
 
-## Code Generation Latency
+The benchmarks live in the repo and use criterion:
 
-To achieve these speeds, Eider lazily evaluates coordinates (Lat/Lon) via affine transform dynamically, rather than fetching them over the network.
+```bash
+# Coordinate generation (extension crate)
+cargo bench --bench coordinate_bench
 
-<ScalingPlot />
+# Remote chunk-subset read (geozarr_core crate)
+cargo bench --package geozarr_core --bench scanner_bench
+```
 
-Generating a block of 2,048 projected coordinates natively inside the extension costs **~9.5 µs**, making the math essentially free compared to network latency.
+Sources: `extension/benches/coordinate_bench.rs` and
+`geozarr_core/benches/scanner_bench.rs`. Numbers vary with hardware, network,
+and the remote store; treat them as order-of-magnitude, not absolute.
