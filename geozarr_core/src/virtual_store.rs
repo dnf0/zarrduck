@@ -8,36 +8,53 @@ pub struct VirtualCogStore {
     operator: opendal::Operator,
     filename: String,
     meta: CogMetadata,
+    zarray_bytes: Bytes,
+    zattrs_bytes: Bytes,
     zmetadata_bytes: Bytes,
 }
 
 impl VirtualCogStore {
     pub fn new(operator: opendal::Operator, filename: String, meta: CogMetadata) -> Self {
-        // Synthesize a .zmetadata JSON for a root array
-        let json = format!(
-            r#"{{
-            "metadata": {{
-                ".zarray": {{
-                    "zarr_format": 2,
-                    "shape": [{}, {}],
-                    "chunks": [{}, {}],
-                    "dtype": "<f4",
-                    "compressor": null,
-                    "fill_value": null,
-                    "filters": null,
-                    "order": "C"
-                }}
-            }},
-            "zarr_consolidated_format": 1
-        }}"#,
-            meta.image_length, meta.image_width, meta.tile_length, meta.tile_width
+        // Synthesize honest Zarr-V2 metadata from the parsed COG.
+        let dtype = meta.zarr_dtype().unwrap_or_else(|_| "<f4".to_string());
+        let fill = match meta.nodata {
+            Some(v) => format!("{v}"),
+            None => "null".to_string(),
+        };
+        let dims = meta.dim_names(); // ["lat","lon"] or ["y","x"]
+        let dims_json = format!("[\"{}\", \"{}\"]", dims[0], dims[1]);
+        let geozarr = match (meta.spatial_transform(), meta.crs()) {
+            (Some(t), crs) => {
+                let crs_json = crs
+                    .map(|c| format!("\"crs\": \"{c}\","))
+                    .unwrap_or_default();
+                format!(
+                    "{{ {} \"spatial_transform\": {{ \"scale\": [{}, {}], \"translation\": [{}, {}] }} }}",
+                    crs_json, t.scale[0], t.scale[1], t.translation[0], t.translation[1]
+                )
+            }
+            (None, _) => "{}".to_string(),
+        };
+        let zarray = format!(
+            r#"{{"zarr_format":2,"shape":[{},{}],"chunks":[{},{}],"dtype":"{}","compressor":null,"fill_value":{},"filters":null,"order":"C"}}"#,
+            meta.image_length, meta.image_width, meta.tile_length, meta.tile_width, dtype, fill
+        );
+        let zattrs = format!(
+            r#"{{"_ARRAY_DIMENSIONS":{},"geozarr":{}}}"#,
+            dims_json, geozarr
+        );
+        let zmetadata = format!(
+            r#"{{"metadata":{{".zarray":{},".zattrs":{}}},"zarr_consolidated_format":1}}"#,
+            zarray, zattrs
         );
 
         Self {
             operator,
             filename,
             meta,
-            zmetadata_bytes: Bytes::from(json),
+            zarray_bytes: Bytes::from(zarray),
+            zattrs_bytes: Bytes::from(zattrs),
+            zmetadata_bytes: Bytes::from(zmetadata),
         }
     }
 }
@@ -48,23 +65,10 @@ impl ReadableStorageTraits for VirtualCogStore {
             return Ok(Some(self.zmetadata_bytes.clone()));
         }
         if key.as_str() == ".zarray" {
-            let json = format!(
-                r#"{{
-                "zarr_format": 2,
-                "shape": [{}, {}],
-                "chunks": [{}, {}],
-                "dtype": "<f4",
-                "compressor": null,
-                "fill_value": "NaN",
-                "filters": null,
-                "order": "C"
-            }}"#,
-                self.meta.image_length,
-                self.meta.image_width,
-                self.meta.tile_length,
-                self.meta.tile_width
-            );
-            return Ok(Some(Bytes::from(json)));
+            return Ok(Some(self.zarray_bytes.clone()));
+        }
+        if key.as_str() == ".zattrs" {
+            return Ok(Some(self.zattrs_bytes.clone()));
         }
 
         let chunks: Vec<&str> = key.as_str().split('.').collect();
@@ -132,7 +136,11 @@ impl ReadableStorageTraits for VirtualCogStore {
 
 impl ListableStorageTraits for VirtualCogStore {
     fn list(&self) -> Result<zarrs::storage::StoreKeys, zarrs::storage::StorageError> {
-        Ok(vec![StoreKey::new(".zmetadata").unwrap()])
+        Ok(vec![
+            StoreKey::new(".zmetadata").unwrap(),
+            StoreKey::new(".zarray").unwrap(),
+            StoreKey::new(".zattrs").unwrap(),
+        ])
     }
     fn list_prefix(
         &self,
@@ -156,29 +164,53 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_virtual_store_metadata() {
-        let meta = crate::cog::CogMetadata {
-            image_width: 1024,
-            image_length: 1024,
-            tile_width: 256,
-            tile_length: 256,
-            tile_offsets: vec![100, 200, 300, 400],
-            tile_byte_counts: vec![50, 50, 50, 50],
+    async fn test_virtual_store_synthesizes_geozarr_attrs() {
+        use zarrs::storage::ReadableStorageTraits;
+        let mut meta = crate::cog::CogMetadata {
+            image_width: 4,
+            image_length: 2,
+            tile_width: 4,
+            tile_length: 2,
+            tile_offsets: vec![0],
+            tile_byte_counts: vec![16],
+            is_little_endian: true,
+            bits_per_sample: 16,
+            sample_format: 2,
+            samples_per_pixel: 1,
+            compression: 1,
+            predictor: 1,
+            ..Default::default()
         };
+        meta.pixel_scale = vec![2.0, 2.0, 0.0];
+        meta.tiepoint = vec![0.0, 0.0, 0.0, -180.0, 90.0, 0.0];
+        meta.epsg = Some(4326);
 
         let op = opendal::Operator::new(opendal::services::Memory::default())
             .unwrap()
             .finish();
         let store = VirtualCogStore::new(op, "".to_string(), meta);
 
-        // Zarrs ReadableStorageTraits implementation test
-        use zarrs::storage::ReadableStorageTraits;
-        let md = store
-            .get(&zarrs::storage::StoreKey::new(".zmetadata").unwrap())
-            .unwrap()
-            .unwrap();
-        let md_str = String::from_utf8(md.to_vec()).unwrap();
-        assert!(md_str.contains("zarr_format"));
-        assert!(md_str.contains("1024"));
+        let zarray = String::from_utf8(
+            store
+                .get(&zarrs::storage::StoreKey::new(".zarray").unwrap())
+                .unwrap()
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(zarray.contains("\"<i2\""), "dtype should be <i2: {zarray}");
+
+        let zattrs = String::from_utf8(
+            store
+                .get(&zarrs::storage::StoreKey::new(".zattrs").unwrap())
+                .unwrap()
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(zattrs.contains("_ARRAY_DIMENSIONS"));
+        assert!(zattrs.contains("\"lat\"") && zattrs.contains("\"lon\""));
+        assert!(zattrs.contains("EPSG:4326"));
+        assert!(zattrs.contains("spatial_transform"));
     }
 }
