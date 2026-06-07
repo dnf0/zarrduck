@@ -23,6 +23,11 @@ impl VirtualStacStore {
                     metadata_map.insert(format!("{}/.zarray", name), json);
                 }
             }
+            if let Ok(Some(bytes)) = child.get(&StoreKey::new(".zattrs").unwrap()) {
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    metadata_map.insert(format!("{}/.zattrs", name), json);
+                }
+            }
         }
 
         let zmetadata_json = serde_json::json!({
@@ -112,29 +117,110 @@ impl ReadableStorageTraits for VirtualStacStore {
 
 impl ListableStorageTraits for VirtualStacStore {
     fn list(&self) -> Result<zarrs::storage::StoreKeys, zarrs::storage::StorageError> {
-        Err(zarrs::storage::StorageError::Other(
-            "list not supported".into(),
-        ))
+        let mut keys = vec![
+            StoreKey::new(".zgroup").unwrap(),
+            StoreKey::new(".zmetadata").unwrap(),
+        ];
+        for name in self.children.keys() {
+            keys.push(StoreKey::new(format!("{}/.zarray", name)).unwrap());
+            keys.push(StoreKey::new(format!("{}/.zattrs", name)).unwrap());
+        }
+        Ok(keys)
     }
     fn list_prefix(
         &self,
-        _prefix: &StorePrefix,
+        prefix: &StorePrefix,
     ) -> Result<zarrs::storage::StoreKeys, zarrs::storage::StorageError> {
-        Err(zarrs::storage::StorageError::Other(
-            "list_prefix not supported".into(),
-        ))
+        let p = prefix.as_str();
+        Ok(self
+            .list()?
+            .into_iter()
+            .filter(|k| k.as_str().starts_with(p))
+            .collect())
     }
     fn list_dir(
         &self,
         _prefix: &StorePrefix,
     ) -> Result<zarrs::storage::StoreKeysPrefixes, zarrs::storage::StorageError> {
-        Err(zarrs::storage::StorageError::Other(
-            "list_dir not supported".into(),
-        ))
+        // Group discovery uses the consolidated `.zmetadata`; a precise directory
+        // listing isn't needed. zarrs 0.16.4 exposes no public `StoreKeysPrefixes`
+        // constructor, so derive an empty value from an empty in-memory store.
+        let empty = zarrs::storage::store::MemoryStore::new();
+        empty.list_dir(_prefix)
     }
     fn size_prefix(&self, _prefix: &StorePrefix) -> Result<u64, zarrs::storage::StorageError> {
-        Err(zarrs::storage::StorageError::Other(
-            "size_prefix not supported".into(),
-        ))
+        Ok(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cog::CogMetadata;
+
+    fn child() -> VirtualCogStore {
+        let mut meta = CogMetadata {
+            image_width: 4,
+            image_length: 2,
+            tile_width: 4,
+            tile_length: 2,
+            tile_offsets: vec![0],
+            tile_byte_counts: vec![16],
+            is_little_endian: true,
+            bits_per_sample: 16,
+            sample_format: 2,
+            samples_per_pixel: 1,
+            compression: 1,
+            predictor: 1,
+            ..Default::default()
+        };
+        meta.pixel_scale = vec![2.0, 2.0, 0.0];
+        meta.tiepoint = vec![0.0, 0.0, 0.0, -180.0, 90.0, 0.0];
+        meta.epsg = Some(4326);
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        VirtualCogStore::new(op, "".to_string(), meta).unwrap()
+    }
+
+    #[test]
+    fn zmetadata_includes_child_zattrs() {
+        let mut m = HashMap::new();
+        m.insert("band".to_string(), child());
+        let store = VirtualStacStore::new(m);
+        let zmeta = String::from_utf8(
+            store
+                .get(&StoreKey::new(".zmetadata").unwrap())
+                .unwrap()
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(zmeta.contains("band/.zarray"));
+        assert!(
+            zmeta.contains("band/.zattrs"),
+            "group metadata must carry child .zattrs: {zmeta}"
+        );
+        assert!(zmeta.contains("spatial_transform"));
+    }
+
+    #[test]
+    fn routes_child_zattrs_key() {
+        let mut m = HashMap::new();
+        m.insert("band".to_string(), child());
+        let store = VirtualStacStore::new(m);
+        let za = store.get(&StoreKey::new("band/.zattrs").unwrap()).unwrap();
+        assert!(za.is_some(), "band/.zattrs must route to the child");
+    }
+
+    #[test]
+    fn list_returns_child_keys_not_error() {
+        let mut m = HashMap::new();
+        m.insert("band".to_string(), child());
+        let store = VirtualStacStore::new(m);
+        let keys = store.list().expect("list must succeed");
+        let set: Vec<String> = keys.iter().map(|k| k.as_str().to_string()).collect();
+        assert!(set.iter().any(|k| k == "band/.zarray"));
+        assert!(set.iter().any(|k| k == "band/.zattrs"));
     }
 }
