@@ -9,8 +9,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Classify the PR: which job families need to run. Docs-only PRs skip the
+  # heavy 3-OS Rust matrix; code-only PRs skip the docs build. A file under
+  # docs/ is "docs"; anything else (Rust, workflows, scripts) is "code".
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        shell: bash
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then
+            # workflow_dispatch (no PR diff context): run everything.
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "docs=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          FILES=$(git diff --name-only "$BASE" HEAD)
+          echo "Changed files:"; echo "$FILES"
+          CODE=false
+          DOCS=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              docs/*) DOCS=true ;;
+              *) CODE=true ;;
+            esac
+          done <<< "$FILES"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "docs=$DOCS" >> "$GITHUB_OUTPUT"
+          echo "Resolved -> code=$CODE docs=$DOCS"
+
   ci-checks:
     name: CI Checks
+    needs: changes
     runs-on: ${{ matrix.os }}
     # Disable debug info: each integration-test binary statically links bundled
     # DuckDB, and the resulting .pdb files exhaust the Windows runner's disk
@@ -24,7 +63,7 @@ jobs:
           - os: ubuntu-latest
           - os: windows-latest
           - os: macos-latest
-    if: "!contains(github.event.head_commit.message, '[ci-skip]')"
+    if: "needs.changes.outputs.code == 'true' && !contains(github.event.head_commit.message, '[ci-skip]')"
     steps:
       - uses: actions/checkout@v4
 
@@ -120,8 +159,9 @@ jobs:
 
   audit-and-coverage:
     name: Security Audit & Coverage
+    needs: changes
     runs-on: ubuntu-latest
-    if: "!contains(github.event.head_commit.message, '[ci-skip]')"
+    if: "needs.changes.outputs.code == 'true' && !contains(github.event.head_commit.message, '[ci-skip]')"
     steps:
       - uses: actions/checkout@v4
 
@@ -146,3 +186,23 @@ jobs:
 
       - name: Generate code coverage
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+  # Docs-only validation: build the Docusaurus site so broken internal links
+  # (onBrokenLinks: 'throw') fail the PR BEFORE merge, not at deploy time.
+  # Mirrors the build step in docs.yaml; no Rust toolchain needed.
+  docs-build:
+    name: Docs Build
+    needs: changes
+    runs-on: ubuntu-latest
+    if: needs.changes.outputs.docs == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - name: Install dependencies
+        run: cd docs && npm ci
+      - name: Build
+        run: cd docs && npm run build
