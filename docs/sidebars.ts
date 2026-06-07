@@ -30,7 +30,18 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'CLI Reference',
-      items: ['usage/cli_tui'],
+      items: [
+        'usage/cli_tui',
+        'usage/cli_info',
+        'usage/cli_search',
+        'usage/cli_extract',
+        'usage/cli_ingest',
+        'usage/cli_export',
+        'usage/cli_resample',
+        'usage/cli_plot',
+        'usage/cli_shell',
+        'usage/cli_completions',
+      ],
     },
     {
       type: 'category',
