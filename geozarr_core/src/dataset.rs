@@ -17,30 +17,20 @@ pub struct ZarrDataset {
     pub fill_value_bytes: Option<Vec<u8>>,
 }
 
-/// Given a group's consolidated `.zmetadata` JSON and an optional asset name,
+/// Given the sorted asset names of a STAC group and an optional asset name,
 /// return the array path to open (e.g. "/red"). Errors list available assets.
-pub(crate) fn select_array_path(zmetadata: &str, asset: Option<&str>) -> Result<String, String> {
-    let v: serde_json::Value = serde_json::from_str(zmetadata).map_err(|e| e.to_string())?;
-    let meta = v
-        .get("metadata")
-        .and_then(|m| m.as_object())
-        .ok_or("invalid group metadata")?;
-    let mut names: Vec<String> = meta
-        .keys()
-        .filter_map(|k| k.strip_suffix("/.zarray").map(|s| s.to_string()))
-        .collect();
-    names.sort();
+pub(crate) fn select_asset_path(assets: &[String], asset: Option<&str>) -> Result<String, String> {
     match asset {
-        Some(a) if names.iter().any(|n| n == a) => Ok(format!("/{a}")),
+        Some(a) if assets.iter().any(|n| n == a) => Ok(format!("/{a}")),
         Some(a) => Err(format!(
             "asset '{a}' not found. Available: {}",
-            names.join(", ")
+            assets.join(", ")
         )),
-        None if names.len() == 1 => Ok(format!("/{}", names[0])),
-        None if names.is_empty() => Err("STAC group has no assets".into()),
+        None if assets.len() == 1 => Ok(format!("/{}", assets[0])),
+        None if assets.is_empty() => Err("STAC group has no assets".into()),
         None => Err(format!(
             "STAC Item has multiple assets; choose one with asset := '<name>'. Available: {}",
-            names.join(", ")
+            assets.join(", ")
         )),
     }
 }
@@ -56,34 +46,33 @@ impl ZarrDataset {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let resolved_store = crate::store::resolve_sync_store(path)?;
         let is_remote = resolved_store.is_remote;
+        let stac_assets = resolved_store.stac_assets.clone();
         let store_arc = resolved_store.store;
 
-        // A plain Zarr array (V2 or V3) or COG has a root array; a STAC Item resolves
-        // to a group of asset arrays with no root array. Try the root first (handles
-        // every non-STAC source exactly as before), then fall back to asset selection.
-        let array = match Array::open(Arc::clone(&store_arc), "/") {
-            Ok(a) => a,
-            Err(root_err) => {
-                let zmeta = store_arc
-                    .get(&zarrs::storage::StoreKey::new(".zmetadata").unwrap())
-                    .ok()
-                    .flatten();
-                match zmeta {
-                    Some(bytes) => {
-                        let zmeta = String::from_utf8(bytes.to_vec())
-                            .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
-                        let array_path = select_array_path(&zmeta, asset)
-                            .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-                        Array::open(Arc::clone(&store_arc), &array_path).map_err(
-                            |e| -> Box<dyn std::error::Error> {
-                                format!("zarrs error (array): {}", e).into()
-                            },
-                        )?
-                    }
-                    None => {
-                        return Err(format!("zarrs error (array): {}", root_err).into());
-                    }
-                }
+        // `resolve_sync_store` is the only place that builds a `VirtualStacStore`,
+        // so it signals authoritatively whether this source is a STAC group. Branch
+        // on that signal instead of re-sniffing `.zmetadata`: a plain Zarr array/group
+        // or COG (`stac_assets == None`) opens the root array exactly as before, so a
+        // corrupt or missing root array surfaces its genuine error rather than being
+        // relabeled as a STAC "assets" problem.
+        let array = match stac_assets {
+            Some(assets) => {
+                // STAC group: choose an asset and open it by path.
+                let array_path = select_asset_path(&assets, asset)
+                    .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+                Array::open(Arc::clone(&store_arc), &array_path).map_err(
+                    |e| -> Box<dyn std::error::Error> {
+                        format!("zarrs error (array): {}", e).into()
+                    },
+                )?
+            }
+            None => {
+                // Plain Zarr (V2/V3) or COG: open the root array exactly as before.
+                Array::open(Arc::clone(&store_arc), "/").map_err(
+                    |e| -> Box<dyn std::error::Error> {
+                        format!("zarrs error (array): {}", e).into()
+                    },
+                )?
             }
         };
 
@@ -324,36 +313,32 @@ impl ZarrDataset {
 
 #[cfg(test)]
 mod select_tests {
-    use super::select_array_path;
-    fn meta(names: &[&str]) -> String {
-        let entries: Vec<String> = names
-            .iter()
-            .map(|n| format!("\"{n}/.zarray\":{{}}"))
-            .collect();
-        format!(
-            r#"{{"metadata":{{".zgroup":{{}},{}}},"zarr_consolidated_format":1}}"#,
-            entries.join(",")
-        )
+    use super::select_asset_path;
+    fn assets(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| n.to_string()).collect()
     }
     #[test]
     fn picks_named_asset() {
         assert_eq!(
-            select_array_path(&meta(&["red", "nir"]), Some("nir")).unwrap(),
+            select_asset_path(&assets(&["red", "nir"]), Some("nir")).unwrap(),
             "/nir"
         );
     }
     #[test]
     fn auto_selects_single_asset() {
-        assert_eq!(select_array_path(&meta(&["only"]), None).unwrap(), "/only");
+        assert_eq!(
+            select_asset_path(&assets(&["only"]), None).unwrap(),
+            "/only"
+        );
     }
     #[test]
     fn errors_on_multiple_without_asset() {
-        let e = select_array_path(&meta(&["red", "nir"]), None).unwrap_err();
+        let e = select_asset_path(&assets(&["red", "nir"]), None).unwrap_err();
         assert!(e.contains("red") && e.contains("nir") && e.contains("asset"));
     }
     #[test]
     fn errors_on_unknown_asset() {
-        let e = select_array_path(&meta(&["red", "nir"]), Some("green")).unwrap_err();
+        let e = select_asset_path(&assets(&["red", "nir"]), Some("green")).unwrap_err();
         assert!(e.contains("green") || e.contains("Available"));
     }
 }
@@ -377,6 +362,27 @@ mod tests {
         let metadata_bare: ArrayMetadata = serde_json::from_str(json_meta).unwrap();
         let names = ZarrDataset::resolve_dimension_names(&metadata_bare, 3);
         assert_eq!(names, vec!["dim_0", "dim_1", "dim_2"]);
+    }
+
+    #[test]
+    fn non_stac_store_without_root_array_yields_zarrs_error_not_stac() {
+        // Regression: a non-STAC source (stac_assets == None) with no root array
+        // — e.g. a consolidated Zarr GROUP root — must surface zarrs' genuine
+        // "missing metadata" error via the None branch, NOT be relabeled as a
+        // STAC "assets" problem. We exercise the None branch's open directly:
+        // resolve_sync_store sets stac_assets = None for plain Zarr, so
+        // open_with_asset takes Array::open(store, "/"), whose error is returned
+        // verbatim. An empty in-memory store has no root array metadata.
+        use zarrs::storage::store::MemoryStore;
+        let store: Arc<dyn zarrs::storage::ReadableStorageTraits> = Arc::new(MemoryStore::new());
+        let err = match Array::open(Arc::clone(&store), "/") {
+            Ok(_) => panic!("empty store should not yield a root array"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            !err.contains("STAC") && !err.contains("multiple assets"),
+            "non-STAC root-open error must not be relabeled as STAC: {err}"
+        );
     }
 
     #[test]

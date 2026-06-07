@@ -4,6 +4,11 @@ use zarrs::storage::ReadableStorageTraits;
 pub struct ResolvedStore {
     pub store: Arc<dyn ReadableStorageTraits>,
     pub is_remote: bool,
+    /// `Some(sorted_asset_names)` when the source is authoritatively a STAC
+    /// group (a `VirtualStacStore` was built); `None` for every other source
+    /// (plain Zarr array/group, COG, S3, HTTP-zarr). This lets callers branch
+    /// on STAC vs. plain Zarr without re-sniffing `.zmetadata`.
+    pub stac_assets: Option<Vec<String>>,
 }
 
 pub struct AsyncToSyncOpendalStore {
@@ -234,6 +239,7 @@ pub fn resolve_sync_store(
         Ok(ResolvedStore {
             store,
             is_remote: true,
+            stac_assets: None,
         })
     } else if path.starts_with("http://") || path.starts_with("https://") {
         if !is_cog && !path.ends_with(".zarr") && !path.ends_with(".zarr/") {
@@ -356,12 +362,16 @@ pub fn resolve_sync_store(
                                 .join()
                                 .unwrap()?;
 
+                                let mut asset_names: Vec<String> =
+                                    children.keys().cloned().collect();
+                                asset_names.sort();
                                 let store = std::sync::Arc::new(
                                     crate::virtual_stac_store::VirtualStacStore::new(children),
                                 );
                                 return Ok(ResolvedStore {
                                     store,
                                     is_remote: true,
+                                    stac_assets: Some(asset_names),
                                 });
                             }
                         }
@@ -448,6 +458,7 @@ pub fn resolve_sync_store(
                                         return Ok(ResolvedStore {
                                             store,
                                             is_remote: true,
+                                            stac_assets: None,
                                         });
                                     }
                                 }
@@ -485,6 +496,7 @@ pub fn resolve_sync_store(
         Ok(ResolvedStore {
             store,
             is_remote: true,
+            stac_assets: None,
         })
     } else {
         let canonical_path =
@@ -541,12 +553,16 @@ pub fn resolve_sync_store(
                                 if children.is_empty() {
                                     return Err("STAC Item has no COG assets".into());
                                 }
+                                let mut asset_names: Vec<String> =
+                                    children.keys().cloned().collect();
+                                asset_names.sort();
                                 let store = std::sync::Arc::new(
                                     crate::virtual_stac_store::VirtualStacStore::new(children),
                                 );
                                 return Ok(ResolvedStore {
                                     store,
                                     is_remote: false,
+                                    stac_assets: Some(asset_names),
                                 });
                             }
                             _ => {}
@@ -603,6 +619,7 @@ pub fn resolve_sync_store(
         Ok(ResolvedStore {
             store,
             is_remote: false,
+            stac_assets: None,
         })
     }
 }
