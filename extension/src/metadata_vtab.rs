@@ -3,6 +3,17 @@ use duckdb::vtab::{BindInfo, InitInfo, VTab};
 use duckdb::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Render a chunk shape as a plain `[d0, d1, …]` list, or `"unknown"` when absent.
+pub(crate) fn render_chunk_shape(chunk_shape: Option<zarrs::array::ChunkShape>) -> String {
+    match chunk_shape {
+        Some(cs) => {
+            let dims: Vec<u64> = cs.iter().map(|n| n.get()).collect();
+            format!("{:?}", dims)
+        }
+        None => "unknown".to_string(),
+    }
+}
+
 pub struct MetadataBindData {
     pub shape: String,
     pub chunk_shape: String,
@@ -30,12 +41,11 @@ impl VTab for ReadZarrMetadataVTab {
         let array = zarrs::array::Array::open(store.store, "/").map_err(|e| e.to_string())?;
 
         let shape = format!("{:?}", array.shape());
-        let chunk_shape = format!(
-            "{:?}",
+        let chunk_shape = render_chunk_shape(
             array
                 .chunk_grid()
                 .chunk_shape(&vec![0; array.shape().len()], array.shape())
-                .unwrap_or(None)
+                .unwrap_or(None),
         );
         let data_type = format!("{:?}", array.data_type());
 
@@ -105,5 +115,27 @@ impl VTab for ReadZarrMetadataVTab {
         init_data.done.store(true, Ordering::Relaxed);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_chunk_shape;
+    use std::num::NonZeroU64;
+    use zarrs::array::ChunkShape;
+
+    fn nz(v: u64) -> NonZeroU64 {
+        NonZeroU64::new(v).unwrap()
+    }
+
+    #[test]
+    fn renders_chunk_shape_as_plain_list() {
+        let cs = ChunkShape::from(vec![nz(12), nz(73), nz(144)]);
+        assert_eq!(render_chunk_shape(Some(cs)), "[12, 73, 144]");
+    }
+
+    #[test]
+    fn renders_missing_chunk_shape() {
+        assert_eq!(render_chunk_shape(None), "unknown");
     }
 }
