@@ -52,12 +52,16 @@ pub struct CogMetadata {
     pub tile_offsets: Vec<u64>,
     pub tile_byte_counts: Vec<u64>,
     pub is_little_endian: bool,
-    pub bits_per_sample: u16,   // 258; default filled in Step 3
-    pub sample_format: u16,     // 339; 1=uint (default), 2=int, 3=float
-    pub samples_per_pixel: u16, // 277; default 1
-    pub compression: u16,       // 259; 1=none (default)
-    pub predictor: u16,         // 317; 1=none (default)
-    pub nodata: Option<f64>,    // GDAL_NODATA tag 42113
+    pub bits_per_sample: u16,           // 258; default filled in Step 3
+    pub sample_format: u16,             // 339; 1=uint (default), 2=int, 3=float
+    pub samples_per_pixel: u16,         // 277; default 1
+    pub compression: u16,               // 259; 1=none (default)
+    pub predictor: u16,                 // 317; 1=none (default)
+    pub nodata: Option<f64>,            // GDAL_NODATA tag 42113
+    pub pixel_scale: Vec<f64>,          // ModelPixelScale 33550
+    pub tiepoint: Vec<f64>,             // ModelTiepoint 33922
+    pub model_transformation: Vec<f64>, // ModelTransformation 34264
+    pub epsg: Option<u32>,              // from GeoKeyDirectory 34735
 }
 
 impl CogMetadata {
@@ -125,6 +129,46 @@ impl CogMetadata {
         match t.parse::<f64>() {
             Ok(v) if v.is_finite() => Some(v),
             _ => None,
+        }
+    }
+
+    /// North-up affine as a SpatialTransform with dims [row(lat), col(lon)].
+    pub fn spatial_transform(&self) -> Option<crate::metadata::SpatialTransform> {
+        if self.pixel_scale.len() >= 2 && self.tiepoint.len() >= 6 {
+            let sx = self.pixel_scale[0];
+            let sy = self.pixel_scale[1];
+            let tx = self.tiepoint[3];
+            let ty = self.tiepoint[4];
+            return Some(crate::metadata::SpatialTransform {
+                scale: vec![-sy, sx],
+                translation: vec![ty, tx],
+            });
+        }
+        if self.model_transformation.len() >= 16 {
+            // 4x4 row-major: x' = a*col + b*row + ... ; use diagonal + translation column
+            let m = &self.model_transformation;
+            let sx = m[0]; // col scale (x)
+            let sy = m[5]; // row scale (y), already signed
+            let tx = m[3];
+            let ty = m[7];
+            return Some(crate::metadata::SpatialTransform {
+                scale: vec![sy, sx],
+                translation: vec![ty, tx],
+            });
+        }
+        None
+    }
+
+    pub fn crs(&self) -> Option<String> {
+        self.epsg.map(|c| format!("EPSG:{c}"))
+    }
+
+    /// Geographic CRS → ["lat","lon"] (enables lat_min/lon_max pushdown);
+    /// any other/absent CRS → ["y","x"].
+    pub fn dim_names(&self) -> Vec<String> {
+        match self.epsg {
+            Some(4326) => vec!["lat".into(), "lon".into()],
+            _ => vec!["y".into(), "x".into()],
         }
     }
 }
@@ -219,6 +263,42 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
             res
         };
 
+        let extract_f64_array = |count: usize, offset_val: u32| -> Vec<f64> {
+            let mut res = Vec::with_capacity(count);
+            let mut ptr = offset_val as usize;
+            for _ in 0..count {
+                if ptr + 8 > buffer.len() {
+                    break;
+                }
+                let v = if header.is_little_endian {
+                    f64::from_le_bytes(buffer[ptr..ptr + 8].try_into().unwrap())
+                } else {
+                    f64::from_be_bytes(buffer[ptr..ptr + 8].try_into().unwrap())
+                };
+                ptr += 8;
+                res.push(v);
+            }
+            res
+        };
+
+        let extract_u16_array = |count: usize, offset_val: u32| -> Vec<u16> {
+            let mut res = Vec::with_capacity(count);
+            let mut ptr = offset_val as usize;
+            for _ in 0..count {
+                if ptr + 2 > buffer.len() {
+                    break;
+                }
+                let v = if header.is_little_endian {
+                    u16::from_le_bytes(buffer[ptr..ptr + 2].try_into().unwrap())
+                } else {
+                    u16::from_be_bytes(buffer[ptr..ptr + 2].try_into().unwrap())
+                };
+                ptr += 2;
+                res.push(v);
+            }
+            res
+        };
+
         match tag {
             256 => meta.image_width = extract_single_val(),
             257 => meta.image_length = extract_single_val(),
@@ -236,6 +316,23 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
                     if let Ok(s) = std::str::from_utf8(&buffer[start..end]) {
                         meta.nodata = CogMetadata::parse_nodata(s);
                     }
+                }
+            }
+            33550 => meta.pixel_scale = extract_f64_array(count as usize, val_or_offset),
+            33922 => meta.tiepoint = extract_f64_array(count as usize, val_or_offset),
+            34264 => meta.model_transformation = extract_f64_array(count as usize, val_or_offset),
+            34735 => {
+                let keys = extract_u16_array(count as usize, val_or_offset);
+                // header is keys[0..4]; entries are 4-tuples [KeyID, Location, Count, Value]
+                let mut i = 4;
+                while i + 4 <= keys.len() {
+                    let key_id = keys[i];
+                    let location = keys[i + 1];
+                    let value = keys[i + 3];
+                    if (key_id == 3072 || key_id == 2048) && location == 0 {
+                        meta.epsg = Some(value as u32);
+                    }
+                    i += 4;
                 }
             }
             324 => {
@@ -286,7 +383,7 @@ mod tests {
         // Little-endian TIFF header (II), 42, IFD offset = 8
         let buffer: &[u8] = &[0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00];
         let header = parse_tiff_header(buffer).unwrap();
-        assert_eq!(header.is_little_endian, true);
+        assert!(header.is_little_endian);
         assert_eq!(header.first_ifd_offset, 8);
     }
 
@@ -400,5 +497,49 @@ mod tests {
         // nodata parse
         assert_eq!(CogMetadata::parse_nodata("  -9999  "), Some(-9999.0));
         assert_eq!(CogMetadata::parse_nodata("nan"), None);
+    }
+
+    #[test]
+    fn test_georeferencing() {
+        use crate::metadata::SpatialTransform;
+        // ModelPixelScale=[2.0,2.0,0], ModelTiepoint=[0,0,0, -180,90,0], EPSG via GeoKey 2048=4326
+        let mut b = vec![0u8; 300];
+        b[0..2].copy_from_slice(b"II");
+        b[2..4].copy_from_slice(&42u16.to_le_bytes());
+        b[4..8].copy_from_slice(&8u32.to_le_bytes());
+        b[8..10].copy_from_slice(&3u16.to_le_bytes()); // 3 entries
+        let mut o = 10;
+        // entry helper for arrays pointing at an offset
+        let put = |b: &mut [u8], o: usize, tag: u16, typ: u16, count: u32, voff: u32| {
+            b[o..o + 2].copy_from_slice(&tag.to_le_bytes());
+            b[o + 2..o + 4].copy_from_slice(&typ.to_le_bytes());
+            b[o + 4..o + 8].copy_from_slice(&count.to_le_bytes());
+            b[o + 8..o + 12].copy_from_slice(&voff.to_le_bytes());
+        };
+        // place data after the IFD (IFD ends at 10 + 3*12 = 46)
+        let scale_off = 48usize; // 3 doubles = 24 bytes
+        for (i, v) in [2.0f64, 2.0, 0.0].iter().enumerate() {
+            b[scale_off + i * 8..scale_off + i * 8 + 8].copy_from_slice(&v.to_le_bytes());
+        }
+        let tp_off = 72usize; // 6 doubles = 48 bytes
+        for (i, v) in [0.0f64, 0.0, 0.0, -180.0, 90.0, 0.0].iter().enumerate() {
+            b[tp_off + i * 8..tp_off + i * 8 + 8].copy_from_slice(&v.to_le_bytes());
+        }
+        let gk_off = 120usize; // GeoKeyDirectory SHORTs: header(4) + 1 key(4) = 8 shorts
+        let gk: [u16; 8] = [1, 1, 0, 1, 2048, 0, 1, 4326];
+        for (i, v) in gk.iter().enumerate() {
+            b[gk_off + i * 2..gk_off + i * 2 + 2].copy_from_slice(&v.to_le_bytes());
+        }
+        put(&mut b, o, 33550, 12, 3, scale_off as u32);
+        o += 12; // ModelPixelScale (DOUBLE)
+        put(&mut b, o, 33922, 12, 6, tp_off as u32);
+        o += 12; // ModelTiepoint (DOUBLE)
+        put(&mut b, o, 34735, 3, 8, gk_off as u32); // GeoKeyDirectory (SHORT)
+        let m = parse_cog_metadata(&b).unwrap();
+        let t: SpatialTransform = m.spatial_transform().unwrap();
+        assert_eq!(t.scale, vec![-2.0, 2.0]); // [lat(row), lon(col)]
+        assert_eq!(t.translation, vec![90.0, -180.0]); // [tiepointY, tiepointX]
+        assert_eq!(m.crs(), Some("EPSG:4326".to_string()));
+        assert_eq!(m.dim_names(), vec!["lat".to_string(), "lon".to_string()]);
     }
 }
