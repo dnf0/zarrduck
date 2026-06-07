@@ -4,21 +4,36 @@ const sidebars: SidebarsConfig = {
   docsSidebar: [
     {
       type: 'category',
-      label: 'Using Eider',
+      label: 'Getting Started',
       items: [
+        'usage/overview',
         'usage/installation',
-        'usage/cli_tui',
-        'usage/sql_reference',
-        'usage/exporting',
+        'usage/quickstart-sql',
+        'usage/quickstart-cli',
       ],
     },
     {
       type: 'category',
-      label: 'Engineering Deep-Dive',
+      label: 'Guides',
+      items: ['usage/exporting'],
+    },
+    {
+      type: 'category',
+      label: 'SQL Reference',
+      items: ['usage/sql_reference'],
+    },
+    {
+      type: 'category',
+      label: 'CLI Reference',
+      items: ['usage/cli_tui'],
+    },
+    {
+      type: 'category',
+      label: 'Concepts & Engineering',
       items: [
         'engineering/architecture',
-        'engineering/cog_virtualization',
         'engineering/spatial_pruning',
+        'engineering/cog_virtualization',
         'engineering/benchmarks',
       ],
     },
