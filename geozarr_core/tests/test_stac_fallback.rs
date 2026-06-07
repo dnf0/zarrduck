@@ -1,7 +1,6 @@
 use geozarr_core::store::resolve_sync_store;
-use zarrs::storage::ListableStorageTraits;
-use zarrs::storage::ReadableStorageTraits;
 
+#[ignore = "hits live Sentinel-2 STAC endpoint; run with --ignored when online"]
 #[test]
 fn test_stac_fallback() {
     let path = "https://earth-search.aws.element84.com/v1/collections/sentinel-2-pre-c1-l2a/items/S2B_T21NYC_20221205T140704_L2A/swir22";
