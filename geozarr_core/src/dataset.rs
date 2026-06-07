@@ -17,13 +17,69 @@ pub struct ZarrDataset {
     pub fill_value_bytes: Option<Vec<u8>>,
 }
 
+/// Given a group's consolidated `.zmetadata` JSON and an optional asset name,
+/// return the array path to open (e.g. "/red"). Errors list available assets.
+pub(crate) fn select_array_path(zmetadata: &str, asset: Option<&str>) -> Result<String, String> {
+    let v: serde_json::Value = serde_json::from_str(zmetadata).map_err(|e| e.to_string())?;
+    let meta = v
+        .get("metadata")
+        .and_then(|m| m.as_object())
+        .ok_or("invalid group metadata")?;
+    let mut names: Vec<String> = meta
+        .keys()
+        .filter_map(|k| k.strip_suffix("/.zarray").map(|s| s.to_string()))
+        .collect();
+    names.sort();
+    match asset {
+        Some(a) if names.iter().any(|n| n == a) => Ok(format!("/{a}")),
+        Some(a) => Err(format!(
+            "asset '{a}' not found. Available: {}",
+            names.join(", ")
+        )),
+        None if names.len() == 1 => Ok(format!("/{}", names[0])),
+        None if names.is_empty() => Err("STAC group has no assets".into()),
+        None => Err(format!(
+            "STAC Item has multiple assets; choose one with asset := '<name>'. Available: {}",
+            names.join(", ")
+        )),
+    }
+}
+
 impl ZarrDataset {
     pub fn open(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::open_with_asset(path, None)
+    }
+
+    pub fn open_with_asset(
+        path: &str,
+        asset: Option<&str>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let resolved_store = crate::store::resolve_sync_store(path)?;
         let is_remote = resolved_store.is_remote;
         let store_arc = resolved_store.store;
 
-        let array = Array::open(Arc::clone(&store_arc), "/").map_err(
+        // Root array (plain Zarr/COG) vs group (STAC): probe for a root `.zarray`.
+        let has_root_array = store_arc
+            .get(&zarrs::storage::StoreKey::new(".zarray").unwrap())
+            .map(|o| o.is_some())
+            .unwrap_or(false);
+        let array_path = if has_root_array {
+            "/".to_string()
+        } else {
+            let zmeta = store_arc
+                .get(&zarrs::storage::StoreKey::new(".zmetadata").unwrap())
+                .ok()
+                .flatten()
+                .ok_or_else(|| -> Box<dyn std::error::Error> {
+                    "source is neither a Zarr array nor a STAC group".into()
+                })?;
+            let zmeta = String::from_utf8(zmeta.to_vec())
+                .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })?;
+            select_array_path(&zmeta, asset)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?
+        };
+
+        let array = Array::open(Arc::clone(&store_arc), &array_path).map_err(
             |e| -> Box<dyn std::error::Error> { format!("zarrs error (array): {}", e).into() },
         )?;
 
@@ -259,6 +315,42 @@ impl ZarrDataset {
         }
 
         (0..rank).map(|i| format!("dim_{}", i)).collect()
+    }
+}
+
+#[cfg(test)]
+mod select_tests {
+    use super::select_array_path;
+    fn meta(names: &[&str]) -> String {
+        let entries: Vec<String> = names
+            .iter()
+            .map(|n| format!("\"{n}/.zarray\":{{}}"))
+            .collect();
+        format!(
+            r#"{{"metadata":{{".zgroup":{{}},{}}},"zarr_consolidated_format":1}}"#,
+            entries.join(",")
+        )
+    }
+    #[test]
+    fn picks_named_asset() {
+        assert_eq!(
+            select_array_path(&meta(&["red", "nir"]), Some("nir")).unwrap(),
+            "/nir"
+        );
+    }
+    #[test]
+    fn auto_selects_single_asset() {
+        assert_eq!(select_array_path(&meta(&["only"]), None).unwrap(), "/only");
+    }
+    #[test]
+    fn errors_on_multiple_without_asset() {
+        let e = select_array_path(&meta(&["red", "nir"]), None).unwrap_err();
+        assert!(e.contains("red") && e.contains("nir") && e.contains("asset"));
+    }
+    #[test]
+    fn errors_on_unknown_asset() {
+        let e = select_array_path(&meta(&["red", "nir"]), Some("green")).unwrap_err();
+        assert!(e.contains("green") || e.contains("Available"));
     }
 }
 
