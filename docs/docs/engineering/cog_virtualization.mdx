@@ -1,10 +1,8 @@
 # COG Virtualization
 
-:::caution Experimental
-COG virtualization is implemented at the `geozarr_core` library level and is
-reachable by opening a `.tif`/`.tiff` path directly (and via a conditional
-end-to-end test through `read_geo('*.tif')`). It is **not yet a first-class,
-stable `read_geo` source**, and its internals may change.
+:::note Status
+COG is a first-class `read_geo` source: `read_geo('path.tif')` and
+`read_zarr_metadata('path.tif')` return georeferenced, type-correct results.
 :::
 
 Eider can read a Cloud Optimized GeoTIFF (COG) without downloading or converting
@@ -43,6 +41,22 @@ sequenceDiagram
 `resolve_sync_store` (`geozarr_core/src/store.rs`) detects `.tif`/`.tiff` paths
 and instantiates the `VirtualCogStore` automatically, so the rest of the
 pipeline is identical to reading a real Zarr array.
+
+## Supported & limitations
+
+**Supported:** single-band GeoTIFFs; uncompressed and Deflate-compressed tiles
+(predictor=1); the GeoTIFF affine (`ModelPixelScale`/`ModelTiepoint` or
+`ModelTransformation`) and CRS (`GeoKeyDirectory`). For a geographic CRS
+(EPSG:4326) the dimensions are `lat`/`lon`, so `lat_min`/`lon_max` bounding-box
+pushdown applies; the value column uses the COG's real data type.
+
+**Not yet supported:** Unsupported band counts (multi-band COGs), bit-depths,
+sample formats, and compression schemes (LZW/JPEG/WebP, horizontal-differencing
+predictors) return a clear error at open time rather than silently misreading
+the data. CRS reprojection is the one exception: projected COGs are read in
+their native CRS with `y`/`x` dimensions, so geographic bounding-box pushdown
+simply does not apply (no error — the data is read correctly, just without
+geographic bbox pruning).
 
 ## STAC (planned, not yet wired to SQL)
 

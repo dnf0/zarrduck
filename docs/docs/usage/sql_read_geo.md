@@ -13,7 +13,7 @@ streaming only the chunks that intersect the requested bounds.
 read_geo(uri VARCHAR, [named parameters])
 ```
 
-- `uri` — positional. A Zarr array path or `s3://`/`https://` URI (see [Source URIs](./sql_reference.md#source-uris)).
+- `uri` — positional. A Zarr array path or `s3://`/`https://` URI (see [Source URIs](./sql_reference.md#source-uris)). A single-band Cloud Optimized GeoTIFF (`.tif`/`.tiff`, uncompressed or Deflate) is also a supported, georeferenced source — for an EPSG:4326 COG the `lat_min`/`lon_max` bounds apply; projected COGs read in their native CRS without geographic bbox pushdown, and multi-band/LZW/JPEG/WebP COGs are not yet supported (see [COG virtualization](../engineering/cog_virtualization.mdx)). STAC sources remain experimental and are not yet queryable.
 
 ### Named parameters
 

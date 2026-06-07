@@ -167,7 +167,7 @@ pub fn resolve_sync_store(
                 async_operator,
                 "".to_string(),
                 meta,
-            ))
+            )?)
         } else {
             Arc::new(AsyncToSyncOpendalStore::new(async_operator))
         };
@@ -281,14 +281,16 @@ pub fn resolve_sync_store(
                                         let mut children_map = std::collections::HashMap::new();
                                         while let Some(res) = set.join_next().await {
                                             if let Ok((name, store)) = res {
-                                                children_map.insert(name, store);
+                                                // A multi-band / unsupported child COG fails the
+                                                // whole STAC open; STAC is not first-class yet.
+                                                children_map.insert(name, store?);
                                             }
                                         }
-                                        children_map
+                                        Ok::<_, String>(children_map)
                                     })
                                 })
                                 .join()
-                                .unwrap();
+                                .unwrap()?;
 
                                 let store = std::sync::Arc::new(
                                     crate::virtual_stac_store::VirtualStacStore::new(children),
@@ -377,7 +379,7 @@ pub fn resolve_sync_store(
                                         let store = std::sync::Arc::new(
                                             crate::virtual_store::VirtualCogStore::new(
                                                 operator, root_str, meta,
-                                            ),
+                                            )?,
                                         );
                                         return Ok(ResolvedStore {
                                             store,
@@ -411,7 +413,7 @@ pub fn resolve_sync_store(
                 async_operator,
                 "".to_string(),
                 meta,
-            ))
+            )?)
         } else {
             Arc::new(AsyncToSyncOpendalStore::new(async_operator))
         };
@@ -445,10 +447,23 @@ pub fn resolve_sync_store(
             let async_operator = opendal::Operator::new(builder)?.finish();
             let async_op_clone = async_operator.clone();
             let fname_clone = filename.clone();
+            // The local Fs reader treats a range that overruns the file as a permanent
+            // error ("reader got too little data"), unlike HTTP/S3 which tolerate it.
+            // Clamp the header read to the actual file size (capped at the 16 KiB header
+            // window) so small COGs are read end-to-end.
+            const COG_HEADER_WINDOW: u64 = 16384;
+            let header_len = std::fs::metadata(&canonical_path)
+                .map(|m| m.len().min(COG_HEADER_WINDOW))
+                .unwrap_or(COG_HEADER_WINDOW);
             let header_res = std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async { async_op_clone.read_with(&fname_clone).range(0..16384).await })
-                    .map_err(|e| e.to_string())
+                rt.block_on(async {
+                    async_op_clone
+                        .read_with(&fname_clone)
+                        .range(0..header_len)
+                        .await
+                })
+                .map_err(|e| e.to_string())
             })
             .join()
             .unwrap();
@@ -459,7 +474,7 @@ pub fn resolve_sync_store(
                 async_operator,
                 filename,
                 meta,
-            ))
+            )?)
         } else {
             Arc::new(zarrs::storage::store::FilesystemStore::new(canonical_path)?)
         };
