@@ -138,6 +138,65 @@ impl zarrs::storage::ListableStorageTraits for AsyncToSyncOpendalStore {
     }
 }
 
+/// The local `Fs` reader treats a range that overruns the file as a permanent
+/// error, so COG header reads are clamped to the actual file size (capped at
+/// this 16 KiB window). Mirrors the local-COG branch of `resolve_sync_store`.
+const COG_HEADER_WINDOW: u64 = 16384;
+
+/// Build a local COG child store from an absolute file path, mirroring the
+/// local-COG branch of `resolve_sync_store`: `Fs` operator rooted at the
+/// parent dir, the file name used as the `VirtualCogStore` read key, and a
+/// header read clamped to `min(file_size, COG_HEADER_WINDOW)`. The path is
+/// subjected to the same `GEOZARR_ALLOW_PATH` sandbox gate as direct COG reads.
+fn build_local_cog_child(
+    abs_path: &std::path::Path,
+) -> Result<crate::virtual_store::VirtualCogStore, String> {
+    let canonical_path = std::fs::canonicalize(abs_path)
+        .map_err(|e| format!("Invalid COG asset path {}: {}", abs_path.display(), e))?;
+    let allowed_dir = std::env::var("GEOZARR_ALLOW_PATH")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+    let allowed_canon = std::fs::canonicalize(&allowed_dir)
+        .map_err(|e| format!("Invalid GEOZARR_ALLOW_PATH: {}", e))?;
+    if !canonical_path.starts_with(&allowed_canon) {
+        return Err(
+            "Access denied. COG asset is not within the allowed sandbox directory (GEOZARR_ALLOW_PATH or CWD).".into(),
+        );
+    }
+
+    let parent = canonical_path
+        .parent()
+        .ok_or("bad COG path")?
+        .to_str()
+        .ok_or("bad COG dir")?;
+    let fname = canonical_path
+        .file_name()
+        .and_then(|f| f.to_str())
+        .ok_or("bad COG filename")?
+        .to_string();
+    let builder = opendal::services::Fs::default().root(parent);
+    let operator = opendal::Operator::new(builder)
+        .map_err(|e| e.to_string())?
+        .finish();
+    let header_len = std::fs::metadata(&canonical_path)
+        .map(|m| m.len().min(COG_HEADER_WINDOW))
+        .unwrap_or(COG_HEADER_WINDOW);
+    let header_bytes = std::thread::spawn({
+        let operator = operator.clone();
+        let fname = fname.clone();
+        move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async { operator.read_with(&fname).range(0..header_len).await })
+                .map(|b| b.to_vec())
+                .map_err(|e| e.to_string())
+        }
+    })
+    .join()
+    .unwrap()?;
+    let meta = crate::cog::parse_cog_metadata(&header_bytes)?;
+    crate::virtual_store::VirtualCogStore::new(operator, fname, meta)
+}
+
 pub fn resolve_sync_store(
     path: &str,
 ) -> std::result::Result<ResolvedStore, Box<dyn std::error::Error>> {
@@ -181,6 +240,11 @@ pub fn resolve_sync_store(
             // Check if it's a STAC Item
             if let Ok(resp) = reqwest::blocking::get(path) {
                 if let Ok(json) = resp.json::<serde_json::Value>() {
+                    if json.get("stac_version").is_some()
+                        && json.get("type").and_then(|t| t.as_str()) == Some("FeatureCollection")
+                    {
+                        return Err("STAC ItemCollection / search results are not yet supported (single Items only)".into());
+                    }
                     if json.get("stac_version").is_some()
                         && json.get("type").and_then(|t| t.as_str()) == Some("Feature")
                     {
@@ -433,6 +497,63 @@ pub fn resolve_sync_store(
             .map_err(|e| format!("Invalid GEOZARR_ALLOW_PATH: {}", e))?;
         if !canonical_path.starts_with(allowed_canon) {
             return Err("Access denied. Path is not within the allowed sandbox directory (GEOZARR_ALLOW_PATH or CWD).".into());
+        }
+
+        // Local STAC Item JSON? (Only consider non-Zarr/non-COG local files.)
+        if !is_cog && !path.ends_with(".zarr") && !path.ends_with(".zarr/") {
+            if let Ok(text) = std::fs::read_to_string(&canonical_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if json.get("stac_version").is_some() {
+                        match json.get("type").and_then(|t| t.as_str()) {
+                            Some("FeatureCollection") => {
+                                return Err("STAC ItemCollection / search results are not yet supported (single Items only)".into());
+                            }
+                            Some("Feature") => {
+                                let base = canonical_path
+                                    .parent()
+                                    .ok_or("bad STAC path")?
+                                    .to_path_buf();
+                                let assets = json
+                                    .get("assets")
+                                    .and_then(|a| a.as_object())
+                                    .ok_or("STAC Item has no assets")?;
+                                let mut children = std::collections::HashMap::new();
+                                for (name, asset) in assets {
+                                    let t =
+                                        asset.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                    let href =
+                                        asset.get("href").and_then(|h| h.as_str()).unwrap_or("");
+                                    let is_cog_asset = t.contains("tiff")
+                                        || t.contains("cog")
+                                        || href.ends_with(".tif")
+                                        || href.ends_with(".tiff");
+                                    if !is_cog_asset {
+                                        continue;
+                                    }
+                                    let abs = if std::path::Path::new(href).is_absolute() {
+                                        std::path::PathBuf::from(href)
+                                    } else {
+                                        base.join(href)
+                                    };
+                                    let child = build_local_cog_child(&abs)?;
+                                    children.insert(name.to_string(), child);
+                                }
+                                if children.is_empty() {
+                                    return Err("STAC Item has no COG assets".into());
+                                }
+                                let store = std::sync::Arc::new(
+                                    crate::virtual_stac_store::VirtualStacStore::new(children),
+                                );
+                                return Ok(ResolvedStore {
+                                    store,
+                                    is_remote: false,
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
         }
 
         let store: Arc<dyn ReadableStorageTraits> = if is_cog {
