@@ -1,0 +1,19 @@
+{
+  "stac_version": "1.0.0",
+  "type": "Feature",
+  "id": "fixture-item",
+  "geometry": {"type": "Polygon", "coordinates": [[[-180,82],[-172,82],[-172,90],[-180,90],[-180,82]]]},
+  "bbox": [-180, 82, -172, 90],
+  "properties": {"datetime": "2026-06-07T00:00:00Z"},
+  "assets": {
+    "band_uncompressed": {
+      "href": "./cog_int16_uncompressed.tif",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized"
+    },
+    "band_deflate": {
+      "href": "./cog_int16_deflate.tif",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized"
+    }
+  },
+  "links": []
+}

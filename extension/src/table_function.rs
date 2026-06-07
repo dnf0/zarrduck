@@ -87,6 +87,7 @@ impl VTab for ReadGeoVTab {
             ("time_min".to_string(), LogicalTypeId::Double.into()),
             ("time_max".to_string(), LogicalTypeId::Double.into()),
             ("pins".to_string(), LogicalTypeId::Varchar.into()),
+            ("asset".to_string(), LogicalTypeId::Varchar.into()),
         ])
     }
 
@@ -97,13 +98,8 @@ impl VTab for ReadGeoVTab {
 
         let path = bind.get_parameter(0).to_string();
 
-        // Very basic dispatch: if path contains "search", it's STAC
-        let dataset = if path.contains("/search") || path.contains("items") {
-            // For now just error out until full implementation
-            return Err("STAC FeatureCollections not fully implemented yet".into());
-        } else {
-            geozarr_core::dataset::ZarrDataset::open(&path)?
-        };
+        let asset = bind.get_named_parameter("asset").map(|v| v.to_string());
+        let dataset = geozarr_core::dataset::ZarrDataset::open_with_asset(&path, asset.as_deref())?;
 
         let schema = dataset
             .schema()

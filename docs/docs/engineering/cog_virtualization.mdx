@@ -58,12 +58,21 @@ their native CRS with `y`/`x` dimensions, so geographic bounding-box pushdown
 simply does not apply (no error — the data is read correctly, just without
 geographic bbox pruning).
 
-## STAC (planned, not yet wired to SQL)
+## STAC (single Item)
 
-A `VirtualStacStore` exists in `geozarr_core` that parses a STAC Item, extracts
-its COG assets, and composes them as a set of virtual COG stores
-(`geozarr_core/src/virtual_stac_store.rs`). However, the `read_geo` SQL function currently
-**returns an explicit error** for STAC paths
-(`extension/src/table_function.rs`) — STAC consumption from SQL is planned but
-not yet wired up. Until then, STAC sources are not queryable through the
-extension.
+A single STAC **Item** is a first-class `read_geo` source. Eider fetches the
+Item (local path or `http(s)://`), composes its COG assets as a virtual Zarr
+group, and you select one asset:
+
+```sql
+SELECT * FROM read_geo('item.json', asset := 'red');
+```
+
+If the Item has exactly one COG asset it is selected automatically; with
+multiple assets and none chosen, `read_geo` errors listing the available asset
+names. Each selected asset is read with the full COG pipeline (real dtype,
+GeoTIFF affine, CRS).
+
+**Not yet supported:** STAC ItemCollections and `/search` results (multiple
+Items / time-stacking), stacking multiple assets into one array, and STAC
+Collection/Catalog traversal — these return a clear error.
