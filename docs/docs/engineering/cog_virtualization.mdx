@@ -50,10 +50,13 @@ pipeline is identical to reading a real Zarr array.
 (EPSG:4326) the dimensions are `lat`/`lon`, so `lat_min`/`lon_max` bounding-box
 pushdown applies; the value column uses the COG's real data type.
 
-**Not yet supported:** multi-band COGs; LZW/JPEG/WebP internal compression;
-horizontal-differencing predictors; CRS reprojection (projected COGs are read
-in their native CRS with `y`/`x` dimensions, so geographic bbox pushdown does
-not apply). These return a clear error or fall back to unfiltered reads.
+**Not yet supported:** Unsupported band counts (multi-band COGs), bit-depths,
+sample formats, and compression schemes (LZW/JPEG/WebP, horizontal-differencing
+predictors) return a clear error at open time rather than silently misreading
+the data. CRS reprojection is the one exception: projected COGs are read in
+their native CRS with `y`/`x` dimensions, so geographic bounding-box pushdown
+simply does not apply (no error — the data is read correctly, just without
+geographic bbox pruning).
 
 ## STAC (planned, not yet wired to SQL)
 
