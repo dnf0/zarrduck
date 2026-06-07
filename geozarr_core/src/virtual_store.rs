@@ -17,9 +17,12 @@ impl VirtualCogStore {
     pub fn new(operator: opendal::Operator, filename: String, meta: CogMetadata) -> Self {
         // Synthesize honest Zarr-V2 metadata from the parsed COG.
         let dtype = meta.zarr_dtype().unwrap_or_else(|_| "<f4".to_string());
+        // zarrs' Zarr-V2 reader rejects a null fill value for integer data types,
+        // so when the COG carries no GDAL_NODATA tag we fall back to a concrete 0
+        // sentinel (valid for every supported dtype) rather than `null`.
         let fill = match meta.nodata {
             Some(v) => format!("{v}"),
-            None => "null".to_string(),
+            None => "0".to_string(),
         };
         let dims = meta.dim_names(); // ["lat","lon"] or ["y","x"]
         let dims_json = format!("[\"{}\", \"{}\"]", dims[0], dims[1]);
