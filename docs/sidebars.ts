@@ -17,6 +17,7 @@ const sidebars: SidebarsConfig = {
       label: 'Guides',
       items: [
         'usage/guide_workflow',
+        'usage/guide_polygons',
         'usage/guide_cloud',
         'usage/exporting',
       ],

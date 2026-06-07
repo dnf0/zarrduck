@@ -7,8 +7,12 @@ use duckdb::Connection;
 use std::io::IsTerminal;
 
 fn fetch_bounding_box(conn: &Connection, vector_path: &str) -> EyreResult<(f64, f64, f64, f64)> {
+    // ST_Extent_Agg (aggregate) collapses ALL features into one combined bounding
+    // box. The scalar ST_Extent returns one row per feature, and query_row would
+    // then read only the first — so a multi-polygon vector would prefilter
+    // read_geo to just the first polygon's extent and silently drop the rest.
     let mut bbox_query = conn.prepare(
-        "SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e) FROM (SELECT ST_Extent(geom) as e FROM ST_Read(?))"
+        "SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e) FROM (SELECT ST_Extent_Agg(geom) as e FROM ST_Read(?))"
     ).wrap_err("Failed to prepare bounding box query")?;
 
     let bounds: (f64, f64, f64, f64) = bbox_query
