@@ -53,6 +53,46 @@ pub struct CogMetadata {
     pub predictor: u16,         // 317; 1=none (default)
 }
 
+impl CogMetadata {
+    /// Numpy/Zarr-V2 dtype string for this COG's single band, e.g. "<i2".
+    /// Errors on multi-band or unsupported bit-depth/sample-format combinations.
+    pub fn zarr_dtype(&self) -> Result<String, String> {
+        if self.samples_per_pixel != 1 {
+            return Err(format!(
+                "multi-band COGs not yet supported (SamplesPerPixel={})",
+                self.samples_per_pixel
+            ));
+        }
+        let endian = if self.bits_per_sample <= 8 {
+            "|"
+        } else if self.is_little_endian {
+            "<"
+        } else {
+            ">"
+        };
+        let kind = match self.sample_format {
+            3 => "f", // float
+            2 => "i", // signed int
+            1 => "u", // unsigned int
+            other => return Err(format!("unsupported TIFF SampleFormat {other}")),
+        };
+        let bytes = match self.bits_per_sample {
+            8 => 1,
+            16 => 2,
+            32 => 4,
+            64 => 8,
+            other => return Err(format!("unsupported BitsPerSample {other}")),
+        };
+        if kind == "f" && bytes < 4 {
+            return Err(format!(
+                "unsupported float width {} bits",
+                self.bits_per_sample
+            ));
+        }
+        Ok(format!("{endian}{kind}{bytes}"))
+    }
+}
+
 pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
     let header = parse_tiff_header(buffer)?;
     let mut meta = CogMetadata {
@@ -258,5 +298,39 @@ mod tests {
         assert_eq!(m.sample_format, 2);
         assert_eq!(m.samples_per_pixel, 1); // defaulted
         assert_eq!(m.compression, 1); // defaulted
+    }
+
+    #[test]
+    fn test_zarr_dtype_and_band_guard() {
+        let mut m = CogMetadata {
+            is_little_endian: true,
+            samples_per_pixel: 1,
+            ..Default::default()
+        };
+        m.bits_per_sample = 16;
+        m.sample_format = 2;
+        assert_eq!(m.zarr_dtype().unwrap(), "<i2");
+        m.bits_per_sample = 32;
+        m.sample_format = 3;
+        assert_eq!(m.zarr_dtype().unwrap(), "<f4");
+        m.bits_per_sample = 8;
+        m.sample_format = 1;
+        assert_eq!(m.zarr_dtype().unwrap(), "|u1");
+        // big-endian flips the prefix
+        m.is_little_endian = false;
+        m.bits_per_sample = 16;
+        m.sample_format = 1;
+        assert_eq!(m.zarr_dtype().unwrap(), ">u2");
+        // multi-band is rejected
+        m.samples_per_pixel = 3;
+        assert!(m.zarr_dtype().is_err());
+        // unsupported bit depth rejected
+        let bad = CogMetadata {
+            samples_per_pixel: 1,
+            bits_per_sample: 12,
+            sample_format: 1,
+            ..Default::default()
+        };
+        assert!(bad.zarr_dtype().is_err());
     }
 }
