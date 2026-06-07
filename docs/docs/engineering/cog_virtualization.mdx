@@ -48,7 +48,7 @@ pipeline is identical to reading a real Zarr array.
 
 A `VirtualStacStore` exists in `geozarr_core` that parses a STAC Item, extracts
 its COG assets, and composes them as a set of virtual COG stores
-(`geozarr_core/src/store.rs`). However, the `read_geo` SQL function currently
+(`geozarr_core/src/virtual_stac_store.rs`). However, the `read_geo` SQL function currently
 **returns an explicit error** for STAC paths
 (`extension/src/table_function.rs`) — STAC consumption from SQL is planned but
 not yet wired up. Until then, STAC sources are not queryable through the

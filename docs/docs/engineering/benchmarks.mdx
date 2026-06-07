@@ -11,8 +11,8 @@ extension. Run them yourself with the commands in
 
 | Benchmark | What it measures | Median |
 |---|---|---|
-| `populate_lat_batch_2048` | Generating 2,048 coordinate values from an affine transform (no network) | ~10.2 µs |
-| `scanner_read_chunk_subset_remote` | Reading a chunk subset from a remote store through the scanner | ~3.4 µs |
+| `populate_lat_batch_2048` | Generating 2,048 coordinate values from an affine transform (no network) | ~10.6 µs |
+| `scanner_read_chunk_subset_remote` | Reading a chunk subset through the scanner's remote (full-chunk) read path, backed by an in-memory store (no network) | ~3.4 µs |
 
 **Coordinate generation is essentially free relative to I/O.** Because Eider
 computes lat/lon from the array's affine transform on the fly
