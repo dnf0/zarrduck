@@ -46,7 +46,7 @@ impl VTab for ReadZarrMetadataVTab {
             if let Some(geozarr) = geozarr_core::metadata::parse_geozarr_metadata(
                 &serde_json::Value::Object(meta.attributes.clone()),
             ) {
-                if let Some(c) = geozarr.crs {
+                if let Some(c) = geozarr.resolved_crs() {
                     crs = c;
                 }
             }
@@ -55,7 +55,7 @@ impl VTab for ReadZarrMetadataVTab {
             if let Some(geozarr) = geozarr_core::metadata::parse_geozarr_metadata(
                 &serde_json::Value::Object(meta.attributes.clone()),
             ) {
-                if let Some(c) = geozarr.crs {
+                if let Some(c) = geozarr.resolved_crs() {
                     crs = c;
                 }
             }
