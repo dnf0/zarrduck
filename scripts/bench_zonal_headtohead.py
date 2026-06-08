@@ -10,9 +10,16 @@ Later tasks add the contender runners, correctness gate, and timing loop.
 
 from __future__ import annotations
 
+import argparse
+import json
 import math
-from dataclasses import dataclass
+import platform
+import statistics
+import sys
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 import geopandas as gpd
 import numpy as np
@@ -555,13 +562,593 @@ def assert_agree(
     }
 
 
-def main() -> None:
-    """Placeholder entry point; the full harness arrives in later tasks."""
-    raise SystemExit(
-        "bench_zonal_headtohead: data generator only (Task 1). "
-        "Runners, correctness gate, and timing harness land in later tasks."
+# ---------------------------------------------------------------------------
+# Timing harness (Task 4)
+# ---------------------------------------------------------------------------
+
+# Contender labels (stable, machine-readable column keys in the JSON/table).
+CONTENDER_EIDER = "eider"
+CONTENDER_EIDER_INDEXJOIN = "eider_indexjoin"
+CONTENDER_EXACTEXTRACT = "exactextract"
+CONTENDER_RASTERSTATS = "rasterstats"
+
+# Marker used in the stdout table / JSON when a cell is not applicable.
+NA_MARKER = "n/a"
+
+
+@dataclass(frozen=True)
+class TimingResult:
+    """Outcome of timing a single contender call (median over reps)."""
+
+    seconds: float | None  # None == not timed (skipped / NA)
+    status: str  # "ok" | "skipped (budget)" | "error"
+    reps: int = 0
+    detail: str = ""
+
+
+def time_call(
+    fn: Callable[[], object],
+    reps: int = 3,
+    warmup: int = 1,
+    budget_seconds: float | None = None,
+) -> TimingResult:
+    """Time ``fn`` and return the median wall-clock seconds over ``reps``.
+
+    Warmup runs happen OUTSIDE the timed region, so one-time costs (a DuckDB
+    ``LOAD extension``, the first GDAL open of a file, lazy imports) are excluded
+    from the reported median. Each contender's read of the warm local COG is
+    therefore measured against an already-warm process and OS page cache, which
+    is the regime we want to compare.
+
+    Budget guard: if any single timed rep exceeds ``budget_seconds`` the call is
+    abandoned immediately (no further reps) and reported as ``skipped (budget)``
+    so a pathologically slow cell can never hang the whole matrix.
+    """
+    try:
+        for _ in range(max(0, warmup)):
+            fn()
+    except Exception as exc:  # noqa: BLE001 - record, don't crash the matrix
+        return TimingResult(None, "error", 0, f"{type(exc).__name__}: {exc}")
+
+    samples: list[float] = []
+    for _ in range(max(1, reps)):
+        start = time.perf_counter()
+        try:
+            fn()
+        except Exception as exc:  # noqa: BLE001
+            return TimingResult(None, "error", len(samples), f"{type(exc).__name__}: {exc}")
+        elapsed = time.perf_counter() - start
+        samples.append(elapsed)
+        if budget_seconds is not None and elapsed > budget_seconds:
+            return TimingResult(
+                None,
+                "skipped (budget)",
+                len(samples),
+                f"rep took {elapsed:.2f}s > budget {budget_seconds:.0f}s",
+            )
+
+    return TimingResult(statistics.median(samples), "ok", len(samples))
+
+
+# --- Valid (convention, metric) -> applicable contenders -------------------
+#
+# Honest pairings (see Task 3 docstring for the convention<->tool mapping):
+#   * centroid/max      : eider, rasterstats         (exactextract has no centroid)
+#   * all_touched/max   : eider, rasterstats, exactextract
+#   * all_touched/mean  : eider, rasterstats, exactextract (optional, all average
+#                          the same touched-cell set / coverage)
+#   * area_weighted/mean: eider, exactextract        (rasterstats: no area weight)
+#
+# ``run_eider_indexjoin`` is added ONLY for the coarse regime (R1, sub-cell
+# point model) inside ``run_matrix`` -- it is not a general contender.
+VALID_PAIRINGS: list[tuple[str, str, tuple[str, ...]]] = [
+    (CONVENTION_CENTROID, METRIC_MAX, (CONTENDER_EIDER, CONTENDER_RASTERSTATS)),
+    (
+        CONVENTION_ALL_TOUCHED,
+        METRIC_MAX,
+        (CONTENDER_EIDER, CONTENDER_RASTERSTATS, CONTENDER_EXACTEXTRACT),
+    ),
+    (
+        CONVENTION_ALL_TOUCHED,
+        METRIC_MEAN,
+        (CONTENDER_EIDER, CONTENDER_RASTERSTATS, CONTENDER_EXACTEXTRACT),
+    ),
+    (
+        CONVENTION_AREA_WEIGHTED,
+        METRIC_MEAN,
+        (CONTENDER_EIDER, CONTENDER_EXACTEXTRACT),
+    ),
+]
+
+# Conventions to put through the correctness gate (once per regime, at the
+# reference n) before timing. Each entry is (convention, metric, contender_a,
+# contender_b, tol) where contender_a is always eider (the system under test).
+GATE_PAIRINGS: list[tuple[str, str, str, str, float]] = [
+    (CONVENTION_CENTROID, METRIC_MAX, CONTENDER_EIDER, CONTENDER_RASTERSTATS, 1e-3),
+    (CONVENTION_ALL_TOUCHED, METRIC_MAX, CONTENDER_EIDER, CONTENDER_RASTERSTATS, 1e-3),
+    (CONVENTION_ALL_TOUCHED, METRIC_MAX, CONTENDER_EIDER, CONTENDER_EXACTEXTRACT, 1e-3),
+    (CONVENTION_ALL_TOUCHED, METRIC_MEAN, CONTENDER_EIDER, CONTENDER_RASTERSTATS, 1e-2),
+    (
+        CONVENTION_AREA_WEIGHTED,
+        METRIC_MEAN,
+        CONTENDER_EIDER,
+        CONTENDER_EXACTEXTRACT,
+        1e-1,
+    ),
+]
+
+
+@dataclass
+class CaseData:
+    """One generated (regime, n) case, reused across conventions/contenders/reps.
+
+    Generating raster + polygons is expensive, so we do it once per (regime, n)
+    and keep the polygon GeoDataFrame in memory (exactextract wants a gdf;
+    rasterstats reads the geojson path; eider reads the parquet path).
+    """
+
+    regime: str
+    n_polys: int
+    raster: str
+    parquet: str
+    geojson: str
+    gdf: gpd.GeoDataFrame
+    poly_ids: list[int]
+
+
+def _make_contender_call(
+    contender: str,
+    conn,
+    case: CaseData,
+    convention: str,
+    metric: str,
+) -> Callable[[], object]:
+    """Build a zero-arg callable that runs ``contender`` fresh (no cached result).
+
+    The data (raster/gdf/paths) is captured by reference and reused across reps;
+    only the *compute* is re-executed each call, against the warm OS cache.
+    """
+    if contender == CONTENDER_EIDER:
+        return lambda: run_eider(conn, case.raster, case.parquet, convention, metric)
+    if contender == CONTENDER_EIDER_INDEXJOIN:
+        return lambda: run_eider_indexjoin(
+            conn, case.raster, case.parquet, convention, metric
+        )
+    if contender == CONTENDER_EXACTEXTRACT:
+        return lambda: run_exactextract(case.raster, case.gdf, convention, metric)
+    if contender == CONTENDER_RASTERSTATS:
+        return lambda: run_rasterstats(
+            case.raster, case.geojson, convention, metric, case.poly_ids
+        )
+    raise ValueError(f"unknown contender {contender!r}")
+
+
+def _run_one_contender(contender: str, conn, case: CaseData, convention, metric):
+    """Run a contender once and return its ``{poly_id: float}`` result."""
+    return _make_contender_call(contender, conn, case, convention, metric)()
+
+
+def _run_gate(
+    conn, case: CaseData, findings: list[dict]
+) -> dict[tuple[str, str], dict]:
+    """Run the correctness gate for ``case`` once; record any disagreement.
+
+    Returns ``{(convention, metric): agreement_report}`` keyed by the eider-side
+    pairing, so the timing table can annotate each row with the observed
+    ``max_abs_diff``. A disagreement beyond tolerance is recorded as a FINDING
+    (it does NOT crash the run -- credibility issues must be visible, not fatal).
+    """
+    agreements: dict[tuple[str, str], dict] = {}
+    for convention, metric, ca, cb, tol in GATE_PAIRINGS:
+        try:
+            res_a = _run_one_contender(ca, conn, case, convention, metric)
+            res_b = _run_one_contender(cb, conn, case, convention, metric)
+            rep = assert_agree(res_a, res_b, ca, cb, tol)
+        except Exception as exc:  # noqa: BLE001
+            findings.append(
+                {
+                    "regime": case.regime,
+                    "convention": convention,
+                    "metric": metric,
+                    "pair": f"{ca} vs {cb}",
+                    "kind": "gate_error",
+                    "detail": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            continue
+
+        key = (convention, metric)
+        prev = agreements.get(key)
+        # Keep the worst (largest) max_abs_diff seen for the row label.
+        if prev is None or rep["max_abs_diff"] > prev["max_abs_diff"]:
+            agreements[key] = rep
+
+        if not rep["agree"]:
+            findings.append(
+                {
+                    "regime": case.regime,
+                    "convention": convention,
+                    "metric": metric,
+                    "pair": f"{ca} vs {cb}",
+                    "kind": "disagreement",
+                    "tol": tol,
+                    "max_abs_diff": rep["max_abs_diff"],
+                    "n_mismatch": rep["n_mismatch"],
+                    "examples": rep["examples"],
+                }
+            )
+    return agreements
+
+
+def _versions() -> dict[str, str]:
+    """Collect contender library versions for the environment block."""
+    out: dict[str, str] = {}
+    for mod_name, key in (
+        ("duckdb", "duckdb"),
+        ("exactextract", "exactextract"),
+        ("rasterstats", "rasterstats"),
+        ("rasterio", "rasterio"),
+        ("geopandas", "geopandas"),
+        ("numpy", "numpy"),
+    ):
+        try:
+            mod = __import__(mod_name)
+            out[key] = getattr(mod, "__version__", "unknown")
+        except Exception:  # noqa: BLE001
+            out[key] = "unavailable"
+    return out
+
+
+def _env_block() -> dict:
+    """Platform/machine/version environment block for the JSON + stdout."""
+    return {
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor() or "unknown",
+        "python": platform.python_version(),
+        "versions": _versions(),
+    }
+
+
+@dataclass
+class MatrixConfig:
+    """Configuration for one ``run_matrix`` invocation."""
+
+    out_dir: Path
+    regime: str  # "fine" | "coarse" | "both"
+    counts: list[int]
+    reps: int
+    budget_seconds: float
+    shape_override: dict[str, tuple[int, int]] = field(default_factory=dict)
+    # n at which the correctness gate runs (the smallest count, by default).
+    gate_n: int | None = None
+
+
+def _regimes_for(regime: str) -> list[str]:
+    if regime == "both":
+        return ["fine", "coarse"]
+    return [regime]
+
+
+def run_matrix(cfg: MatrixConfig, conn) -> dict:
+    """Drive the full benchmark matrix and return a results document.
+
+    For each regime we generate each (regime, n) case ONCE (raster + polygons),
+    reuse it across every convention/metric/contender/rep, run the correctness
+    gate once at the reference n, then time every valid contender call. The
+    eider connection is created by the caller and reused throughout.
+    """
+    findings: list[dict] = []
+    rows: list[dict] = []
+
+    for regime in _regimes_for(cfg.regime):
+        shape = cfg.shape_override.get(regime)
+        gate_n = cfg.gate_n if cfg.gate_n is not None else min(cfg.counts)
+
+        # Generate every (regime, n) case once; cache for gate + timing reuse.
+        cases: dict[int, CaseData] = {}
+        for n in cfg.counts:
+            data = generate_data(cfg.out_dir / f"{regime}_n{n}", regime, n, shape=shape)
+            gdf = gpd.read_parquet(data["parquet"])
+            cases[n] = CaseData(
+                regime=regime,
+                n_polys=n,
+                raster=data["raster"],
+                parquet=data["parquet"],
+                geojson=data["geojson"],
+                gdf=gdf,
+                poly_ids=list(gdf["poly_id"]),
+            )
+
+        # Correctness gate: once per regime at the reference n, BEFORE timing.
+        gate_case = cases.get(gate_n) or cases[min(cases)]
+        agreements = _run_gate(conn, gate_case, findings)
+
+        # Index-join contender is valid only for the coarse (sub-cell) regime.
+        include_indexjoin = regime == "coarse"
+
+        for n in cfg.counts:
+            case = cases[n]
+            for convention, metric, contenders in VALID_PAIRINGS:
+                contenders = tuple(contenders)
+                if include_indexjoin and convention == CONVENTION_CENTROID:
+                    # The point-model index join is a centroid-style selection.
+                    contenders = contenders + (CONTENDER_EIDER_INDEXJOIN,)
+
+                agree = agreements.get((convention, metric))
+                row = {
+                    "regime": regime,
+                    "convention": convention,
+                    "metric": metric,
+                    "n": n,
+                    "agree": (
+                        None
+                        if agree is None
+                        else {
+                            "ok": agree["agree"],
+                            "max_abs_diff": agree["max_abs_diff"],
+                        }
+                    ),
+                    "timings": {},
+                }
+                for contender in (
+                    CONTENDER_EIDER,
+                    CONTENDER_EIDER_INDEXJOIN,
+                    CONTENDER_EXACTEXTRACT,
+                    CONTENDER_RASTERSTATS,
+                ):
+                    if contender not in contenders:
+                        row["timings"][contender] = {
+                            "seconds": None,
+                            "status": NA_MARKER,
+                        }
+                        continue
+                    call = _make_contender_call(
+                        contender, conn, case, convention, metric
+                    )
+                    res = time_call(
+                        call,
+                        reps=cfg.reps,
+                        warmup=1,
+                        budget_seconds=cfg.budget_seconds,
+                    )
+                    row["timings"][contender] = {
+                        "seconds": res.seconds,
+                        "status": res.status,
+                        "reps": res.reps,
+                        "detail": res.detail,
+                    }
+                rows.append(row)
+
+    return {
+        "environment": _env_block(),
+        "config": {
+            "regime": cfg.regime,
+            "counts": cfg.counts,
+            "reps": cfg.reps,
+            "budget_seconds": cfg.budget_seconds,
+            "gate_n": cfg.gate_n if cfg.gate_n is not None else min(cfg.counts),
+        },
+        "rows": rows,
+        "findings": findings,
+    }
+
+
+# --- Human-readable rendering ----------------------------------------------
+
+_TABLE_CONTENDERS = (
+    CONTENDER_EIDER,
+    CONTENDER_EIDER_INDEXJOIN,
+    CONTENDER_EXACTEXTRACT,
+    CONTENDER_RASTERSTATS,
+)
+_TABLE_HEADERS = ("eider", "eider_ij", "exactextr", "rasterst")
+
+
+def _fmt_cell(timing: dict) -> str:
+    status = timing.get("status")
+    if status == "ok" and timing.get("seconds") is not None:
+        return f"{timing['seconds']:.4f}"
+    if status == NA_MARKER:
+        return NA_MARKER
+    if status == "skipped (budget)":
+        return "SKIP(bdg)"
+    if status == "error":
+        return "ERROR"
+    return str(status)
+
+
+def _winner(timings: dict) -> str:
+    """Fastest contender with an ``ok`` timing, or a dash if none timed."""
+    best: tuple[float, str] | None = None
+    for contender, t in timings.items():
+        if t.get("status") == "ok" and t.get("seconds") is not None:
+            if best is None or t["seconds"] < best[0]:
+                best = (t["seconds"], contender)
+    return best[1] if best else "-"
+
+
+def render_table(doc: dict) -> str:
+    """Build the human-readable stdout report (env block + matrix table)."""
+    lines: list[str] = []
+    env = doc["environment"]
+    cfg = doc["config"]
+
+    lines.append("=" * 92)
+    lines.append("Zonal-stats head-to-head benchmark (warm local COG)")
+    lines.append("=" * 92)
+    lines.append("Environment:")
+    lines.append(f"  platform : {env['platform']}")
+    lines.append(f"  machine  : {env['machine']}  processor: {env['processor']}")
+    lines.append(f"  python   : {env['python']}")
+    lines.append("  versions :")
+    for k, v in env["versions"].items():
+        lines.append(f"      {k:<13} {v}")
+    lines.append(
+        f"Config: regime={cfg['regime']} counts={cfg['counts']} reps={cfg['reps']} "
+        f"budget={cfg['budget_seconds']}s gate_n={cfg['gate_n']}"
     )
+    lines.append("")
+
+    # Table header.
+    head = (
+        f"{'regime':<7} {'convention':<13} {'metric':<5} {'n':>9} "
+        f"{'eider':>10} {'eider_ij':>10} {'exactextr':>10} {'rasterst':>10} "
+        f"{'winner':>11} {'agree(maxΔ)':>14}"
+    )
+    lines.append(head)
+    lines.append("-" * len(head))
+
+    for row in doc["rows"]:
+        cells = [_fmt_cell(row["timings"][c]) for c in _TABLE_CONTENDERS]
+        winner = _winner(row["timings"])
+        agree = row["agree"]
+        if agree is None:
+            agree_str = NA_MARKER
+        else:
+            mark = "ok" if agree["ok"] else "FAIL"
+            agree_str = f"{mark} {agree['max_abs_diff']:.2e}"
+        lines.append(
+            f"{row['regime']:<7} {row['convention']:<13} {row['metric']:<5} "
+            f"{row['n']:>9} "
+            f"{cells[0]:>10} {cells[1]:>10} {cells[2]:>10} {cells[3]:>10} "
+            f"{winner:>11} {agree_str:>14}"
+        )
+
+    lines.append("")
+    findings = doc["findings"]
+    if findings:
+        lines.append(f"FINDINGS ({len(findings)}):")
+        for f in findings:
+            if f["kind"] == "disagreement":
+                lines.append(
+                    f"  [DISAGREE] {f['regime']}/{f['convention']}/{f['metric']} "
+                    f"{f['pair']}: max_abs_diff={f['max_abs_diff']:.3e} "
+                    f"> tol={f['tol']:.1e} ({f['n_mismatch']} mismatches)"
+                )
+            else:
+                lines.append(
+                    f"  [GATE-ERR] {f['regime']}/{f['convention']}/{f['metric']} "
+                    f"{f['pair']}: {f['detail']}"
+                )
+    else:
+        lines.append("FINDINGS: none — correctness gate passed for every pairing.")
+
+    lines.append(
+        "\nLegend: seconds = median wall-clock over reps (warmup excluded). "
+        f"{NA_MARKER}=pairing not applicable, SKIP(bdg)=exceeded budget, "
+        "ERROR=runner raised. eider_ij = point-model index join (coarse/R1 only)."
+    )
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+# Tiny self-test sizing for --quick (fast end-to-end smoke run).
+QUICK_COUNTS = [200]
+QUICK_REPS = 1
+QUICK_SHAPE = (120, 120)
+DEFAULT_COUNTS = [10_000, 100_000, 1_000_000]
+DEFAULT_BUDGET_SECONDS = 120.0
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="bench_zonal_headtohead",
+        description=(
+            "Head-to-head zonal-stats benchmark: eider/DuckDB vs exactextract "
+            "vs rasterstats on a warm local COG, with a pre-timing correctness gate."
+        ),
+    )
+    p.add_argument(
+        "--out-dir",
+        default=None,
+        help="Directory for generated rasters/polygons (default: a temp dir).",
+    )
+    p.add_argument(
+        "--counts",
+        type=int,
+        nargs="+",
+        default=DEFAULT_COUNTS,
+        help="Polygon counts to benchmark (e.g. 10000 100000 1000000).",
+    )
+    p.add_argument("--reps", type=int, default=3, help="Timed reps per cell (median).")
+    p.add_argument(
+        "--budget-seconds",
+        type=float,
+        default=DEFAULT_BUDGET_SECONDS,
+        help="Per-call budget; a rep exceeding this marks the cell skipped.",
+    )
+    p.add_argument(
+        "--json", dest="json_path", default=None, help="Write machine-readable results here."
+    )
+    p.add_argument(
+        "--regime", choices=["fine", "coarse", "both"], default="both", help="Regime(s)."
+    )
+    p.add_argument(
+        "--quick",
+        action="store_true",
+        help="Tiny end-to-end self-test (small grid, n=200, 1 rep).",
+    )
+    return p.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    import os
+    import tempfile
+
+    args = _parse_args(argv)
+
+    if args.quick:
+        counts = QUICK_COUNTS
+        reps = QUICK_REPS
+        shape_override = {"fine": QUICK_SHAPE, "coarse": QUICK_SHAPE}
+    else:
+        counts = args.counts
+        reps = args.reps
+        shape_override = {}
+
+    if args.out_dir is not None:
+        out_dir = Path(args.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tmp_ctx = None
+    else:
+        tmp_ctx = tempfile.TemporaryDirectory(prefix="bench_zonal_")
+        out_dir = Path(tmp_ctx.name)
+
+    # eider reads must be permitted under the data dir.
+    os.environ["GEOZARR_ALLOW_PATH"] = str(out_dir)
+
+    cfg = MatrixConfig(
+        out_dir=out_dir,
+        regime=args.regime,
+        counts=counts,
+        reps=reps,
+        budget_seconds=args.budget_seconds,
+        shape_override=shape_override,
+    )
+
+    conn = eider_conn()
+    try:
+        doc = run_matrix(cfg, conn)
+    finally:
+        conn.close()
+        if tmp_ctx is not None:
+            tmp_ctx.cleanup()
+
+    print(render_table(doc))
+
+    if args.json_path:
+        with open(args.json_path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=2, default=str)
+        print(f"\nWrote machine-readable results to {args.json_path}")
+
+    # Non-zero exit if the gate exposed a real disagreement (not just NA cells).
+    disagreements = [f for f in doc["findings"] if f["kind"] == "disagreement"]
+    return 1 if disagreements else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
