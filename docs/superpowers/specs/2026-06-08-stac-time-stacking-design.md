@@ -18,7 +18,7 @@
 | Decision | Choice |
 |---|---|
 | `time` coordinate values | **Epoch seconds** parsed from `properties.datetime` (RFC3339). Synthesize a `/time` coordinate array so the existing `/time` + `time_min`/`time_max` pushdown works for real temporal filtering. Add `chrono`. |
-| Per-item heterogeneity | **Strict.** All items' selected-asset COGs must share identical `(shape, affine, CRS, dtype)`; any mismatch → clear error naming the item index + field. No regridding/reprojection. |
+| Per-item heterogeneity | **Strict.** The whole collection must be **grid-uniform**: every item × every COG asset shares an identical `(shape, affine, CRS)` grid, and each asset's `dtype` is uniform across items. Any mismatch → clear error naming the item index + field. No regridding/reprojection. (Collection-wide rather than only the selected asset, because `resolve_sync_store` builds the asset group *before* the asset is chosen, and the synthesized `/lat`,`/lon` coordinate arrays live at the shared group root.) |
 | Input scope | **Single response only**, no pagination. Stack exactly the `features` in the given ItemCollection/FeatureCollection (local file or one HTTP response). `rel:next` is ignored (documented). |
 
 ## Architecture: the 3D stack as a coordinate-complete group
@@ -52,7 +52,7 @@ For each asset name, the store holds a **time-sorted `Vec<VirtualCogStore>`** (o
 3. For each feature: require `properties.datetime` (non-null); parse RFC3339 → epoch seconds (error clearly if missing/unparseable). Sort features by epoch ascending.
 4. Determine asset names (the COG assets, as single-Item does) from the features (intersection/union of asset keys — use the first item's COG-asset set; require every item to provide each of those assets, else error).
 5. For each `(asset, item)`: build a `VirtualCogStore` (fetch the COG header — local via the sandboxed reader, HTTP/S3 concurrently, matching single-Item).
-6. **Validate uniformity** per asset: every item's COG `(shape, affine, CRS, dtype)` equals item 0's; mismatch → `Err` naming the item index + differing field.
+6. **Validate grid-uniformity** collection-wide: every item × every COG asset shares item 0's first asset's `(shape, affine, CRS)`; each asset's `dtype` is uniform across items; mismatch → `Err` naming the item index + differing field. (The shared grid defines the group-level `/lat`,`/lon`; per-asset dtype defines each `/{asset}` array.)
 7. Build the `VirtualStacTimeStack` (synthesizing `/time` from the sorted epochs, `/lat`/`/lon` from the uniform affine). Return `ResolvedStore { store, is_remote, stac_assets: Some(sorted_asset_names) }`.
 
 `ZarrDataset::open_with_asset` is **unchanged**: `stac_assets.is_some()` → `select_asset_path` → `Array::open(store, "/{asset}")` → the 3D array; `CoordinateResolver` finds `/time`,`/lat`,`/lon`; schema → `(time f64, lat f64, lon f64, value <dtype>)`.
@@ -90,6 +90,7 @@ Header-fetch cost: resolve eagerly fetches every item×asset COG header (16 KB r
 
 - STAC API **pagination** (`rel:next`) — single response only.
 - **Regridding / reprojection** — heterogeneous items error rather than being aligned.
+- **Multi-resolution collections** — assets with differing grids (e.g. 10 m vs 20 m bands) error; per-asset-grid stacking is a future enhancement (the shared group-level `/lat`,`/lon` requires one collection grid).
 - Items without `properties.datetime` (e.g. only `start_datetime`/`end_datetime`) — error for now.
 - Stacking multiple assets into a band dimension; STAC Collection/Catalog traversal; non-COG assets.
 - Any extension/dispatch change beyond what single-Item already provides.
