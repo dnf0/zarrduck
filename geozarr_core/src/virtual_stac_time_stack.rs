@@ -133,10 +133,12 @@ impl VirtualStacTimeStack {
 
 impl ReadableStorageTraits for VirtualStacTimeStack {
     fn get(&self, key: &StoreKey) -> Result<Option<Bytes>, zarrs::storage::StorageError> {
-        let k = key.as_str();
-        if std::env::var("EIDER_STORE_DEBUG").is_ok() {
-            eprintln!("STOREGET key={k:?}");
-        }
+        // zarrs builds chunk keys with the OS-native path separator: on Windows
+        // that's a backslash between the array name and the chunk index
+        // (e.g. "band\\0.0.0"), while metadata keys stay "/"-separated. Normalize
+        // to "/" so our routing matches on every platform.
+        let normalized = key.as_str().replace('\\', "/");
+        let k = normalized.as_str();
         if k == ".zgroup" {
             return Ok(Some(self.zgroup_bytes.clone()));
         }
