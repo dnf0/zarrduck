@@ -68,6 +68,13 @@ impl VirtualCogStore {
             zmetadata_bytes: Bytes::from(zmetadata),
         })
     }
+
+    /// Borrow the parsed COG metadata (grid shape, tiling, dtype, CRS, affine).
+    /// Used by the STAC time-stack builder to validate collection-wide grid
+    /// uniformity and derive spatial coordinates from the first child.
+    pub fn meta(&self) -> &crate::cog::CogMetadata {
+        &self.meta
+    }
 }
 
 impl ReadableStorageTraits for VirtualCogStore {
