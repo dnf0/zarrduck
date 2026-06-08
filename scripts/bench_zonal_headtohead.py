@@ -208,6 +208,275 @@ def generate_data(
     }
 
 
+# ---------------------------------------------------------------------------
+# Contender runners (Task 2)
+#
+# Each runner returns ``{poly_id: float}`` for a ``(raster, polys, convention,
+# metric)`` request. Conventions: ``centroid``, ``all_touched``,
+# ``area_weighted``. Metrics: ``max``, ``mean``, ``count``.
+#
+# Convention <-> tool mapping (kept honest, per the plan):
+#   * centroid      -> rasterstats(all_touched=False) ; eider ST_Contains(centre)
+#   * all_touched   -> rasterstats(all_touched=True), exactextract max,
+#                      eider ST_Intersects(cell envelope)
+#   * area_weighted -> exactextract mean (coverage-weighted),
+#                      eider sum(v*area)/sum(area) over intersecting cells.
+#                      rasterstats has no exact area weighting -> NotImplemented.
+# ---------------------------------------------------------------------------
+
+# read_geo column names for a local COG, discovered via
+# ``DESCRIBE SELECT * FROM read_geo('grid.tif')`` (verified for EPSG:3857):
+#   y (DOUBLE), x (DOUBLE), value (FLOAT)
+# Coordinates are CELL CENTRES in the raster's own CRS (EPSG:3857 metres) --
+# read_geo does NOT reproject to lon/lat. The polygons are generated in the
+# same CRS, so the cell coords and polygon geometry are directly comparable.
+READ_GEO_X = "x"
+READ_GEO_Y = "y"
+READ_GEO_VALUE = "value"
+
+# Path to the loadable eider extension (relative to the repo root).
+EIDER_EXTENSION_PATH = (
+    Path(__file__).resolve().parents[1] / "target" / "debug" / "eider.duckdb_extension"
+)
+
+# Conventions and metrics as small enums-of-strings to avoid magic literals.
+CONVENTION_CENTROID = "centroid"
+CONVENTION_ALL_TOUCHED = "all_touched"
+CONVENTION_AREA_WEIGHTED = "area_weighted"
+
+METRIC_MAX = "max"
+METRIC_MEAN = "mean"
+METRIC_COUNT = "count"
+
+
+def run_rasterstats(
+    raster: str,
+    geojson_path: str,
+    convention: str,
+    metric: str,
+    poly_ids,
+) -> dict:
+    """rasterstats zonal_stats runner.
+
+    ``all_touched=True`` for the all_touched convention, ``False`` (GDAL
+    cell-centre rasterize) for centroid. rasterstats has no exact area
+    weighting, so ``area_weighted`` raises ``NotImplementedError``.
+    """
+    from rasterstats import zonal_stats
+
+    if convention == CONVENTION_AREA_WEIGHTED:
+        raise NotImplementedError("rasterstats has no exact area weighting")
+
+    all_touched = convention == CONVENTION_ALL_TOUCHED
+    res = zonal_stats(
+        geojson_path, raster, stats=[metric], all_touched=all_touched, nodata=None
+    )
+    return {
+        pid: (r[metric] if r[metric] is not None else float("nan"))
+        for pid, r in zip(poly_ids, res)
+    }
+
+
+def run_exactextract(raster: str, gdf, convention: str, metric: str) -> dict:
+    """exactextract runner (coverage-weighted).
+
+    exactextract weights every intersecting cell by its coverage fraction:
+      * ``mean``  -> coverage-weighted mean  (used for area_weighted)
+      * ``max``   -> max over all cells with coverage > 0 (used for all_touched)
+      * ``count`` -> sum of coverage fractions
+
+    Used for all_touched(max) and area_weighted(mean); NOT centroid (exactextract
+    has no cell-centre-only mode). Output columns in 0.3.0 are named exactly by
+    the op (``mean``/``max``/``count``), no ``band_`` prefix; it accepts a raster
+    path plus a GeoDataFrame directly. Raster and gdf must share a CRS -- both
+    are EPSG:3857 here.
+    """
+    from exactextract import exact_extract
+
+    op = {METRIC_MAX: "max", METRIC_MEAN: "mean", METRIC_COUNT: "count"}[metric]
+    df = exact_extract(raster, gdf, [op], output="pandas", include_cols=["poly_id"])
+    value_col = next(c for c in df.columns if c != "poly_id")
+    return {
+        int(pid): float(val) for pid, val in zip(df["poly_id"], df[value_col])
+    }
+
+
+def eider_conn():
+    """Open a DuckDB connection with the eider extension + spatial loaded."""
+    import duckdb
+
+    conn = duckdb.connect(config={"allow_unsigned_extensions": True})
+    conn.execute(f"LOAD '{EIDER_EXTENSION_PATH}'")
+    conn.execute("INSTALL spatial; LOAD spatial;")
+    return conn
+
+
+def _poly_bbox(conn, polys_parquet: str) -> tuple[float, float, float, float]:
+    """Bounding box (xmin, ymin, xmax, ymax) of all polygons, in the polys' CRS."""
+    row = conn.execute(
+        f"""
+        SELECT ST_XMin(ext), ST_YMin(ext), ST_XMax(ext), ST_YMax(ext)
+        FROM (SELECT ST_Extent_Agg(geometry) AS ext
+              FROM read_parquet('{polys_parquet}'))
+        """
+    ).fetchone()
+    return tuple(float(v) for v in row)  # type: ignore[return-value]
+
+
+# Number of cells of padding applied to the polygon bbox when slicing the field.
+# read_geo's lat/lon bbox pushdown only fires for EPSG:4326 COGs (dim names
+# lat/lon); for EPSG:3857 the dims are y/x with no matching pushdown param, so we
+# prune with a SQL WHERE on x/y instead. A generous pad keeps every touched cell.
+_BBOX_PAD_CELLS = 2.0
+# Approximate cell size used only to pad the bbox slice; the exact dx/dy used in
+# the geometry predicates is derived from the read itself.
+_APPROX_CELL_M = PIXEL_SIZE_M
+
+
+def _field_cte(raster: str, bbox: tuple[float, float, float, float]) -> str:
+    """A `field` CTE selecting cell (x, y, value) within a padded polygon bbox.
+
+    The WHERE on x/y prunes the read to the polygons' neighbourhood (read_geo's
+    lat/lon bbox pushdown does not apply to EPSG:3857 COGs, whose dims are y/x).
+    """
+    xmin, ymin, xmax, ymax = bbox
+    pad = _BBOX_PAD_CELLS * _APPROX_CELL_M
+    return f"""
+        field AS (
+            SELECT {READ_GEO_X} AS x, {READ_GEO_Y} AS y, {READ_GEO_VALUE} AS v
+            FROM read_geo('{raster}')
+            WHERE {READ_GEO_X} BETWEEN {xmin - pad} AND {xmax + pad}
+              AND {READ_GEO_Y} BETWEEN {ymin - pad} AND {ymax + pad}
+              -- Drop nodata cells so count/area-weighted means match the
+              -- coverage-based tools (exactextract/rasterstats ignore nodata).
+              AND {READ_GEO_VALUE} IS NOT NULL
+        ),
+        step AS (
+            SELECT (max(x) - min(x)) / nullif(count(DISTINCT x) - 1, 0) AS dx,
+                   (max(y) - min(y)) / nullif(count(DISTINCT y) - 1, 0) AS dy
+            FROM field
+        )
+    """
+
+
+def _metric_agg(metric: str) -> str:
+    return {
+        METRIC_MAX: "max(z.v)",
+        METRIC_MEAN: "avg(z.v)",
+        METRIC_COUNT: "count(*)",
+    }[metric]
+
+
+def run_eider(
+    conn, raster: str, polys_parquet: str, convention: str, metric: str
+) -> dict:
+    """eider/DuckDB + spatial runner: per-convention spatial-join zonal stats.
+
+    Cell coords from read_geo are cell centres in the raster CRS (EPSG:3857
+    metres); polygons are read from GeoParquet in the same CRS, so the join is
+    CRS-consistent without any reprojection. dx/dy are derived from the read.
+    """
+    bbox = _poly_bbox(conn, polys_parquet)
+    field = _field_cte(raster, bbox)
+
+    if convention == CONVENTION_CENTROID:
+        sql = f"""
+            WITH {field}
+            SELECT v.poly_id, {_metric_agg(metric)} AS metric
+            FROM read_parquet('{polys_parquet}') v
+            JOIN field z
+              ON ST_Contains(v.geometry, ST_Point(z.x, z.y))
+            GROUP BY v.poly_id
+        """
+    elif convention == CONVENTION_ALL_TOUCHED:
+        sql = f"""
+            WITH {field}
+            SELECT v.poly_id, {_metric_agg(metric)} AS metric
+            FROM read_parquet('{polys_parquet}') v
+            CROSS JOIN step s
+            JOIN field z
+              ON ST_Intersects(
+                   v.geometry,
+                   ST_MakeEnvelope(z.x - s.dx / 2, z.y - s.dy / 2,
+                                   z.x + s.dx / 2, z.y + s.dy / 2))
+            GROUP BY v.poly_id
+        """
+    elif convention == CONVENTION_AREA_WEIGHTED:
+        if metric != METRIC_MEAN:
+            raise NotImplementedError(
+                "area_weighted is only defined for the mean metric"
+            )
+        sql = f"""
+            WITH {field}
+            SELECT v.poly_id,
+                   sum(z.v * ST_Area(ST_Intersection(v.geometry, cell.box)))
+                   / nullif(sum(ST_Area(ST_Intersection(v.geometry, cell.box))), 0)
+                     AS metric
+            FROM read_parquet('{polys_parquet}') v
+            CROSS JOIN step s
+            JOIN field z
+              ON ST_Intersects(
+                   v.geometry,
+                   ST_MakeEnvelope(z.x - s.dx / 2, z.y - s.dy / 2,
+                                   z.x + s.dx / 2, z.y + s.dy / 2)),
+            LATERAL (SELECT ST_MakeEnvelope(z.x - s.dx / 2, z.y - s.dy / 2,
+                                            z.x + s.dx / 2, z.y + s.dy / 2)
+                            AS box) cell
+            GROUP BY v.poly_id
+        """
+    else:
+        raise ValueError(f"unknown convention {convention!r}")
+
+    rows = conn.execute(sql).fetchall()
+    return {int(pid): float(val) for pid, val in rows if val is not None}
+
+
+def run_eider_indexjoin(
+    conn, raster: str, polys_parquet: str, convention: str, metric: str
+) -> dict:
+    """eider point-model runner via an arithmetic cell-index equi-join.
+
+    For Regime 1 (sub-cell polygons) we model each polygon by its centroid and
+    snap it to the nearest cell index using the read's origin/step, then equi-join
+    on integer (ix, iy). This avoids the geometry predicate entirely. Valid only
+    for the sub-cell / point-model case; labelled as such in the results.
+    """
+    bbox = _poly_bbox(conn, polys_parquet)
+    field = _field_cte(raster, bbox)
+
+    sql = f"""
+        WITH {field},
+        origin AS (SELECT min(x) AS x0, min(y) AS y0 FROM field),
+        cells AS (
+            SELECT round((z.x - o.x0) / s.dx) AS ix,
+                   round((z.y - o.y0) / s.dy) AS iy,
+                   z.v AS v
+            FROM field z CROSS JOIN step s CROSS JOIN origin o
+        ),
+        centroids AS (
+            SELECT v.poly_id,
+                   round((ST_X(ST_Centroid(v.geometry)) - o.x0) / s.dx) AS ix,
+                   round((ST_Y(ST_Centroid(v.geometry)) - o.y0) / s.dy) AS iy
+            FROM read_parquet('{polys_parquet}') v
+            CROSS JOIN step s CROSS JOIN origin o
+        )
+        SELECT c.poly_id, {_metric_agg_index(metric)} AS metric
+        FROM centroids c
+        JOIN cells z ON c.ix = z.ix AND c.iy = z.iy
+        GROUP BY c.poly_id
+    """
+    rows = conn.execute(sql).fetchall()
+    return {int(pid): float(val) for pid, val in rows if val is not None}
+
+
+def _metric_agg_index(metric: str) -> str:
+    return {
+        METRIC_MAX: "max(z.v)",
+        METRIC_MEAN: "avg(z.v)",
+        METRIC_COUNT: "count(*)",
+    }[metric]
+
+
 def main() -> None:
     """Placeholder entry point; the full harness arrives in later tasks."""
     raise SystemExit(
