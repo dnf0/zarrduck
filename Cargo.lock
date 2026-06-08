@@ -1232,6 +1232,7 @@ dependencies = [
  "color-eyre",
  "directories",
  "duckdb",
+ "eider_session",
  "figment",
  "geozarr_core",
  "indicatif",
@@ -1266,6 +1267,14 @@ dependencies = [
  "ureq",
  "url",
  "zarrs",
+]
+
+[[package]]
+name = "eider_session"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "duckdb",
 ]
 
 [[package]]

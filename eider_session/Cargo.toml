@@ -1,0 +1,8 @@
+[package]
+name = "eider_session"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+duckdb = { version = "=1.10502.0", features = ["bundled"] }
+color-eyre = "0.6"
