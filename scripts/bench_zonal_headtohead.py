@@ -343,7 +343,7 @@ _BBOX_PAD_CELLS = 2.0
 _APPROX_CELL_M = PIXEL_SIZE_M
 
 
-# Name of the reusable TEMP table holding the pruned, centre-corrected field
+# Name of the (re)built TEMP table holding the pruned, centre-corrected field
 # with PRECOMPUTED geometry columns (pt = cell centre point, box = cell
 # envelope). Materialising these as real columns (rather than inline
 # ST_Point(...)/ST_MakeEnvelope(...) in the JOIN ON predicate) is what lets
@@ -352,33 +352,20 @@ _APPROX_CELL_M = PIXEL_SIZE_M
 # (the latter both hangs AND OOMs at 100k+ polygons).
 _FIELD_TABLE = "bench_field"
 
-# Which (raster, parquet) case the ``bench_field`` TEMP table currently holds,
-# keyed by ``id(conn)``. A DuckDB connection object rejects arbitrary
-# attributes, so we track the materialised case here rather than on the conn.
-# NOTE: id() can be recycled after a connection is closed and GC'd, so the cache
-# is only ever trusted in combination with a live check that the table actually
-# exists in THIS connection (see ``_field_table_exists``) -- the existence check
-# is the source of truth, the dict is a fast-path hint.
-_FIELD_CACHE: dict[int, tuple[str, str]] = {}
-
-
-def _field_table_exists(conn) -> bool:
-    """True iff the ``bench_field`` TEMP table exists in this connection."""
-    row = conn.execute(
-        "SELECT count(*) FROM duckdb_tables() WHERE table_name = ?",
-        [_FIELD_TABLE],
-    ).fetchone()
-    return bool(row and row[0])
-
 
 def _materialize_field(conn, raster: str, polys_parquet: str) -> None:
-    """Build the reusable ``bench_field`` TEMP table for ``(raster, parquet)``.
+    """Build the ``bench_field`` TEMP table for ``(raster, parquet)``.
 
-    The table is built ONCE per ``(raster, polys_parquet)`` per connection and
-    reused across every convention/metric/rep (a big win: the 4M-cell read +
-    geometry construction is not repeated per query). It is created with
-    ``CREATE OR REPLACE`` so repeated calls never accumulate multiple 4M-row
-    tables in memory.
+    FAIRNESS: this is rebuilt on EVERY call (no cross-call cache). The COG read
+    (``read_geo``) + per-cell geometry construction (``ST_Point`` /
+    ``ST_MakeEnvelope``) are the eider-side analogue of the COG read that
+    exactextract/rasterstats perform on every timed rep, so they MUST be inside
+    eider's timed region too. A previous version cached this table across calls
+    keyed by ``(raster, parquet)``; because ``time_call`` runs a warmup rep that
+    populated the cache, every TIMED rep then skipped the read+build and only
+    measured the JOIN+GROUP BY -- an unfair comparison. We removed that cache.
+    It is created with ``CREATE OR REPLACE`` so repeated calls never accumulate
+    multiple large tables in memory.
 
     Columns: ``x, y, v`` (cell CENTRE coords + value) plus the precomputed
     geometry columns ``pt`` (``ST_Point`` of the centre) and ``box``
@@ -397,15 +384,7 @@ def _materialize_field(conn, raster: str, polys_parquet: str) -> None:
     cell-box envelope, the index-join snap) assume CENTRES, so we shift the raw
     corner coords to centres here. Without this shift the cell boxes are offset
     by half a pixel and MAX/centroid selection picks the wrong cell.
-
-    The materialised case is recorded in ``_FIELD_CACHE`` keyed by ``id(conn)``
-    (guarded by ``_field_table_exists``) so we skip the rebuild when the same
-    case is timed across multiple conventions on the same connection.
     """
-    key = (raster, polys_parquet)
-    if _FIELD_CACHE.get(id(conn)) == key and _field_table_exists(conn):
-        return  # already materialised for this exact case in THIS connection
-
     xmin, ymin, xmax, ymax = _poly_bbox(conn, polys_parquet)
     pad = _BBOX_PAD_CELLS * _APPROX_CELL_M
     conn.execute(
@@ -436,7 +415,6 @@ def _materialize_field(conn, raster: str, polys_parquet: str) -> None:
         FROM raw CROSS JOIN step s
         """
     )
-    _FIELD_CACHE[id(conn)] = key
 
 
 def _metric_agg(metric: str) -> str:
@@ -455,6 +433,11 @@ def run_eider(
     Cell coords from read_geo are cell centres in the raster CRS (EPSG:3857
     metres); polygons are read from GeoParquet in the same CRS, so the join is
     CRS-consistent without any reprojection. dx/dy are derived from the read.
+
+    The COG read + per-cell geometry build runs on EVERY call (see
+    ``_materialize_field`` -- no cross-call cache), so a timed rep measures the
+    full read + materialise + join + aggregate, fairly comparable to the
+    coverage tools that re-read the COG every rep.
     """
     _materialize_field(conn, raster, polys_parquet)
 
@@ -627,10 +610,23 @@ NA_MARKER = "n/a"
 # known to be impractically slow at that scale (rasterstats above the cap).
 STATUS_IMPRACTICAL = "impractical"
 # Note recorded on impractical rasterstats cells (carried into the JSON).
-RASTERSTATS_IMPRACTICAL_NOTE = "~1000x slower (measured 1030s at 100k); not timed"
+# HONESTY: the ~1000x figure is EXTRAPOLATED from the measured 10k cell, not a
+# measured 100k run (we never time rasterstats above the cap, so 1030s@100k was
+# never actually observed). Stated as extrapolation, not measurement.
+RASTERSTATS_IMPRACTICAL_NOTE = (
+    "~1000x slower than eider/exactextract (extrapolated from the measured 10k "
+    "cell); not timed above the cap"
+)
 
 # Default cap above which rasterstats is recorded as impractical, not timed.
 DEFAULT_RASTERSTATS_MAX_N = 20_000
+
+# rasterstats is an order-of-magnitude (~1000x) outlier, so timing precision is
+# irrelevant: we time it with a SINGLE rep and NO warmup (reps=1, warmup=0) to
+# keep the matrix runtime sane. This is a deliberate, stated methodology choice
+# (see the legend) -- one sample is plenty to establish "~1000x slower".
+RASTERSTATS_REPS = 1
+RASTERSTATS_WARMUP = 0
 
 
 class _BudgetTimeout(TimeoutError):
@@ -1017,10 +1013,18 @@ def run_matrix(cfg: MatrixConfig, conn) -> dict:
                     call = _make_contender_call(
                         contender, conn, case, convention, metric
                     )
+                    # rasterstats is a ~1000x outlier: time it with a single rep
+                    # and no warmup (precision is irrelevant for an order-of-
+                    # magnitude result) to keep the matrix runtime sane. All
+                    # other contenders use the configured reps + one warmup.
+                    if contender == CONTENDER_RASTERSTATS:
+                        reps, warmup = RASTERSTATS_REPS, RASTERSTATS_WARMUP
+                    else:
+                        reps, warmup = cfg.reps, 1
                     res = time_call(
                         call,
-                        reps=cfg.reps,
-                        warmup=1,
+                        reps=reps,
+                        warmup=warmup,
                         budget_seconds=cfg.budget_seconds,
                     )
                     row["timings"][contender] = {
@@ -1039,6 +1043,16 @@ def run_matrix(cfg: MatrixConfig, conn) -> dict:
             "reps": cfg.reps,
             "budget_seconds": cfg.budget_seconds,
             "gate_n": cfg.gate_n if cfg.gate_n is not None else min(cfg.counts),
+            "rasterstats_max_n": cfg.rasterstats_max_n,
+            "rasterstats_reps": RASTERSTATS_REPS,
+            "rasterstats_warmup": RASTERSTATS_WARMUP,
+            "eider_timing_note": (
+                "eider's timed region includes the COG read (read_geo) + "
+                "per-cell geometry construction on every rep (no cross-call "
+                "field cache), matching the read-on-every-rep work the coverage "
+                "tools perform"
+            ),
+            "rasterstats_impractical_note": RASTERSTATS_IMPRACTICAL_NOTE,
         },
         "rows": rows,
         "findings": findings,
@@ -1149,9 +1163,15 @@ def render_table(doc: dict) -> str:
 
     lines.append(
         "\nLegend: seconds = median wall-clock over reps (warmup excluded). "
+        "eider/exactextract: configured reps + 1 warmup, and eider's timed "
+        "region includes the COG read + per-cell geometry build (the same "
+        "read-on-every-rep work the coverage tools do). "
+        "rasterstats: reps=1, warmup=0 (it is a ~1000x outlier, so one sample "
+        "is enough and full reps would dominate the run). "
         f"{NA_MARKER}=pairing not applicable, SKIP(bdg)=exceeded budget, "
-        "IMPRACT=not timed (rasterstats ~1000x slower above the cap), "
-        "ERROR=runner raised. eider_ij = point-model index join (coarse/R1 only)."
+        "IMPRACT=not timed (rasterstats ~1000x slower, EXTRAPOLATED from the "
+        "10k cell, above the cap), ERROR=runner raised. "
+        "eider_ij = point-model index join (coarse/R1 only)."
     )
     return "\n".join(lines)
 
