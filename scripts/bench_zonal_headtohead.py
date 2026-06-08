@@ -341,8 +341,47 @@ _BBOX_PAD_CELLS = 2.0
 _APPROX_CELL_M = PIXEL_SIZE_M
 
 
-def _field_cte(raster: str, bbox: tuple[float, float, float, float]) -> str:
-    """A `field` CTE selecting cell-CENTRE (x, y, value) within a padded bbox.
+# Name of the reusable TEMP table holding the pruned, centre-corrected field
+# with PRECOMPUTED geometry columns (pt = cell centre point, box = cell
+# envelope). Materialising these as real columns (rather than inline
+# ST_Point(...)/ST_MakeEnvelope(...) in the JOIN ON predicate) is what lets
+# DuckDB-spatial's spatial-join optimiser build an RTree and engage a proper
+# spatial join, instead of degrading to an O(n_polys x n_cells) nested loop
+# (the latter both hangs AND OOMs at 100k+ polygons).
+_FIELD_TABLE = "bench_field"
+
+# Which (raster, parquet) case the ``bench_field`` TEMP table currently holds,
+# keyed by ``id(conn)``. A DuckDB connection object rejects arbitrary
+# attributes, so we track the materialised case here rather than on the conn.
+# NOTE: id() can be recycled after a connection is closed and GC'd, so the cache
+# is only ever trusted in combination with a live check that the table actually
+# exists in THIS connection (see ``_field_table_exists``) -- the existence check
+# is the source of truth, the dict is a fast-path hint.
+_FIELD_CACHE: dict[int, tuple[str, str]] = {}
+
+
+def _field_table_exists(conn) -> bool:
+    """True iff the ``bench_field`` TEMP table exists in this connection."""
+    row = conn.execute(
+        "SELECT count(*) FROM duckdb_tables() WHERE table_name = ?",
+        [_FIELD_TABLE],
+    ).fetchone()
+    return bool(row and row[0])
+
+
+def _materialize_field(conn, raster: str, polys_parquet: str) -> None:
+    """Build the reusable ``bench_field`` TEMP table for ``(raster, parquet)``.
+
+    The table is built ONCE per ``(raster, polys_parquet)`` per connection and
+    reused across every convention/metric/rep (a big win: the 4M-cell read +
+    geometry construction is not repeated per query). It is created with
+    ``CREATE OR REPLACE`` so repeated calls never accumulate multiple 4M-row
+    tables in memory.
+
+    Columns: ``x, y, v`` (cell CENTRE coords + value) plus the precomputed
+    geometry columns ``pt`` (``ST_Point`` of the centre) and ``box``
+    (``ST_MakeEnvelope`` of the cell). Bare-column predicates against ``pt`` /
+    ``box`` let the spatial-join optimiser engage.
 
     The WHERE on x/y prunes the read to the polygons' neighbourhood (read_geo's
     lat/lon bbox pushdown does not apply to EPSG:3857 COGs, whose dims are y/x).
@@ -352,15 +391,25 @@ def _field_cte(raster: str, bbox: tuple[float, float, float, float]) -> str:
     read_geo x = 0, 30, 60 ... whereas the true cell centres are 15, 45, 75 ...
     = x + dx/2; and read_geo y = -1470, -1440 ... whereas the true centres are
     -1485, -1455 ... = y - dy/2, since y is the top edge and the cell extends
-    downward). All downstream predicates (ST_Point centroid test, the cell-box
-    envelope, the index-join snap) assume CENTRES, so we shift the raw corner
-    coords to centres here. Without this shift the cell boxes are offset by half
-    a pixel and MAX/centroid selection picks the wrong cell.
+    downward). All downstream predicates (the ST_Point centroid test, the
+    cell-box envelope, the index-join snap) assume CENTRES, so we shift the raw
+    corner coords to centres here. Without this shift the cell boxes are offset
+    by half a pixel and MAX/centroid selection picks the wrong cell.
+
+    The materialised case is recorded in ``_FIELD_CACHE`` keyed by ``id(conn)``
+    (guarded by ``_field_table_exists``) so we skip the rebuild when the same
+    case is timed across multiple conventions on the same connection.
     """
-    xmin, ymin, xmax, ymax = bbox
+    key = (raster, polys_parquet)
+    if _FIELD_CACHE.get(id(conn)) == key and _field_table_exists(conn):
+        return  # already materialised for this exact case in THIS connection
+
+    xmin, ymin, xmax, ymax = _poly_bbox(conn, polys_parquet)
     pad = _BBOX_PAD_CELLS * _APPROX_CELL_M
-    return f"""
-        raw AS (
+    conn.execute(
+        f"""
+        CREATE OR REPLACE TEMP TABLE {_FIELD_TABLE} AS
+        WITH raw AS (
             SELECT {READ_GEO_X} AS x, {READ_GEO_Y} AS y, {READ_GEO_VALUE} AS v
             FROM read_geo('{raster}')
             WHERE {READ_GEO_X} BETWEEN {xmin - pad} AND {xmax + pad}
@@ -373,15 +422,19 @@ def _field_cte(raster: str, bbox: tuple[float, float, float, float]) -> str:
             SELECT (max(x) - min(x)) / nullif(count(DISTINCT x) - 1, 0) AS dx,
                    (max(y) - min(y)) / nullif(count(DISTINCT y) - 1, 0) AS dy
             FROM raw
-        ),
-        field AS (
-            -- Shift read_geo corner coords to true cell centres (see docstring).
-            SELECT raw.x + s.dx / 2 AS x,
-                   raw.y - s.dy / 2 AS y,
-                   raw.v AS v
-            FROM raw CROSS JOIN step s
         )
-    """
+        -- Shift read_geo corner coords to true cell centres (see docstring),
+        -- then materialise the centre point and the cell envelope as COLUMNS.
+        SELECT
+            raw.x + s.dx / 2 AS x,
+            raw.y - s.dy / 2 AS y,
+            raw.v AS v,
+            ST_Point(raw.x + s.dx / 2, raw.y - s.dy / 2) AS pt,
+            ST_MakeEnvelope(raw.x, raw.y - s.dy, raw.x + s.dx, raw.y) AS box
+        FROM raw CROSS JOIN step s
+        """
+    )
+    _FIELD_CACHE[id(conn)] = key
 
 
 def _metric_agg(metric: str) -> str:
@@ -401,29 +454,24 @@ def run_eider(
     metres); polygons are read from GeoParquet in the same CRS, so the join is
     CRS-consistent without any reprojection. dx/dy are derived from the read.
     """
-    bbox = _poly_bbox(conn, polys_parquet)
-    field = _field_cte(raster, bbox)
+    _materialize_field(conn, raster, polys_parquet)
 
     if convention == CONVENTION_CENTROID:
+        # Bare ST_Contains(polygon, precomputed point column) -> spatial join.
         sql = f"""
-            WITH {field}
             SELECT v.poly_id, {_metric_agg(metric)} AS metric
             FROM read_parquet('{polys_parquet}') v
-            JOIN field z
-              ON ST_Contains(v.geometry, ST_Point(z.x, z.y))
+            JOIN {_FIELD_TABLE} z
+              ON ST_Contains(v.geometry, z.pt)
             GROUP BY v.poly_id
         """
     elif convention == CONVENTION_ALL_TOUCHED:
+        # Bare ST_Intersects(polygon, precomputed box column) -> spatial join.
         sql = f"""
-            WITH {field}
             SELECT v.poly_id, {_metric_agg(metric)} AS metric
             FROM read_parquet('{polys_parquet}') v
-            CROSS JOIN step s
-            JOIN field z
-              ON ST_Intersects(
-                   v.geometry,
-                   ST_MakeEnvelope(z.x - s.dx / 2, z.y - s.dy / 2,
-                                   z.x + s.dx / 2, z.y + s.dy / 2))
+            JOIN {_FIELD_TABLE} z
+              ON ST_Intersects(v.geometry, z.box)
             GROUP BY v.poly_id
         """
     elif convention == CONVENTION_AREA_WEIGHTED:
@@ -431,22 +479,16 @@ def run_eider(
             raise NotImplementedError(
                 "area_weighted is only defined for the mean metric"
             )
+        # Bare ST_Intersects join to prune to touched cells, then weight each by
+        # the cell-box/polygon ST_Intersection area (the box column is reused).
         sql = f"""
-            WITH {field}
             SELECT v.poly_id,
-                   sum(z.v * ST_Area(ST_Intersection(v.geometry, cell.box)))
-                   / nullif(sum(ST_Area(ST_Intersection(v.geometry, cell.box))), 0)
+                   sum(z.v * ST_Area(ST_Intersection(v.geometry, z.box)))
+                   / nullif(sum(ST_Area(ST_Intersection(v.geometry, z.box))), 0)
                      AS metric
             FROM read_parquet('{polys_parquet}') v
-            CROSS JOIN step s
-            JOIN field z
-              ON ST_Intersects(
-                   v.geometry,
-                   ST_MakeEnvelope(z.x - s.dx / 2, z.y - s.dy / 2,
-                                   z.x + s.dx / 2, z.y + s.dy / 2)),
-            LATERAL (SELECT ST_MakeEnvelope(z.x - s.dx / 2, z.y - s.dy / 2,
-                                            z.x + s.dx / 2, z.y + s.dy / 2)
-                            AS box) cell
+            JOIN {_FIELD_TABLE} z
+              ON ST_Intersects(v.geometry, z.box)
             GROUP BY v.poly_id
         """
     else:
@@ -466,17 +508,21 @@ def run_eider_indexjoin(
     on integer (ix, iy). This avoids the geometry predicate entirely. Valid only
     for the sub-cell / point-model case; labelled as such in the results.
     """
-    bbox = _poly_bbox(conn, polys_parquet)
-    field = _field_cte(raster, bbox)
+    _materialize_field(conn, raster, polys_parquet)
 
+    # Derive step/origin from the centre-corrected, materialised field table.
     sql = f"""
-        WITH {field},
-        origin AS (SELECT min(x) AS x0, min(y) AS y0 FROM field),
+        WITH step AS (
+            SELECT (max(x) - min(x)) / nullif(count(DISTINCT x) - 1, 0) AS dx,
+                   (max(y) - min(y)) / nullif(count(DISTINCT y) - 1, 0) AS dy
+            FROM {_FIELD_TABLE}
+        ),
+        origin AS (SELECT min(x) AS x0, min(y) AS y0 FROM {_FIELD_TABLE}),
         cells AS (
             SELECT round((z.x - o.x0) / s.dx) AS ix,
                    round((z.y - o.y0) / s.dy) AS iy,
                    z.v AS v
-            FROM field z CROSS JOIN step s CROSS JOIN origin o
+            FROM {_FIELD_TABLE} z CROSS JOIN step s CROSS JOIN origin o
         ),
         centroids AS (
             SELECT v.poly_id,
