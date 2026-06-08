@@ -115,6 +115,34 @@ pub fn describe_table(conn: &Connection, name: &str) -> EyreResult<Value> {
     }))
 }
 
+/// Guarded read-only SQL escape hatch over the shared session.
+///
+/// The statement is first validated by [`crate::guard::ensure_read_only`]
+/// (single statement; read-only/temp-only). `SET VARIABLE` and `CREATE TEMP`
+/// statements don't return a result set, so they are executed directly and
+/// report `{"status":"ok"}`. Everything else is materialized into a temp table
+/// (capped head + handle), like the other read tools.
+///
+/// Wall-clock timeout: DuckDB `=1.10502.0` exposes no `statement_timeout`
+/// setting (verified against `duckdb_settings()` — no timeout knob exists, and
+/// `SET/PRAGMA statement_timeout` are rejected as unrecognized parameters), so
+/// there is no native mechanism to apply here. v1 ships the row cap + guard;
+/// wall-clock cancellation belongs in the rmcp adapter layer, which can run
+/// each call on a worker paired with a `Connection::interrupt()` handle.
+// TODO(timeout): no native DuckDB statement timeout in =1.10502.0; enforce a
+// wall-clock budget via interrupt() in the rmcp adapter (Task 5).
+pub fn run_sql(conn: &Connection, sql: &str, limit: Option<usize>) -> EyreResult<Value> {
+    crate::guard::ensure_read_only(sql)?;
+    let trimmed = sql.trim().trim_end_matches(';');
+    let upper = trimmed.to_uppercase();
+    // SET VARIABLE / CREATE TEMP don't produce a result set; just execute them.
+    if upper.starts_with("SET ") || upper.starts_with("CREATE ") {
+        conn.execute_batch(trimmed).wrap_err("run_sql (stmt)")?;
+        return Ok(json!({ "status": "ok" }));
+    }
+    materialize(conn, trimmed, limit.unwrap_or(DEFAULT_LIMIT))
+}
+
 /// Build the per-row aggregate expression for a plain (unweighted) convention.
 /// `count` ignores the value column; every other metric aggregates `z.<col>`.
 fn agg_expr(metric: &str, alias: &str, col: &str) -> String {
@@ -346,6 +374,21 @@ mod tests {
             a_mean >= c_mean,
             "all_touched mean-of-max ({a_mean}) should be >= centroid ({c_mean})"
         );
+    }
+
+    #[test]
+    fn run_sql_selects_and_rejects_writes() {
+        let Some(c) = session() else { return };
+        // A plain SELECT is materialized into a temp table with head rows.
+        let v = run_sql(&c, "SELECT 1 AS x", None).unwrap();
+        assert_eq!(v["row_count"].as_i64().unwrap(), 1);
+        assert_eq!(v["rows"][0]["x"].as_i64().unwrap(), 1);
+        assert!(v["table_handle"]
+            .as_str()
+            .unwrap()
+            .starts_with("mcp_result_"));
+        // The guard rejects writes before touching the connection.
+        assert!(run_sql(&c, "DROP TABLE foo", None).is_err());
     }
 
     #[test]
