@@ -10,7 +10,7 @@
     { "stac_version": "1.0.0", "type": "Feature", "id": "t1",
       "properties": { "datetime": "2026-02-01T00:00:00Z" },
       "geometry": null, "bbox": [-180, 82, -172, 90],
-      "assets": { "band": { "href": "./cog_int16_deflate.tif",
+      "assets": { "band": { "href": "./cog_int16_alt.tif",
         "type": "image/tiff; application=geotiff; profile=cloud-optimized" } }, "links": [] }
   ]
 }

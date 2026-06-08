@@ -33,4 +33,16 @@ def write(path, **extra):
 
 write(os.path.join(OUT, "cog_int16_uncompressed.tif"), compress="none")
 write(os.path.join(OUT, "cog_int16_deflate.tif"), compress="deflate")
+
+# A grid-identical COG with DISTINCT values (base + 100), used as a second time
+# slice in the ItemCollection time-stack tests so a per-item routing regression
+# (always reading slice 0) is caught empirically.
+alt = data + 100
+with rasterio.open(
+    os.path.join(OUT, "cog_int16_alt.tif"), "w", driver="GTiff", height=2, width=4,
+    count=1, dtype="int16", crs="EPSG:4326", transform=transform,
+    tiled=True, blockxsize=16, blockysize=16, predictor=1, compress="none",
+) as dst:
+    dst.write(alt, 1)
+
 print("Wrote fixtures to", os.path.abspath(OUT))
