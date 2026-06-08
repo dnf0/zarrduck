@@ -1,0 +1,90 @@
+# Zonal statistics over grids at scale
+
+A common workload: compute a per-polygon metric (max, mean, …) for **many**
+assets from a gridded dataset — e.g. peak flood depth per building footprint
+from a 30 m hazard grid. eider's job here is the **read**; DuckDB + the
+`spatial` extension do the geometry and aggregation. The right query pattern
+depends on **asset size relative to the grid cell**.
+
+> Numbers below come from `scripts/bench_polygons.sql` (single machine, DuckDB
+> v1.5.2, synthetic data). The field there is spatially *uncorrelated* random,
+> so it shows the **cost** and **correctness gaps** faithfully but *understates*
+> how much the conventions differ on real, gradient hazard surfaces. Treat the
+> seconds as order-of-magnitude.
+
+## eider's role: prune the read
+
+Whatever pattern you choose, never scan the whole grid. Pass your assets'
+bounding box to `read_geo` so it fetches only the chunks that intersect them
+(see [Spatial Pruning](./spatial_pruning.mdx)):
+
+```sql
+SET VARIABLE bbox = (SELECT ST_Extent_Agg(geom) FROM ST_Read('assets.geojson'));
+CREATE TABLE field AS
+  SELECT lat, lon, value FROM read_geo('hazard.zarr/depth',
+    lon_min := ST_XMin(getvariable('bbox')), lat_min := ST_YMin(getvariable('bbox')),
+    lon_max := ST_XMax(getvariable('bbox')), lat_max := ST_YMax(getvariable('bbox')));
+```
+
+For national datasets, process per tile so the box stays tight.
+
+## Regime 1 — asset ≪ cell (point sample)
+
+A few-hundred-metre asset over a **km-scale climate grid** sits inside one cell,
+so the cell's value *is* the asset's value. Model the asset as a point and look
+up its containing cell with an **arithmetic index equi-join** (cell index =
+`round((coord − origin) / step)`):
+
+| Pattern (1M assets, coarse grid) | Time |
+|---|---|
+| Arithmetic index equi-join | **~3 ms** |
+| Spatial `ST_Contains` | ~380 ms |
+
+Both are exact for the point model; the index join is ~100× cheaper. (This is
+the only regime where the "index join" shortcut is both correct and fastest.)
+
+## Regime 2 — asset spans many cells (true zonal)
+
+A ~300 m footprint over a **30 m grid** covers ~100 cells, so this is genuine
+per-asset aggregation. The result is exact only once you choose a **convention**
+— and for small assets the conventions differ on the boundary ring of cells.
+Measured on 100k footprints over a 4 M-cell grid:
+
+| Convention | how | mean MAX | ~time/100k | ~time/1M |
+|---|---|---|---|---|
+| **Centroid membership** | `ST_Contains(asset, cell_center)` | 49.02 | 1.0 s | ~10 s |
+| **All-touched** | `ST_Intersects(asset, cell_box)` | **49.31** | 1.3 s | ~13 s |
+| **Area-weighted mean** | `ST_Intersection` area weights | — | 6.3 s | ~65 s |
+
+- **Max hazard exposure → all-touched** (`ST_Intersects`). It catches a
+  high-hazard cell the footprint merely clips, which centroid membership misses
+  (note MAX 49.31 vs 49.02). Only ~1.3× the centroid cost — the *correct*
+  conservative choice for `MAX`.
+- **Area-true mean/sum → area-weighted** (`ST_Intersection`). ~6× the centroid
+  cost; that's the price of weighting cells by their fractional overlap.
+- **Centroid** is cheapest but drops partially-covered edge cells.
+
+All three are plain spatial joins over the eider-pruned `field` — no special
+machinery, no speed-vs-correctness trade (the correct option is also the fast
+one).
+
+## Anti-patterns
+
+- **Raw bounding-box index block (no spatial refine) — incorrect for real
+  footprints.** Aggregating the bbox block over-includes cells outside the
+  polygon: in the benchmark it inflated mean `MAX` to **49.66** vs the true
+  **49.02**. It is exact *only* if the footprint is an axis-aligned rectangle
+  (i.e. you've explicitly modelled the asset as a bbox).
+- **Manual "block candidates → `ST_Contains` refine" hybrid — no benefit.** It
+  gives the exact answer but ran **~2× slower** than calling `ST_Contains`
+  directly; DuckDB's spatial join already prunes well, so don't hand-roll it.
+- **Two-sided `BETWEEN` index range-join — catastrophic.** It degrades to a
+  nested/IEJoin (~275 s for the 100k case, ~1,750× slower). Never use it.
+
+## Summary
+
+Read with eider's bbox pushdown (per tile), then: **point-sample with an index
+equi-join when assets are sub-cell; use `ST_Intersects` (max) or
+`ST_Intersection` (area-weighted mean) when assets span cells.** Pick the
+convention deliberately — that, not the algorithm, is what makes the result
+correct. Reproduce with `scripts/bench_polygons.sql`.
