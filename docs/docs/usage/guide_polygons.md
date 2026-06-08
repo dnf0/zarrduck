@@ -62,9 +62,9 @@ Run `eider shell analysis.duckdb` to explore the extracted data.
 <TabItem value="sql" label="DuckDB SQL">
 
 ```sql
-D INSTALL spatial; LOAD spatial;
-D INSTALL eider; LOAD eider;
-D CREATE TABLE extracted_data AS
+INSTALL spatial; LOAD spatial;
+INSTALL eider; LOAD eider;
+CREATE TABLE extracted_data AS
   SELECT z.*, v.* EXCLUDE (geom)
   FROM read_geo('climate_data.zarr/air_temperature') z,
        ST_Read('scripts/demo_polygons.geojson') v
@@ -89,7 +89,7 @@ GROUP BY name
 ORDER BY name;
 ```
 
-Run it in the SQL shell (`eider shell analysis.duckdb`):
+Run it in your DuckDB session (or `eider shell analysis.duckdb` if you used the CLI):
 
 ```text
 ┌─────────┬───────────┐
@@ -109,6 +109,7 @@ Render the extracted cells as a heatmap — the populated cells trace the two
 polygon shapes; everything outside is absent:
 
 ```bash
+# If you used DuckDB SQL, replace `analysis.duckdb` with your database file
 eider plot analysis.duckdb --plot-type heatmap
 ```
 
