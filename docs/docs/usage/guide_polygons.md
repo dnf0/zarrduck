@@ -63,7 +63,9 @@ Run `eider shell analysis.duckdb` to explore the extracted data.
 
 ```sql
 INSTALL spatial; LOAD spatial;
-INSTALL eider; LOAD eider;
+-- eider is a local loadable extension: launch `duckdb -unsigned` and LOAD it
+-- by absolute path (it is not published to a DuckDB extension registry).
+LOAD '/absolute/path/to/eider.duckdb_extension';
 CREATE TABLE extracted_data AS
   SELECT z.*, v.* EXCLUDE (geom)
   FROM read_geo('climate_data.zarr/air_temperature') z,
