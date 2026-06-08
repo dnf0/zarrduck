@@ -66,12 +66,27 @@ INSTALL spatial; LOAD spatial;
 -- eider is a local loadable extension: launch `duckdb -unsigned` and LOAD it
 -- by absolute path (it is not published to a DuckDB extension registry).
 LOAD '/absolute/path/to/eider.duckdb_extension';
+
+-- Push the polygons' bounding box into read_geo so it fetches ONLY the Zarr
+-- chunks that intersect them — the same chunk pruning the `eider extract` CLI
+-- does automatically. ST_Contains then does the exact per-cell masking.
+SET VARIABLE bbox = (SELECT ST_Extent_Agg(geom) FROM ST_Read('scripts/demo_polygons.geojson'));
+
 CREATE TABLE extracted_data AS
   SELECT z.*, v.* EXCLUDE (geom)
-  FROM read_geo('climate_data.zarr/air_temperature') z,
+  FROM read_geo('climate_data.zarr/air_temperature',
+                lon_min := ST_XMin(getvariable('bbox')),
+                lat_min := ST_YMin(getvariable('bbox')),
+                lon_max := ST_XMax(getvariable('bbox')),
+                lat_max := ST_YMax(getvariable('bbox'))) z,
        ST_Read('scripts/demo_polygons.geojson') v
   WHERE ST_Contains(v.geom, ST_Point(z.lon, z.lat));
 ```
+
+The bounding-box parameters are eider's optimization: `read_geo` skips every
+Zarr chunk outside the box before any data is read (on the sample, that fetches
+~1.7M cells instead of ~9.9M), and `spatial`'s `ST_Contains` then trims to the
+exact polygon shapes. Omit the bounds and `read_geo` scans the whole array.
 
 </TabItem>
 </Tabs>
