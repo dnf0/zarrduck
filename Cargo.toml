@@ -3,7 +3,8 @@ members = [
     "extension",
     "cli",
     "geozarr_core",
-    "eider_session"
+    "eider_session",
+    "mcp"
 ]
 resolver = "2"
 
