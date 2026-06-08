@@ -2,6 +2,7 @@ pub mod cog;
 pub mod coordinate_resolver;
 pub mod coordinates;
 pub mod dataset;
+pub mod datetime;
 pub mod feature_collection;
 pub mod geo_dataset;
 
