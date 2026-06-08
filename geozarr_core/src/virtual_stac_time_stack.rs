@@ -246,13 +246,18 @@ impl ListableStorageTraits for VirtualStacTimeStack {
 
 use crate::cog::CogMetadata;
 
-/// Verify every COG shares item 0's grid: shape, tile shape, affine, and CRS.
-/// (dtype is validated per asset by the caller; this checks the shared grid.)
+/// Verify every COG shares item 0's grid: shape, tile shape, affine, CRS, and
+/// dtype. dtype uniformity matters because the synthesized 3D `.zarray` carries
+/// item 0's dtype for the whole stack; a differing item would be decoded with
+/// the wrong dtype and silently corrupt values.
 pub fn validate_grid_uniform(metas: &[&CogMetadata]) -> Result<(), String> {
     let Some(first) = metas.first() else {
         return Ok(());
     };
     let f_tf = first.spatial_transform();
+    let f_dtype = first
+        .zarr_dtype()
+        .map_err(|e| format!("item 0: dtype error: {e}"))?;
     for (i, m) in metas.iter().enumerate().skip(1) {
         if (m.image_width, m.image_length) != (first.image_width, first.image_length) {
             return Err(format!(
@@ -271,6 +276,12 @@ pub fn validate_grid_uniform(metas: &[&CogMetadata]) -> Result<(), String> {
             != f_tf.as_ref().map(|t| (&t.scale, &t.translation))
         {
             return Err(format!("item {i}: affine transform differs"));
+        }
+        let dtype = m
+            .zarr_dtype()
+            .map_err(|e| format!("item {i}: dtype error: {e}"))?;
+        if dtype != f_dtype {
+            return Err(format!("item {i}: dtype {dtype} != {f_dtype}"));
         }
     }
     Ok(())
@@ -413,5 +424,20 @@ mod tests {
 
         let diff_crs = m(4, 2, Some(32633));
         assert!(super::validate_grid_uniform(&[&a, &diff_crs]).is_err());
+    }
+
+    #[test]
+    fn uniformity_fails_on_dtype_mismatch() {
+        // Grid-identical metas that differ only in dtype (16-bit vs 32-bit int)
+        // must be rejected, since the stack's synthesized dtype is taken from
+        // item 0 and would misdecode item 1.
+        let a = m(4, 2, Some(4326)); // bits_per_sample = 16 -> "<i2"
+        let mut b = m(4, 2, Some(4326));
+        b.bits_per_sample = 32; // -> "<i4"
+        assert_eq!(a.zarr_dtype().unwrap(), "<i2");
+        assert_eq!(b.zarr_dtype().unwrap(), "<i4");
+
+        let e = super::validate_grid_uniform(&[&a, &b]).unwrap_err();
+        assert!(e.contains("dtype"), "error should mention dtype: {e}");
     }
 }
