@@ -82,57 +82,12 @@ pub fn auto_calculate_chunks(
 }
 
 pub fn load_geozarr_extension(conn: &Connection) -> EyreResult<()> {
-    let ext_name = "eider.duckdb_extension";
-
-    // Explicit override (set by tests and useful for non-standard layouts where
-    // the extension isn't next to the binary or under ./target/debug).
-    if let Ok(explicit) = std::env::var("EIDER_EXTENSION_PATH") {
-        if !explicit.is_empty() {
-            return conn
-                .execute(&format!("LOAD '{}'", explicit.replace('\'', "''")), [])
-                .map(|_| ())
-                .wrap_err_with(|| format!("Failed to load extension at {}", explicit));
-        }
-    }
-
-    let mut candidate_paths = vec![
-        std::path::PathBuf::from(format!("./target/debug/{}", ext_name)),
-        std::path::PathBuf::from(format!("../target/debug/{}", ext_name)),
-    ];
-
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(parent) = exe_path.parent() {
-            candidate_paths.push(parent.join(ext_name));
-            if let Some(grandparent) = parent.parent() {
-                candidate_paths.push(grandparent.join(ext_name));
-            }
-        }
-    }
-
-    let ext_path = candidate_paths
-        .into_iter()
-        .find(|p| p.exists())
-        .unwrap_or_else(|| std::path::PathBuf::from(format!("../target/debug/{}", ext_name)));
-
-    let ext_path_str = ext_path.to_string_lossy().into_owned();
-
-    conn.execute(&format!("LOAD '{}'", ext_path_str), [])
-        .wrap_err_with(|| format!("Failed to load extension at {}", ext_path_str))?;
-
-    Ok(())
+    eider_session::load_eider_extension(conn)
 }
 
 pub fn setup_duckdb(s3_config: Option<&S3Config>) -> EyreResult<Connection> {
-    let config = duckdb::Config::default()
-        .allow_unsigned_extensions()
-        .wrap_err("Failed to configure unsigned extensions")?;
-    let conn = Connection::open_in_memory_with_flags(config)
-        .wrap_err("Failed to open in-memory DuckDB connection")?;
-
-    load_geozarr_extension(&conn).wrap_err("Failed to load geozarr extension")?;
-
+    let conn = eider_session::open_connection()?;
     inject_s3_secret(&conn, s3_config)?;
-
     Ok(conn)
 }
 

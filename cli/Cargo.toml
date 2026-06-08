@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 geozarr_core = { path = "../geozarr_core" }
+eider_session = { path = "../eider_session" }
 clap = { version = "4.5", features = ["derive"] }
 clap_complete = "4.5"
 duckdb = { version = "=1.10502.0", features = ["bundled"] }

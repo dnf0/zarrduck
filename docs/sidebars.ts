@@ -24,6 +24,13 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'MCP',
+      items: [
+        'usage/mcp',
+      ],
+    },
+    {
+      type: 'category',
       label: 'SQL Reference',
       items: [
         'usage/sql_reference',
