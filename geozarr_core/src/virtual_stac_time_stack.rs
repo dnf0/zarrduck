@@ -244,6 +244,38 @@ impl ListableStorageTraits for VirtualStacTimeStack {
     }
 }
 
+use crate::cog::CogMetadata;
+
+/// Verify every COG shares item 0's grid: shape, tile shape, affine, and CRS.
+/// (dtype is validated per asset by the caller; this checks the shared grid.)
+pub fn validate_grid_uniform(metas: &[&CogMetadata]) -> Result<(), String> {
+    let Some(first) = metas.first() else {
+        return Ok(());
+    };
+    let f_tf = first.spatial_transform();
+    for (i, m) in metas.iter().enumerate().skip(1) {
+        if (m.image_width, m.image_length) != (first.image_width, first.image_length) {
+            return Err(format!(
+                "item {i}: shape {}x{} != {}x{}",
+                m.image_length, m.image_width, first.image_length, first.image_width
+            ));
+        }
+        if (m.tile_width, m.tile_length) != (first.tile_width, first.tile_length) {
+            return Err(format!("item {i}: tile shape differs"));
+        }
+        if m.epsg != first.epsg {
+            return Err(format!("item {i}: CRS {:?} != {:?}", m.crs(), first.crs()));
+        }
+        let tf = m.spatial_transform();
+        if tf.as_ref().map(|t| (&t.scale, &t.translation))
+            != f_tf.as_ref().map(|t| (&t.scale, &t.translation))
+        {
+            return Err(format!("item {i}: affine transform differs"));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,5 +380,38 @@ mod tests {
                 && za.contains("lat")
                 && za.contains("lon")
         );
+    }
+
+    use crate::cog::CogMetadata as M;
+
+    fn m(w: u32, h: u32, epsg: Option<u32>) -> M {
+        M {
+            image_width: w,
+            image_length: h,
+            tile_width: w,
+            tile_length: h,
+            is_little_endian: true,
+            bits_per_sample: 16,
+            sample_format: 2,
+            samples_per_pixel: 1,
+            compression: 1,
+            predictor: 1,
+            epsg,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn uniformity_passes_for_identical_and_fails_on_mismatch() {
+        let a = m(4, 2, Some(4326));
+        let b = m(4, 2, Some(4326));
+        assert!(super::validate_grid_uniform(&[&a, &b]).is_ok());
+
+        let diff_shape = m(8, 2, Some(4326));
+        let e = super::validate_grid_uniform(&[&a, &diff_shape]).unwrap_err();
+        assert!(e.contains("shape") || e.contains("1"), "{e}");
+
+        let diff_crs = m(4, 2, Some(32633));
+        assert!(super::validate_grid_uniform(&[&a, &diff_crs]).is_err());
     }
 }
