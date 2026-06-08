@@ -1,19 +1,27 @@
-//! eider-mcp: stdio MCP server exposing curated geospatial tools over a single
-//! sandboxed, stateful DuckDB session (eider + spatial).
+//! eider-mcp binary: serve the [`eider_mcp::server::EiderServer`] over stdio.
 //!
-//! The tool logic lives in pure, rmcp-independent functions (`tools`/`result`),
-//! fully unit-tested. The rmcp stdio adapter is added in a later task.
+//! The tool logic and the rmcp adapter live in the `eider_mcp` library; this
+//! binary just builds the session and runs the stdio transport.
 
-// The SQL guard is consumed by `run_sql` in `tools`; its unit tests exercise it
-// directly. Some items are only reachable via the rmcp adapter (added later).
-#[allow(dead_code)]
-mod guard;
-mod result;
-// The tool functions form the public surface consumed by the rmcp adapter
-// (added in a later task); until then some are exercised only by unit tests.
-#[allow(dead_code)]
-mod tools;
+use color_eyre::eyre::{Result, WrapErr};
+use eider_mcp::server::EiderServer;
+use rmcp::transport::stdio;
+use rmcp::ServiceExt;
 
-fn main() {
-    eprintln!("eider-mcp (scaffold)");
+#[tokio::main]
+async fn main() -> Result<()> {
+    color_eyre::install()?;
+
+    // Build the eider + spatial session once; it backs every tool call and keeps
+    // temp-table result handles alive across calls.
+    let conn = eider_session::open_session().wrap_err("open eider session")?;
+    let server = EiderServer::new(conn);
+
+    // Serve the MCP protocol over stdio (stdin/stdout); logs go to stderr.
+    let service = server
+        .serve(stdio())
+        .await
+        .wrap_err("start MCP stdio server")?;
+    service.waiting().await.wrap_err("MCP server run loop")?;
+    Ok(())
 }
