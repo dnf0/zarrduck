@@ -10,6 +10,7 @@ Later tasks add the contender runners, correctness gate, and timing loop.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -334,15 +335,25 @@ _APPROX_CELL_M = PIXEL_SIZE_M
 
 
 def _field_cte(raster: str, bbox: tuple[float, float, float, float]) -> str:
-    """A `field` CTE selecting cell (x, y, value) within a padded polygon bbox.
+    """A `field` CTE selecting cell-CENTRE (x, y, value) within a padded bbox.
 
     The WHERE on x/y prunes the read to the polygons' neighbourhood (read_geo's
     lat/lon bbox pushdown does not apply to EPSG:3857 COGs, whose dims are y/x).
+
+    Half-pixel correction: ``read_geo`` reports each cell's UPPER-LEFT CORNER,
+    not its centre (verified empirically: a 30 m grid with origin x0=0 yields
+    read_geo x = 0, 30, 60 ... whereas the true cell centres are 15, 45, 75 ...
+    = x + dx/2; and read_geo y = -1470, -1440 ... whereas the true centres are
+    -1485, -1455 ... = y - dy/2, since y is the top edge and the cell extends
+    downward). All downstream predicates (ST_Point centroid test, the cell-box
+    envelope, the index-join snap) assume CENTRES, so we shift the raw corner
+    coords to centres here. Without this shift the cell boxes are offset by half
+    a pixel and MAX/centroid selection picks the wrong cell.
     """
     xmin, ymin, xmax, ymax = bbox
     pad = _BBOX_PAD_CELLS * _APPROX_CELL_M
     return f"""
-        field AS (
+        raw AS (
             SELECT {READ_GEO_X} AS x, {READ_GEO_Y} AS y, {READ_GEO_VALUE} AS v
             FROM read_geo('{raster}')
             WHERE {READ_GEO_X} BETWEEN {xmin - pad} AND {xmax + pad}
@@ -354,7 +365,14 @@ def _field_cte(raster: str, bbox: tuple[float, float, float, float]) -> str:
         step AS (
             SELECT (max(x) - min(x)) / nullif(count(DISTINCT x) - 1, 0) AS dx,
                    (max(y) - min(y)) / nullif(count(DISTINCT y) - 1, 0) AS dy
-            FROM field
+            FROM raw
+        ),
+        field AS (
+            -- Shift read_geo corner coords to true cell centres (see docstring).
+            SELECT raw.x + s.dx / 2 AS x,
+                   raw.y - s.dy / 2 AS y,
+                   raw.v AS v
+            FROM raw CROSS JOIN step s
         )
     """
 
@@ -475,6 +493,66 @@ def _metric_agg_index(metric: str) -> str:
         METRIC_MEAN: "avg(z.v)",
         METRIC_COUNT: "count(*)",
     }[metric]
+
+
+# ---------------------------------------------------------------------------
+# Correctness gate (Task 3)
+# ---------------------------------------------------------------------------
+def assert_agree(
+    a: dict,
+    b: dict,
+    name_a: str,
+    name_b: str,
+    abs_tol: float,
+) -> dict:
+    """Compare two ``{poly_id: float}`` results on their overlapping poly_ids.
+
+    Comparison is NaN-aware:
+      * both values NaN  -> agreement (both tools declined the same polygon);
+      * exactly one NaN  -> mismatch (the tools disagree about coverage);
+      * both finite       -> mismatch iff ``abs(a - b) > abs_tol``.
+
+    Parameters
+    ----------
+    a, b:
+        Result dicts keyed by ``poly_id``. Only ids present in BOTH are compared.
+    name_a, name_b:
+        Labels used in the no-overlap assertion message.
+    abs_tol:
+        Absolute tolerance for finite comparisons.
+
+    Returns
+    -------
+    dict with keys ``agree`` (bool), ``max_abs_diff`` (float over comparable
+    finite pairs), ``n_compared`` (int), ``n_mismatch`` (int) and ``examples``
+    (up to five ``(poly_id, a_value, b_value)`` mismatch tuples).
+    """
+    ids = set(a) & set(b)
+    assert ids, f"{name_a}/{name_b}: no overlapping poly_ids"
+
+    mismatches: list[tuple] = []
+    max_abs_diff = 0.0
+    for i in sorted(ids):
+        av, bv = a[i], b[i]
+        a_nan, b_nan = math.isnan(av), math.isnan(bv)
+        if a_nan and b_nan:
+            continue  # both declined -> agreement
+        if a_nan or b_nan:
+            mismatches.append((i, av, bv))  # exactly one NaN -> disagreement
+            continue
+        diff = abs(av - bv)
+        if diff > max_abs_diff:
+            max_abs_diff = diff
+        if diff > abs_tol:
+            mismatches.append((i, av, bv))
+
+    return {
+        "agree": not mismatches,
+        "max_abs_diff": max_abs_diff,
+        "n_compared": len(ids),
+        "n_mismatch": len(mismatches),
+        "examples": mismatches[:5],
+    }
 
 
 def main() -> None:
