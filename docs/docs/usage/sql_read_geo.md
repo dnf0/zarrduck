@@ -13,7 +13,7 @@ streaming only the chunks that intersect the requested bounds.
 read_geo(uri VARCHAR, [named parameters])
 ```
 
-- `uri` — positional. A Zarr array path or `s3://`/`https://` URI (see [Source URIs](./sql_reference.md#source-uris)). A single-band Cloud Optimized GeoTIFF (`.tif`/`.tiff`, uncompressed or Deflate) is also a supported, georeferenced source — for an EPSG:4326 COG the `lat_min`/`lon_max` bounds apply; projected COGs read in their native CRS without geographic bbox pushdown, and multi-band/LZW/JPEG/WebP COGs are not yet supported (see [COG virtualization](../engineering/cog_virtualization.mdx)). A single STAC **Item** (local path or `http(s)://`) is also a supported source: pick one of its COG assets with the `asset` parameter, or omit it when the Item has exactly one COG asset (auto-selected). STAC ItemCollections / `/search` results (multiple Items / time-stacking), stacking multiple assets, and Collection/Catalog traversal are not yet supported and return a clear error.
+- `uri` — positional. A Zarr array path or `s3://`/`https://` URI (see [Source URIs](./sql_reference.md#source-uris)). A single-band Cloud Optimized GeoTIFF (`.tif`/`.tiff`, uncompressed or Deflate) is also a supported, georeferenced source — for an EPSG:4326 COG the `lat_min`/`lon_max` bounds apply; projected COGs read in their native CRS without geographic bbox pushdown, and multi-band/LZW/JPEG/WebP COGs are not yet supported (see [COG virtualization](../engineering/cog_virtualization.mdx)). A STAC **Item** or **ItemCollection** (local path or `http(s)://`) is also a supported source: pick a COG asset with the `asset` parameter (auto-selected when the Item has exactly one). An ItemCollection stacks that asset across its Items into a `time` dimension — epoch seconds from each Item's `properties.datetime`, filterable with `time_min`/`time_max` — and the collection must be grid-uniform (see [COG virtualization](../engineering/cog_virtualization.mdx)). STAC API pagination, multi-resolution collections, multi-asset stacking, and Collection/Catalog traversal are not yet supported and return a clear error.
 
 ### Named parameters
 
@@ -23,7 +23,7 @@ read_geo(uri VARCHAR, [named parameters])
 | `lon_min`, `lon_max` | `DOUBLE` | Longitude bounds. |
 | `time_min`, `time_max` | `DOUBLE` | Time-index bounds (numeric). |
 | `pins` | `VARCHAR` | Pin non-spatial dimensions to fixed indices (see [pins](./sql_reference.md#pins)). |
-| `asset` | `VARCHAR` | Selects a COG asset from a STAC Item by name. Optional when the Item has a single COG asset (auto-selected); required when it has several, otherwise `read_geo` errors listing the available asset names. |
+| `asset` | `VARCHAR` | Selects a COG asset from a STAC Item or ItemCollection by name. Optional when there is a single COG asset (auto-selected); required when there are several, otherwise `read_geo` errors listing the available asset names. For an ItemCollection, the chosen asset is stacked across Items along `time`. |
 
 ## Output
 

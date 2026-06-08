@@ -47,7 +47,10 @@ impl VirtualStacStore {
 
 impl ReadableStorageTraits for VirtualStacStore {
     fn get(&self, key: &StoreKey) -> Result<Option<Bytes>, zarrs::storage::StorageError> {
-        let key_str = key.as_str();
+        // Normalize the OS-native separator: on Windows zarrs emits chunk keys
+        // like "red\\0.0" (backslash) while metadata keys stay "/"-separated.
+        let normalized = key.as_str().replace('\\', "/");
+        let key_str = normalized.as_str();
         if key_str == ".zgroup" {
             return Ok(Some(self.zgroup_bytes.clone()));
         }
@@ -74,7 +77,10 @@ impl ReadableStorageTraits for VirtualStacStore {
         key: &StoreKey,
         byte_ranges: &[zarrs::byte_range::ByteRange],
     ) -> Result<Option<Vec<Bytes>>, zarrs::storage::StorageError> {
-        let key_str = key.as_str();
+        // Normalize the OS-native separator: on Windows zarrs emits chunk keys
+        // like "red\\0.0" (backslash) while metadata keys stay "/"-separated.
+        let normalized = key.as_str().replace('\\', "/");
+        let key_str = normalized.as_str();
         if key_str == ".zgroup" || key_str == ".zmetadata" {
             return Err(zarrs::storage::StorageError::Other(
                 "partial read not supported on metadata".into(),
@@ -94,7 +100,10 @@ impl ReadableStorageTraits for VirtualStacStore {
     }
 
     fn size_key(&self, key: &StoreKey) -> Result<Option<u64>, zarrs::storage::StorageError> {
-        let key_str = key.as_str();
+        // Normalize the OS-native separator: on Windows zarrs emits chunk keys
+        // like "red\\0.0" (backslash) while metadata keys stay "/"-separated.
+        let normalized = key.as_str().replace('\\', "/");
+        let key_str = normalized.as_str();
         if key_str == ".zgroup" {
             return Ok(Some(self.zgroup_bytes.len() as u64));
         }

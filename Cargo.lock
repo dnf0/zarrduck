@@ -1573,6 +1573,7 @@ name = "geozarr_core"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "chrono",
  "criterion",
  "flate2",
  "opendal",

@@ -58,6 +58,9 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
     strategy:
+      # Don't let one OS's failure (e.g. the intermittent Windows LNK1201 disk
+      # flake) cancel the others — we want every OS's result independently.
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest

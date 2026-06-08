@@ -58,7 +58,9 @@ their native CRS with `y`/`x` dimensions, so geographic bounding-box pushdown
 simply does not apply (no error — the data is read correctly, just without
 geographic bbox pruning).
 
-## STAC (single Item)
+## STAC
+
+### Single Item
 
 A single STAC **Item** is a first-class `read_geo` source. Eider fetches the
 Item (local path or `http(s)://`), composes its COG assets as a virtual Zarr
@@ -73,6 +75,26 @@ multiple assets and none chosen, `read_geo` errors listing the available asset
 names. Each selected asset is read with the full COG pipeline (real dtype,
 GeoTIFF affine, CRS).
 
-**Not yet supported:** STAC ItemCollections and `/search` results (multiple
-Items / time-stacking), stacking multiple assets into one array, and STAC
-Collection/Catalog traversal — these return a clear error.
+### ItemCollection time-stacking
+
+A STAC **ItemCollection** / `FeatureCollection` (a local file or a single
+`http(s)://` response) stacks the selected asset across its Items into a 3D
+`[time, lat, lon]` array. The `time` coordinate is **epoch seconds** parsed from
+each Item's `properties.datetime`; Items are sorted ascending, so
+`time_min`/`time_max` (given as epoch seconds) filter by real time:
+
+```sql
+SELECT * FROM read_geo('itemcollection.json', asset := 'red',
+                       time_min := 1767225600, time_max := 1769904000);
+```
+
+The collection must be **grid-uniform** — every Item and asset must share the
+same shape, affine, and CRS, and each asset's data type must be uniform across
+Items. If anything differs, `read_geo` errors naming the offending Item rather
+than silently misaligning slices (there is no regridding or reprojection).
+
+**Not yet supported:** STAC API **pagination** (a `rel:next` link is ignored —
+only the provided response is stacked); **multi-resolution** collections (assets
+with differing grids); Items without `properties.datetime`; stacking multiple
+assets into one array; and STAC Collection/Catalog traversal — these return a
+clear error.

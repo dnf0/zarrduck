@@ -2,6 +2,7 @@ pub mod cog;
 pub mod coordinate_resolver;
 pub mod coordinates;
 pub mod dataset;
+pub mod datetime;
 pub mod feature_collection;
 pub mod geo_dataset;
 
@@ -12,4 +13,5 @@ pub mod store;
 pub mod types;
 pub mod validator;
 pub mod virtual_stac_store;
+pub mod virtual_stac_time_stack;
 pub mod virtual_store;
