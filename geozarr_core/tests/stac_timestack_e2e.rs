@@ -8,6 +8,7 @@ fn fixt(name: &str) -> String {
 }
 fn allow() {
     std::env::set_var("GEOZARR_ALLOW_PATH", env!("CARGO_MANIFEST_DIR"));
+    std::env::set_var("EIDER_STORE_DEBUG", "1");
 }
 
 #[test]

@@ -134,6 +134,9 @@ impl VirtualStacTimeStack {
 impl ReadableStorageTraits for VirtualStacTimeStack {
     fn get(&self, key: &StoreKey) -> Result<Option<Bytes>, zarrs::storage::StorageError> {
         let k = key.as_str();
+        if std::env::var("EIDER_STORE_DEBUG").is_ok() {
+            eprintln!("STOREGET key={k:?}");
+        }
         if k == ".zgroup" {
             return Ok(Some(self.zgroup_bytes.clone()));
         }
