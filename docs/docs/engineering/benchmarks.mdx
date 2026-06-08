@@ -40,9 +40,12 @@ here**; this is the fight on exactextract's home turf). Synthetic data, both
 asset/cell regimes, **correctness verified before any timing is reported.**
 
 > Single machine (Apple arm64), DuckDB 1.5.2, exactextract 0.3.0, rasterstats
-> 0.21.0; synthetic gradient field; median of 3 reps, warmup excluded. Treat
-> seconds as order-of-magnitude. rasterstats is capped at 20k polygons
-> (`IMPRACT` above that — see below).
+> 0.21.0; synthetic gradient field; median of 3 reps (rasterstats: 1 rep — see
+> below), warmup excluded but the OS file cache is warm. **Each tool's read of
+> the COG is inside its timed region** — including eider's `read_geo` + per-cell
+> geometry build. Treat seconds as order-of-magnitude (run-to-run variance on
+> the minute-scale cells is real). rasterstats capped at 20k polygons
+> (`IMPRACT` above that).
 
 ### Correctness first
 
@@ -62,64 +65,76 @@ cell set than the exact geometry (diffs of 1.7–4.4 on a 0–50 field). eider
 matches exactextract — the exact coverage reference — so eider's geometry path
 is the correct one; rasterstats is the outlier there.
 
+**One asymmetry to keep in mind for the `all-touched` rows:** exactextract has
+no "touched, unweighted" mode — it *always* computes coverage fractions for
+every intersecting cell, so for `all-touched` it does strictly more numerical
+work than eider's boolean `ST_Intersects` predicate. The cleanest
+same-work-both-sides comparison is therefore **area-weighted mean** (both
+compute coverage); the `all-touched`/`centroid` gaps partly reflect exactextract
+doing extra work, not pure engine speed. (exactextract is absent from the
+`centroid` rows entirely — it has no cell-centre-membership mode.)
+
 ### Regime 2 — footprints span many cells (~100-cell diamonds over a fine grid)
 
 The genuine zonal case. Wall-clock seconds (lower = better):
 
 | Convention / metric | n | eider | exactextract | rasterstats |
 |---|---:|---:|---:|---:|
-| centroid / max | 10k | **0.13** | — | 15.1 |
-| | 100k | **0.99** | — | _IMPRACT_ |
-| | 1M | **12.2** | — | _IMPRACT_ |
-| all-touched / max | 10k | **0.29** | 1.11 | 13.8 |
-| | 100k | **1.83** | 10.4 | _IMPRACT_ |
-| | 1M | **17.2** | _>150_ | _IMPRACT_ |
-| all-touched / mean | 10k | **0.16** | 1.10 | 14.0 |
-| | 100k | **1.33** | 10.7 | _IMPRACT_ |
-| | 1M | **20.8** | _>150_ | _IMPRACT_ |
-| area-weighted / mean | 10k | **0.69** | 1.07 | n/a |
-| | 100k | 10.8 | 10.8 | n/a |
-| | 1M | _>150_ | **109** | n/a |
+| centroid / max | 10k | **0.57** | — | 15.3 |
+| | 100k | **1.46** | — | _IMPRACT_ |
+| | 1M | **10.2** | — | _IMPRACT_ |
+| all-touched / max | 10k | **0.58** | 1.14 | 15.3 |
+| | 100k | **1.85** | 10.9 | _IMPRACT_ |
+| | 1M | **13.7** | 108.9 | _IMPRACT_ |
+| all-touched / mean | 10k | **0.59** | 1.14 | 15.3 |
+| | 100k | **1.78** | 10.9 | _IMPRACT_ |
+| | 1M | **13.6** | 107.6 | _IMPRACT_ |
+| area-weighted / mean | 10k | **1.15** | 1.20 | n/a |
+| | 100k | **7.05** | 11.2 | n/a |
+| | 1M | **69.3** | 107.3 | n/a |
 
-`>150` = exceeded the 150 s per-call budget; `IMPRACT` = rasterstats not timed
-above the 20k cap (it ran ~14 s at 10k and ~1030 s at 100k — roughly **1000×**
-slower, and linear, so the large cells are hours); `n/a` = rasterstats has no
+`IMPRACT` = rasterstats not timed above the 20k cap — it ran ~15 s at 10k;
+**extrapolating** its ~linear cost puts 100k near ~150 s and 1M in the hours,
+roughly **1000×** eider (we did not run those cells). `n/a` = rasterstats has no
 exact area weighting (capability gap, not a loss).
 
 ### Regime 1 — sub-cell assets (point sample over a coarse grid)
 
 | Convention / metric | n | eider (spatial) | eider (index-join) | exactextract | rasterstats |
 |---|---:|---:|---:|---:|---:|
-| centroid / max | 1M | 2.00 | **0.31** | — | _IMPRACT_ |
-| area-weighted / mean | 1M | **10.9** | — | 112 | n/a |
+| centroid / max | 1M | 0.42 | **0.38** | — | _IMPRACT_ |
+| area-weighted / mean | 1M | **9.96** | — | 93.0 | n/a |
 
 When the asset sits inside one cell, modelling it as a point and using an
-**arithmetic cell-index equi-join** is the right tool — and nothing else comes
-close (0.31 s / 1M). This is the only regime where that shortcut is both
-correct and fastest.
+**arithmetic cell-index equi-join** is the right tool — nothing else is close
+(0.38 s / 1M). This is the only regime where that shortcut is both correct and
+fastest. (`all-touched` is omitted here: on these sub-pixel polygons rasterstats
+disagrees with the exact geometry — see *Correctness first* — so a timing race
+there would not be comparing equal results.)
 
 ### Verdict (honest)
 
-- **Centroid and all-touched, at every scale: eider/DuckDB wins** — ~4–7×
-  faster than exactextract and ~50–1000× faster than rasterstats, with
-  *identical* results. The key is precomputing the cell point/box as columns so
-  DuckDB's spatial join engages (inline geometry in the join predicate does
-  not, and blows up — a real footgun).
-- **Area-weighted mean is a genuine contest.** eider and exactextract tie at
-  100k (~10.8 s); eider wins when footprints cover few cells (Regime 1, 1M:
-  10.9 s vs 112 s) but **exactextract wins the heaviest case** — many-cell
-  footprints at 1M, where eider's exact `ST_Intersection` blew the 150 s budget
-  while exactextract's specialized coverage algorithm finished in 109 s. For
-  large area-weighted workloads exactextract is the more robust choice.
-- **rasterstats** is correct for centroid but ~1000× slower — not viable at
-  scale — and diverges on sub-pixel footprints.
+- **Centroid and all-touched, every scale: eider/DuckDB is fastest** — roughly
+  6–8× exactextract and ~25–1000× rasterstats, with *identical* results. Caveat:
+  part of the exactextract gap is the asymmetry above (it computes coverage even
+  when only "touched" is asked). The enabling trick is precomputing the cell
+  point/box as columns so DuckDB's spatial join engages — inline geometry in the
+  join predicate does *not*, and blows up (a real footgun we hit and fixed).
+- **Area-weighted mean — the fairest comparison (both compute coverage) — eider
+  stays ahead but it's closest:** ~1.6× at 100k (7.0 s vs 11.2 s) and ~1.5× at
+  1M many-cell (69 s vs 107 s); larger when footprints cover few cells (Regime 1
+  1M: 10 s vs 93 s). These are the same order of magnitude — exactextract is a
+  mature, robust C++ implementation and a fine choice here; eider's edge is
+  modest, not a blowout.
+- **rasterstats** is correct for centroid but ~1000× slower (not viable at
+  scale) and diverges on sub-pixel footprints.
 
-So for the common conventions (max/mean by centroid or all-touched) over many
-polygons, eider is the fastest *correct* option measured; for exact
-area-weighting at the largest many-cell scale, reach for exactextract. And
-remember this benchmark hands every tool a warm local raster — eider's
-distinct advantage (never downloading the cells you don't need, from remote
-Zarr/COG/STAC) is a *separate* axis not measured here.
+So for these conventions over many polygons, eider/DuckDB was the fastest
+*correct* option in every comparable cell measured — decisively for
+centroid/all-touched, modestly for area-weighted. And remember this hands every
+tool a warm local raster: eider's *other* advantage — never downloading the
+cells you don't need, from remote Zarr/COG/STAC — is a separate axis not
+measured here.
 
 ## Reproducing these numbers
 
@@ -145,7 +160,7 @@ pip install -r scripts/bench_requirements.txt
 # build the eider extension if needed, then:
 export GEOZARR_ALLOW_PATH="$PWD"
 python scripts/bench_zonal_headtohead.py --regime both \
-  --counts 10000 100000 1000000 --reps 3 --rasterstats-max-n 20000 \
+  --counts 10000 100000 1000000 --reps 3 --budget-seconds 150 --rasterstats-max-n 20000 \
   --json bench_full.json
 ```
 
