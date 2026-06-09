@@ -10,3 +10,14 @@ shapely
 pyarrow
 numpy
 pytest
+
+# Remote partial-read benchmark deps.
+# NOTE: zarr 3.x reads/writes BOTH Zarr v2 (.zarray) and v3 (zarr.json, incl.
+# sharded). The eider extension's v3 pruning fix means eider prunes v3 chunks,
+# so the benchmark covers v2, v3 (plain) and v3 (sharded) — the production format.
+xarray==2026.4.0
+zarr==3.2.1
+fsspec==2026.4.0
+aiohttp==3.14.1
+requests==2.34.2
+rioxarray==0.22.0

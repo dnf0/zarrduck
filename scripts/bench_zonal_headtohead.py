@@ -375,15 +375,9 @@ def _materialize_field(conn, raster: str, polys_parquet: str) -> None:
     The WHERE on x/y prunes the read to the polygons' neighbourhood (read_geo's
     lat/lon bbox pushdown does not apply to EPSG:3857 COGs, whose dims are y/x).
 
-    Half-pixel correction: ``read_geo`` reports each cell's UPPER-LEFT CORNER,
-    not its centre (verified empirically: a 30 m grid with origin x0=0 yields
-    read_geo x = 0, 30, 60 ... whereas the true cell centres are 15, 45, 75 ...
-    = x + dx/2; and read_geo y = -1470, -1440 ... whereas the true centres are
-    -1485, -1455 ... = y - dy/2, since y is the top edge and the cell extends
-    downward). All downstream predicates (the ST_Point centroid test, the
-    cell-box envelope, the index-join snap) assume CENTRES, so we shift the raw
-    corner coords to centres here. Without this shift the cell boxes are offset
-    by half a pixel and MAX/centroid selection picks the wrong cell.
+    ``read_geo`` returns each cell's CENTRE (since the COG centre-coords fix in
+    the extension), so the coords are used directly -- no half-pixel shift. The
+    cell box is the centre +/- step/2 (``dx``/``dy`` derived from the read).
     """
     xmin, ymin, xmax, ymax = _poly_bbox(conn, polys_parquet)
     pad = _BBOX_PAD_CELLS * _APPROX_CELL_M
@@ -404,14 +398,15 @@ def _materialize_field(conn, raster: str, polys_parquet: str) -> None:
                    (max(y) - min(y)) / nullif(count(DISTINCT y) - 1, 0) AS dy
             FROM raw
         )
-        -- Shift read_geo corner coords to true cell centres (see docstring),
-        -- then materialise the centre point and the cell envelope as COLUMNS.
+        -- read_geo returns cell CENTRES (since the COG centre-coords fix), so
+        -- use the coords directly; the cell box is the centre +/- step/2.
         SELECT
-            raw.x + s.dx / 2 AS x,
-            raw.y - s.dy / 2 AS y,
+            raw.x AS x,
+            raw.y AS y,
             raw.v AS v,
-            ST_Point(raw.x + s.dx / 2, raw.y - s.dy / 2) AS pt,
-            ST_MakeEnvelope(raw.x, raw.y - s.dy, raw.x + s.dx, raw.y) AS box
+            ST_Point(raw.x, raw.y) AS pt,
+            ST_MakeEnvelope(raw.x - s.dx / 2, raw.y - s.dy / 2,
+                            raw.x + s.dx / 2, raw.y + s.dy / 2) AS box
         FROM raw CROSS JOIN step s
         """
     )
