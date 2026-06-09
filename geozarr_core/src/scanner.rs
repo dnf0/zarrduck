@@ -162,8 +162,8 @@ mod tests {
         .unwrap();
 
         let mut chunk_data = vec![0.0f32; 25];
-        for i in 0..25 {
-            chunk_data[i] = i as f32;
+        for (i, elem) in chunk_data.iter_mut().enumerate() {
+            *elem = i as f32;
         }
 
         array_write.store_metadata().unwrap();

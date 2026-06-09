@@ -121,7 +121,7 @@ Confirm start-indexed shards, non-sharded v2/v3, and local-FS reads still pass. 
 - ~line 579 — FeatureCollection variant (same mistake).
 - ~line 991 — `list_arrays` (`endpoint(uri)`); fix for completeness (reads `.zgroup` etc. against a mis-rooted endpoint).
 
-- [ ] **Task 2.1 — Extract a DRY helper + unit test.**
+- [x] **Task 2.1 — Extract a DRY helper + unit test.**
 ```rust
 /// Split an http(s) URL into an opendal Http `endpoint` (scheme://host[:port])
 /// and the read `key` (path without leading '/'). Mirrors the working
@@ -137,12 +137,12 @@ fn split_http_endpoint_key(url_str: &str) -> Result<(String, String), String> {
 ```
 Unit test: `http://h:8080/a/b/grid.tif` → `("http://h:8080", "a/b/grid.tif")`; `https://h/x.tif` → `("https://h", "x.tif")`. Fail→pass.
 
-- [ ] **Task 2.2 — Failing integration test: bare COG over local HTTP.**
+- [x] **Task 2.2 — Failing integration test: bare COG over local HTTP.**
 Add a local HTTP server fixture (a tiny static-file server over a committed/generated small COG; `wiremock` or a `std`/`tiny_http` server). `resolve_sync_store("http://127.0.0.1:PORT/grid.tif")` then a `read_geo`-style read returns the expected values. Expected: FAIL today (`IsADirectory`).
 
-- [ ] **Task 2.3 — Apply the helper at all four sites.** Replace each `endpoint(full_url)` + key `""` with `let (endpoint, key) = split_http_endpoint_key(url)?;` then `Http::default().endpoint(&endpoint)` and use `key` as the read key (the COG header read `read_with(&key).range(0..N)`, and the `VirtualCogStore` read key = `key`). Keep the S3 branch logic (it already derives bucket/path). Run Task 2.2 → PASS.
+- [x] **Task 2.3 — Apply the helper at all four sites.** Replace each `endpoint(full_url)` + key `""` with `let (endpoint, key) = split_http_endpoint_key(url)?;` then `Http::default().endpoint(&endpoint)` and use `key` as the read key (the COG header read `read_with(&key).range(0..N)`, and the `VirtualCogStore` read key = `key`). Keep the S3 branch logic (it already derives bucket/path). Run Task 2.2 → PASS.
 
-- [ ] **Task 2.4 — Verify + commit.** `cargo test -p geozarr_core` (+ extension); fmt; clippy. Also confirm Zarr-over-HTTP still works (it used non-empty keys; the helper makes its endpoint construction consistent too — re-run a Zarr http read). Commit `fix(store): split endpoint/key for HTTP operators (bare COG over HTTP)`.
+- [x] **Task 2.4 — Verify + commit.** `cargo test -p geozarr_core` (+ extension); fmt; clippy. Also confirm Zarr-over-HTTP still works (it used non-empty keys; the helper makes its endpoint construction consistent too — re-run a Zarr http read). Commit `fix(store): split endpoint/key for HTTP operators (bare COG over HTTP)`.
 
 ---
 
