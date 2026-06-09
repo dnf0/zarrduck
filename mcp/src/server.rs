@@ -322,3 +322,39 @@ impl ServerHandler for EiderServer {
         info
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_bbox_to_value() {
+        let bbox = Bbox {
+            lon_min: -10.0,
+            lat_min: 20.0,
+            lon_max: 10.0,
+            lat_max: 40.0,
+        };
+        let expected = json!({
+            "lon_min": -10.0,
+            "lat_min": 20.0,
+            "lon_max": 10.0,
+            "lat_max": 40.0,
+        });
+        assert_eq!(bbox.to_value(), expected);
+    }
+
+    #[test]
+    fn test_time_range_to_value() {
+        let tr = TimeRange {
+            min: 100.0,
+            max: 200.0,
+        };
+        let expected = json!({
+            "min": 100.0,
+            "max": 200.0,
+        });
+        assert_eq!(tr.to_value(), expected);
+    }
+}
