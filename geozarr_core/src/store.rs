@@ -50,35 +50,50 @@ impl ReadableStorageTraits for AsyncToSyncOpendalStore {
         key: &zarrs::storage::StoreKey,
         byte_ranges: &[zarrs::byte_range::ByteRange],
     ) -> Result<Option<Vec<bytes::Bytes>>, zarrs::storage::StorageError> {
+        use zarrs::byte_range::ByteRange;
+
         let op = self.operator.clone();
         let key_str = key.as_str().to_string();
         let ranges = byte_ranges.to_vec();
 
+        // The object size is only required to resolve ranges measured from the
+        // end (`FromEnd`, e.g. the shard index of an end-indexed sharded array)
+        // or open-ended `FromStart(_, None)` reads. Skip the extra `stat` round
+        // trip when every range is fully bounded from the start.
+        let needs_size = ranges
+            .iter()
+            .any(|r| matches!(r, ByteRange::FromEnd(_, _) | ByteRange::FromStart(_, None)));
+
         let res = std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                match op.read(&key_str).await {
-                    Ok(bytes) => {
-                        let mut out = Vec::with_capacity(ranges.len());
-                        for r in ranges {
-                            let start = match r {
-                                zarrs::byte_range::ByteRange::FromStart(offset, _) => offset,
-                                _ => 0,
-                            };
-                            let end = match r {
-                                zarrs::byte_range::ByteRange::FromStart(offset, Some(len)) => {
-                                    offset + len
-                                }
-                                _ => bytes.len() as u64,
-                            };
-                            let slice = bytes.slice(start as usize..end as usize);
-                            out.push(bytes::Bytes::from(slice.to_vec()));
-                        }
-                        Ok(Some(out))
+                // Resolve the object size once (iff any range needs it). A
+                // missing object maps to `Ok(None)`, matching `get`/`size_key`.
+                let size = if needs_size {
+                    match op.stat(&key_str).await {
+                        Ok(meta) => meta.content_length(),
+                        Err(e) if e.kind() == opendal::ErrorKind::NotFound => return Ok(None),
+                        Err(e) => return Err(zarrs::storage::StorageError::Other(e.to_string())),
                     }
-                    Err(e) if e.kind() == opendal::ErrorKind::NotFound => Ok(None),
-                    Err(e) => Err(zarrs::storage::StorageError::Other(e.to_string())),
+                } else {
+                    // Unused by `FromStart(_, Some(_))` resolvers; any value is fine.
+                    0
+                };
+
+                let mut out = Vec::with_capacity(ranges.len());
+                for r in ranges {
+                    // Use the zarrs `ByteRange` resolvers for the [start, end)
+                    // half-open range, matching the crate's exact semantics
+                    // (notably `FromEnd` offsets measured back from `size`).
+                    let start = r.start(size);
+                    let end = r.end(size);
+                    match op.read_with(&key_str).range(start..end).await {
+                        Ok(buf) => out.push(bytes::Bytes::from(buf.to_vec())),
+                        Err(e) if e.kind() == opendal::ErrorKind::NotFound => return Ok(None),
+                        Err(e) => return Err(zarrs::storage::StorageError::Other(e.to_string())),
+                    }
                 }
+                Ok(Some(out))
             })
         })
         .join()
