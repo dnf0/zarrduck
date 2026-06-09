@@ -133,15 +133,23 @@ impl CogMetadata {
     }
 
     /// North-up affine as a SpatialTransform with dims [row(lat), col(lon)].
+    ///
+    /// GeoTIFF tie-points / ModelTransformation map grid (col,row) to the pixel
+    /// CORNER, but eider's contract (and downstream zonal/centroid joins) is cell
+    /// CENTRES. We therefore bake a half-pixel offset into the `translation` here
+    /// so that the shared corner-formula `apply_transform` (translation + idx*scale)
+    /// yields the CENTRE of cell (0,0). The offset per dim is `0.5 * scale[i]`,
+    /// which carries the sign of the (already-signed) scale automatically.
     pub fn spatial_transform(&self) -> Option<crate::metadata::SpatialTransform> {
         if self.pixel_scale.len() >= 2 && self.tiepoint.len() >= 6 {
             let sx = self.pixel_scale[0];
             let sy = self.pixel_scale[1];
             let tx = self.tiepoint[3];
             let ty = self.tiepoint[4];
+            let scale = vec![-sy, sx];
             return Some(crate::metadata::SpatialTransform {
-                scale: vec![-sy, sx],
-                translation: vec![ty, tx],
+                translation: vec![ty + 0.5 * scale[0], tx + 0.5 * scale[1]],
+                scale,
             });
         }
         if self.model_transformation.len() >= 16 {
@@ -151,9 +159,10 @@ impl CogMetadata {
             let sy = m[5]; // row scale (y), already signed
             let tx = m[3];
             let ty = m[7];
+            let scale = vec![sy, sx];
             return Some(crate::metadata::SpatialTransform {
-                scale: vec![sy, sx],
-                translation: vec![ty, tx],
+                translation: vec![ty + 0.5 * scale[0], tx + 0.5 * scale[1]],
+                scale,
             });
         }
         None
@@ -547,9 +556,59 @@ mod tests {
         let m = parse_cog_metadata(&b).unwrap();
         let t: SpatialTransform = m.spatial_transform().unwrap();
         assert_eq!(t.scale, vec![-2.0, 2.0]); // [lat(row), lon(col)]
-        assert_eq!(t.translation, vec![90.0, -180.0]); // [tiepointY, tiepointX]
+                                              // Translation is the CENTRE of cell (0,0): corner tiepoint
+                                              // (-180, 90) shifted by half a pixel (scale/2) inward, so
+                                              // lat = 90 + (-2/2) = 89, lon = -180 + (2/2) = -179.
+        assert_eq!(t.translation, vec![89.0, -179.0]); // [centreY, centreX]
         assert_eq!(m.crs(), Some("EPSG:4326".to_string()));
         assert_eq!(m.dim_names(), vec!["lat".to_string(), "lon".to_string()]);
+    }
+
+    #[test]
+    fn test_spatial_transform_returns_cell_centre_not_corner() {
+        use crate::coordinates::apply_transform;
+        // Known north-up affine: corner origin (0, 0), 30 m square pixels.
+        // GeoTIFF tiepoint maps grid (col,row)=(0,0) to the pixel CORNER (0, 0).
+        // eider's contract is cell CENTRES, so cell (0,0) must report (lon=15, lat=-15).
+        let m = CogMetadata {
+            pixel_scale: vec![30.0, 30.0, 0.0],           // [sx, sy, sz]
+            tiepoint: vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0], // corner of (0,0) at x=0, y=0
+            ..Default::default()
+        };
+        let t = m.spatial_transform().unwrap();
+        // dims are [row(y/lat), col(x/lon)]; north-up -> row scale is -sy.
+        let centre_y = apply_transform(&t, 0, 0); // first row centre
+        let centre_x = apply_transform(&t, 1, 0); // first col centre
+        assert_eq!(
+            centre_x, 15.0,
+            "first cell x-coord must be the CENTRE (15), not the corner (0)"
+        );
+        assert_eq!(
+            centre_y, -15.0,
+            "first cell y-coord must be the CENTRE (-15), not the corner (0)"
+        );
+        // Second cell along each axis is one full pixel further.
+        assert_eq!(apply_transform(&t, 1, 1), 45.0);
+        assert_eq!(apply_transform(&t, 0, 1), -45.0);
+    }
+
+    #[test]
+    fn test_model_transformation_returns_cell_centre() {
+        use crate::coordinates::apply_transform;
+        // ModelTransformation (tag 34264) path: 4x4 row-major affine with a
+        // corner origin at (0,0), 30 m pixels (north-up: row scale -30).
+        let mut mt = vec![0.0f64; 16];
+        mt[0] = 30.0; // col scale (x)
+        mt[5] = -30.0; // row scale (y), already signed
+        mt[3] = 0.0; // tx (corner)
+        mt[7] = 0.0; // ty (corner)
+        let m = CogMetadata {
+            model_transformation: mt,
+            ..Default::default()
+        };
+        let t = m.spatial_transform().unwrap();
+        assert_eq!(apply_transform(&t, 1, 0), 15.0); // x centre
+        assert_eq!(apply_transform(&t, 0, 0), -15.0); // y centre
     }
 
     #[test]
