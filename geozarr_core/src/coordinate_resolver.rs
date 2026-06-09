@@ -108,3 +108,89 @@ impl CoordinateResolver {
         Ok((coords, lon_0_360_dims))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::num::NonZeroU64;
+    use std::sync::Arc;
+    use zarrs::array::codec::BytesCodec;
+    use zarrs::array::{ArrayBuilder, DataType, FillValue};
+    use zarrs::array_subset::ArraySubset;
+    use zarrs::storage::store::MemoryStore;
+
+    #[test]
+    fn test_coordinate_resolver_types_and_lon() {
+        let store = Arc::new(MemoryStore::new());
+        let chunk_shape = vec![NonZeroU64::new(2).unwrap()];
+        let time_chunk_shape = vec![NonZeroU64::new(1).unwrap()];
+
+        // Create an f32 lat array
+        let lat_array = ArrayBuilder::new(
+            vec![2],
+            DataType::Float32,
+            chunk_shape.clone().into(),
+            FillValue::from(0.0f32),
+        )
+        .array_to_bytes_codec(Box::new(BytesCodec::default()))
+        .build(store.clone(), "/lat")
+        .unwrap();
+        lat_array.store_metadata().unwrap();
+        lat_array
+            .store_array_subset_elements::<f32>(
+                &ArraySubset::new_with_shape(vec![2]),
+                &[45.0, 46.0],
+            )
+            .unwrap();
+
+        // Create an f64 lon array with 0-360 values
+        let lon_array = ArrayBuilder::new(
+            vec![2],
+            DataType::Float64,
+            chunk_shape.clone().into(),
+            FillValue::from(0.0f64),
+        )
+        .array_to_bytes_codec(Box::new(BytesCodec::default()))
+        .build(store.clone(), "/lon")
+        .unwrap();
+        lon_array.store_metadata().unwrap();
+        lon_array
+            .store_array_subset_elements::<f64>(
+                &ArraySubset::new_with_shape(vec![2]),
+                &[179.0, 181.0],
+            )
+            .unwrap();
+
+        // Create an i32 time array
+        let time_array = ArrayBuilder::new(
+            vec![1],
+            DataType::Int32,
+            time_chunk_shape.into(),
+            FillValue::from(0i32),
+        )
+        .array_to_bytes_codec(Box::new(BytesCodec::default()))
+        .build(store.clone(), "/time")
+        .unwrap();
+        time_array.store_metadata().unwrap();
+        time_array
+            .store_array_subset_elements::<i32>(&ArraySubset::new_with_shape(vec![1]), &[2020])
+            .unwrap();
+
+        // Resolve
+        let dim_names = vec!["time".to_string(), "lat".to_string(), "lon".to_string()];
+        let shape = vec![1, 2, 2];
+
+        let (coords, lon_0_360) =
+            CoordinateResolver::resolve("mock://path", store, &shape, &dim_names).unwrap();
+
+        // Verify time (i32 -> f64)
+        assert_eq!(coords.get("time").unwrap(), &[2020.0]);
+
+        // Verify lat (f32 -> f64)
+        assert_eq!(coords.get("lat").unwrap(), &[45.0, 46.0]);
+
+        // Verify lon (0-360 tracking)
+        assert_eq!(coords.get("lon").unwrap(), &[179.0, 181.0]);
+        assert!(lon_0_360.contains(&2)); // The 3rd dim (index 2) is 0-360
+    }
+}

@@ -1073,6 +1073,8 @@ pub async fn list_arrays(uri: &str) -> Result<Vec<String>, Box<dyn std::error::E
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zarrs::byte_range::ByteRange;
+    use zarrs::storage::StoreKey;
 
     #[tokio::test]
     async fn test_list_arrays() {
@@ -1086,5 +1088,67 @@ mod tests {
         let result = resolve_sync_store("test.tif");
         // Without the actual file it will fail, but we just check the path logic exists
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_split_http_endpoint_key() {
+        let (ep, path) = split_http_endpoint_key("https://example.com/path/to/data.zarr").unwrap();
+        assert_eq!(ep, "https://example.com");
+        assert_eq!(path, "path/to/data.zarr");
+
+        let (ep2, path2) = split_http_endpoint_key("http://localhost:8080/test.cog").unwrap();
+        assert_eq!(ep2, "http://localhost:8080");
+        assert_eq!(path2, "test.cog");
+
+        let (ep3, path3) = split_http_endpoint_key("https://bucket.s3.amazonaws.com/").unwrap();
+        assert_eq!(ep3, "https://bucket.s3.amazonaws.com");
+        assert_eq!(path3, "");
+    }
+
+    #[test]
+    fn test_async_to_sync_opendal_store() {
+        let builder = opendal::services::Memory::default();
+        let operator = opendal::Operator::new(builder).unwrap().finish();
+
+        // Write some mock data async first
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            operator
+                .write("myarray/.zarray", vec![1, 2, 3])
+                .await
+                .unwrap();
+        });
+
+        let store = AsyncToSyncOpendalStore::new(operator);
+
+        let key = StoreKey::new("myarray/.zarray").unwrap();
+
+        // test size_key
+        let size = store.size_key(&key).unwrap().unwrap();
+        assert_eq!(size, 3);
+
+        // test get
+        let data = store.get(&key).unwrap().unwrap();
+        assert_eq!(data.as_ref(), &[1, 2, 3]);
+
+        // test not found
+        let bad_key = StoreKey::new("missing").unwrap();
+        assert!(store.get(&bad_key).unwrap().is_none());
+        assert!(store.size_key(&bad_key).unwrap().is_none());
+
+        // test partial reads
+        let partial = store
+            .get_partial_values_key(
+                &key,
+                &[
+                    ByteRange::FromStart(1, Some(1)), // bytes [1..2)
+                    ByteRange::FromEnd(1, None),      // bytes [0..2)
+                ],
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(partial.len(), 2);
+        assert_eq!(partial[0].as_ref(), &[2]);
+        assert_eq!(partial[1].as_ref(), &[1, 2]);
     }
 }
