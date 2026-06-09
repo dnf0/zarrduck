@@ -152,52 +152,35 @@ fetched + HTTP requests** (deterministic) — wall time is localhost-only and a
 footnote. Every cell passes a correctness gate (all three return identical
 window values) before bytes are reported.
 
-### Plain Zarr (v2 & v3) and COG — eider prunes like the best chunk-aware client
+### Zarr (v2, v3, sharded) and COG — eider prunes like the best chunk-aware client
 
 Bytes fetched as a fraction of the full store (`÷ naive`); a tiny (≤1%-area)
 window:
 
 | format | eider | chunk-aware | naive |
 |---|---:|---:|---:|
-| Zarr v2 | 0.79 MB (**0.017×**) | 0.79 MB | 51 MB |
+| Zarr v2 | 0.79 MB (**0.017×**) | 0.79 MB | 46 MB |
 | Zarr v3 | 0.88 MB (**0.017×**) | 0.88 MB | 51 MB |
+| Zarr v3 (sharded) | 0.88 MB (**0.017×**) | 0.88 MB | 51 MB |
 | COG | 0.84 MB (**0.017×**) | 0.84 MB | 51 MB (3,111 reqs, 12 s) |
 
 eider fetches **~1.7%** of the store — essentially identical to a hand-written
 `xarray.sel` / rasterio window, and **~60× less than naive**. Zarr **v3 prunes
-exactly as well as v2**. (At a 10%-area window all three rise to ~0.147× — you
-genuinely need more chunks.) eider's edge over the baselines is *ergonomic*:
-the window is a bbox in SQL, uniform across Zarr/COG/STAC, with no hand-computed
-index ranges.
-
-### Sharded Zarr v3 — eider prunes at *shard* granularity (coarser)
-
-Sharding packs many inner chunks into one network object. eider fetches **whole
-intersecting shards**; a chunk-aware client reads the shard index and pulls only
-the inner chunks:
-
-| window (area) | eider | chunk-aware | naive |
-|---|---:|---:|---:|
-| ≤1% | 6.7 MB (**0.131×**) | 0.88 MB (0.017×) | 51 MB |
-| 10% | 30 MB (**0.587×**) | 7.5 MB (0.147×) | 51 MB |
-
-So on **sharded v3, eider currently fetches ~7–8× more than a partial-shard
-reader**, approaching the whole store for larger windows. It still beats naive
-at small windows, but this is a real limitation: eider does not do partial-shard
-reads, and (separately) its ranged HTTP read of a spec-default *end-indexed*
-shard currently fails — only `index_location:"start"` shards read over HTTP
-today. **For sharded v3 over the network, eider has meaningful room to improve.**
+exactly as well as v2**, and **sharded v3 prunes perfectly to inner chunks** over
+HTTP using ranged partial reads. (At a 10%-area window all four formats rise to
+~0.147× — you genuinely need more chunks.) eider's edge over the baselines is
+*ergonomic*: the window is a bbox in SQL, uniform across Zarr/COG/STAC, with no
+hand-computed index ranges.
 
 ### Verdict
 
-- **Plain Zarr (v2 *and* v3) and COG: eider's pushdown is best-in-class** —
+- **Zarr (v2, v3, sharded) and COG: eider's pushdown is best-in-class** —
   ~1.7% of the store for a small window, matching a competent chunk-aware client
   and ~60× below naive, from a bbox in SQL. (See
   [Spatial Pruning](./spatial_pruning.mdx).)
-- **Sharded Zarr v3: correct but coarse** — eider prunes to whole shards (not
-  inner chunks) and can't yet range-read end-indexed shards over HTTP. Use
-  start-indexed shards, or expect more bytes than a native zarr client, until
-  partial-shard reads land.
+- **Sharded v3 over HTTP:** eider uses ranged reads to resolve the shard index
+  and fetches only the requested inner chunks, working out of the box with the
+  spec-default `index_location:"end"`.
 - Bytes are the deterministic story; localhost time is incidental (the real-world
   win grows with network latency, since fewer bytes = fewer/again-smaller round
   trips).

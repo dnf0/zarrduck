@@ -101,7 +101,7 @@ Wrap the opendal operator (or the store) so total bytes returned by `get_partial
 - [ ] **Task 1.4 — Guard the non-regressing paths + verify.**
 Confirm start-indexed shards, non-sharded v2/v3, and local-FS reads still pass. `cargo test -p geozarr_core`; `cargo test -p eider_extension`; `cargo fmt --check`; `cargo clippy -p geozarr_core --lib --tests -- -D warnings`.
 
-- [ ] **Task 1.5 — End-to-end re-verify with the benchmark.** Rebuild the extension; re-run `scripts/bench_remote_partialread.py --formats zarr_v3_sharded --windows 0.01 0.1 --shape 4000 4000` and confirm (a) the gate passes for an **end-indexed** sharded store (regenerate the fixture with default `index_location` / drop the `start` workaround) and (b) eider's sharded bytes drop toward the chunk-aware baseline. Update `docs/docs/engineering/benchmarks.mdx` sharded numbers + remove the "end-indexed fails / whole-shard" caveats now fixed.
+- [x] **Task 1.5 — End-to-end re-verify with the benchmark.** Rebuild the extension; re-run `scripts/bench_remote_partialread.py --formats zarr_v3_sharded --windows 0.01 0.1 --shape 4000 4000` and confirm (a) the gate passes for an **end-indexed** sharded store (regenerate the fixture with default `index_location` / drop the `start` workaround) and (b) eider's sharded bytes drop toward the chunk-aware baseline. Update `docs/docs/engineering/benchmarks.mdx` sharded numbers + remove the "end-indexed fails / whole-shard" caveats now fixed.
 
 - [ ] **Task 1.6 — Commit.** `fix(store): ranged opendal partial reads (end-indexed shards + partial-shard reads over HTTP)`.
 

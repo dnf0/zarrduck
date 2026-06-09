@@ -247,15 +247,11 @@ def start_server(root_dir) -> tuple[ThreadingHTTPServer, int, ByteAccumulator]:
 ZARR_FORMATS = ("v2", "v3", "v3_sharded")
 
 # Sharded-v3 shard-index placement. The Zarr v3 sharding codec may store its
-# chunk index at the START or END of each shard file. eider's reader fetches the
-# index correctly when it is at the START, but mis-ranges the trailing-index
-# (``"end"``) form over HTTP — a partial read returns the whole shard where the
-# 64-byte index was expected, tripping the crc32c check ("the checksum is
-# invalid") / a chunk-size mismatch. We therefore write ``index_location="start"``
-# so eider genuinely prunes sharded stores over HTTP. (This is the documented
-# eider limitation surfaced by this benchmark; the layout is still a fully
-# spec-compliant ``sharding_indexed`` store with real shard files.)
-ZARR_V3_SHARD_INDEX_LOCATION = "start"
+# chunk index at the START or END of each shard file; ``"end"`` is the spec
+# default and what ``xarray.to_zarr``/zarr-python write. eider reads both over
+# HTTP via ranged reads (the opendal store adapter resolves FromEnd/suffix byte
+# ranges), so the benchmark exercises the realistic default (``"end"``).
+ZARR_V3_SHARD_INDEX_LOCATION = "end"
 
 
 def _write_zarr_v3_sharded(store_path, ds, *, chunks, shards) -> None:
