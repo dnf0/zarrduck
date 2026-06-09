@@ -136,6 +136,72 @@ tool a warm local raster: eider's *other* advantage — never downloading the
 cells you don't need, from remote Zarr/COG/STAC — is a separate axis not
 measured here.
 
+## Remote partial reads: how much does eider actually fetch?
+
+The head-to-head above gave every tool a warm *local* raster to isolate compute.
+This section measures eider's *other* advantage — **only fetching the chunks a
+query needs over the network** — against a naive whole-array read and a
+*competent* chunk-aware baseline (xarray/zarr `.sel`; rasterio windowed
+`/vsicurl`), which also prune. The honest question: does eider's pushdown
+actually cut bytes, and does it hold for **Zarr v3** (incl. **sharded**), the
+production format?
+
+Method: a generated ~4000×4000 store (~51 MB) served from a **local,
+Range-capable, byte-logging HTTP server**; per query window we record **bytes
+fetched + HTTP requests** (deterministic) — wall time is localhost-only and a
+footnote. Every cell passes a correctness gate (all three return identical
+window values) before bytes are reported.
+
+### Plain Zarr (v2 & v3) and COG — eider prunes like the best chunk-aware client
+
+Bytes fetched as a fraction of the full store (`÷ naive`); a tiny (≤1%-area)
+window:
+
+| format | eider | chunk-aware | naive |
+|---|---:|---:|---:|
+| Zarr v2 | 0.79 MB (**0.017×**) | 0.79 MB | 51 MB |
+| Zarr v3 | 0.88 MB (**0.017×**) | 0.88 MB | 51 MB |
+| COG | 0.84 MB (**0.017×**) | 0.84 MB | 51 MB (3,111 reqs, 12 s) |
+
+eider fetches **~1.7%** of the store — essentially identical to a hand-written
+`xarray.sel` / rasterio window, and **~60× less than naive**. Zarr **v3 prunes
+exactly as well as v2**. (At a 10%-area window all three rise to ~0.147× — you
+genuinely need more chunks.) eider's edge over the baselines is *ergonomic*:
+the window is a bbox in SQL, uniform across Zarr/COG/STAC, with no hand-computed
+index ranges.
+
+### Sharded Zarr v3 — eider prunes at *shard* granularity (coarser)
+
+Sharding packs many inner chunks into one network object. eider fetches **whole
+intersecting shards**; a chunk-aware client reads the shard index and pulls only
+the inner chunks:
+
+| window (area) | eider | chunk-aware | naive |
+|---|---:|---:|---:|
+| ≤1% | 6.7 MB (**0.131×**) | 0.88 MB (0.017×) | 51 MB |
+| 10% | 30 MB (**0.587×**) | 7.5 MB (0.147×) | 51 MB |
+
+So on **sharded v3, eider currently fetches ~7–8× more than a partial-shard
+reader**, approaching the whole store for larger windows. It still beats naive
+at small windows, but this is a real limitation: eider does not do partial-shard
+reads, and (separately) its ranged HTTP read of a spec-default *end-indexed*
+shard currently fails — only `index_location:"start"` shards read over HTTP
+today. **For sharded v3 over the network, eider has meaningful room to improve.**
+
+### Verdict
+
+- **Plain Zarr (v2 *and* v3) and COG: eider's pushdown is best-in-class** —
+  ~1.7% of the store for a small window, matching a competent chunk-aware client
+  and ~60× below naive, from a bbox in SQL. (See
+  [Spatial Pruning](./spatial_pruning.mdx).)
+- **Sharded Zarr v3: correct but coarse** — eider prunes to whole shards (not
+  inner chunks) and can't yet range-read end-indexed shards over HTTP. Use
+  start-indexed shards, or expect more bytes than a native zarr client, until
+  partial-shard reads land.
+- Bytes are the deterministic story; localhost time is incidental (the real-world
+  win grows with network latency, since fewer bytes = fewer/again-smaller round
+  trips).
+
 ## Reproducing these numbers
 
 The criterion microbenchmarks live in the repo:
@@ -168,3 +234,17 @@ It generates the synthetic COG + polygons, runs the correctness gate (timing is
 reported only after it passes), and prints the matrix. Source:
 `scripts/bench_zonal_headtohead.py`. See
 [Zonal statistics](./zonal_stats.mdx) for the convention definitions.
+
+The remote partial-read harness (bytes fetched over a local HTTP server, across
+Zarr v2/v3/sharded + COG):
+
+```bash
+source /tmp/bench_venv/bin/activate   # same venv (needs zarr>=3)
+export GEOZARR_ALLOW_PATH="$PWD"
+python scripts/bench_remote_partialread.py \
+  --formats zarr_v2 zarr_v3 zarr_v3_sharded cog \
+  --windows 0.001 0.01 0.1 --shape 4000 4000 --reps 3 --json remote_results.json
+```
+
+Source: `scripts/bench_remote_partialread.py`. Each cell passes a correctness
+gate before its bytes/requests are reported.
