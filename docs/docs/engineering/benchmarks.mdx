@@ -1,10 +1,12 @@
 # Performance Benchmarks
 
-Eider's hot paths are microbenchmarked with
-[criterion](https://github.com/bheisler/criterion.rs). These are
-single-machine microbenchmarks of specific operations — not cross-tool or
-cross-dataset comparisons — included to show where time goes inside the
-extension. Run them yourself with the commands in
+Two kinds of numbers live here. [Measured results](#measured-results) are
+single-machine [criterion](https://github.com/bheisler/criterion.rs)
+microbenchmarks of operations *inside* the extension — they show where time
+goes. [Head-to-head](#head-to-head-eider-vs-the-raster-zonal-stack) is a
+controlled, correctness-gated comparison of the **zonal-statistics kernel**
+against the established raster-zonal stack (exactextract, rasterstats). Run
+either yourself with the commands in
 [Reproducing these numbers](#reproducing-these-numbers).
 
 ## Measured results
@@ -22,9 +24,121 @@ trips that dominate a remote read. See
 [Spatial Pruning](./spatial_pruning.mdx) for how that transform is also used to
 prune chunks.
 
+## Head-to-head: eider vs the raster-zonal stack
+
+How does eider's *read-then-DuckDB-spatial-join* approach compare to the
+purpose-built raster-zonal tools — [exactextract](https://github.com/isciences/exactextract)
+(C++, exact coverage-fraction area weighting) and
+[rasterstats](https://github.com/perrygeo/python-rasterstats) (the Python
+baseline) — on the **compute kernel**?
+
+To isolate the kernel, every tool reads the **same warm, local
+Cloud-Optimized GeoTIFF** (so eider's separate cloud-native *partial-read*
+advantage — pruning chunks from remote Zarr/COG/STAC, see
+[Spatial Pruning](./spatial_pruning.mdx) — is deliberately **out of scope
+here**; this is the fight on exactextract's home turf). Synthetic data, both
+asset/cell regimes, **correctness verified before any timing is reported.**
+
+> Single machine (Apple arm64), DuckDB 1.5.2, exactextract 0.3.0, rasterstats
+> 0.21.0; synthetic gradient field; median of 3 reps (rasterstats: 1 rep — see
+> below), warmup excluded but the OS file cache is warm. **Each tool's read of
+> the COG is inside its timed region** — including eider's `read_geo` + per-cell
+> geometry build. Treat seconds as order-of-magnitude (run-to-run variance on
+> the minute-scale cells is real). rasterstats capped at 20k polygons
+> (`IMPRACT` above that).
+
+### Correctness first
+
+Where conventions match, the tools agree to within floating-point noise — this
+is the precondition for comparing speed at all:
+
+| Convention / metric | eider vs reference | max abs diff |
+|---|---|---|
+| centroid / max | vs rasterstats (center-rasterize) | **0** (exact) |
+| all-touched / max | vs rasterstats & exactextract | **0** (exact) |
+| all-touched / mean | vs rasterstats | ~1.0e-5 |
+| area-weighted / mean | vs exactextract (exact coverage) | ~1.2e-8 |
+
+The one disagreement the gate surfaced is **rasterstats on sub-pixel
+footprints**: its GDAL `all_touched` rasterizer selects a slightly different
+cell set than the exact geometry (diffs of 1.7–4.4 on a 0–50 field). eider
+matches exactextract — the exact coverage reference — so eider's geometry path
+is the correct one; rasterstats is the outlier there.
+
+**One asymmetry to keep in mind for the `all-touched` rows:** exactextract has
+no "touched, unweighted" mode — it *always* computes coverage fractions for
+every intersecting cell, so for `all-touched` it does strictly more numerical
+work than eider's boolean `ST_Intersects` predicate. The cleanest
+same-work-both-sides comparison is therefore **area-weighted mean** (both
+compute coverage); the `all-touched`/`centroid` gaps partly reflect exactextract
+doing extra work, not pure engine speed. (exactextract is absent from the
+`centroid` rows entirely — it has no cell-centre-membership mode.)
+
+### Regime 2 — footprints span many cells (~100-cell diamonds over a fine grid)
+
+The genuine zonal case. Wall-clock seconds (lower = better):
+
+| Convention / metric | n | eider | exactextract | rasterstats |
+|---|---:|---:|---:|---:|
+| centroid / max | 10k | **0.57** | — | 15.3 |
+| | 100k | **1.46** | — | _IMPRACT_ |
+| | 1M | **10.2** | — | _IMPRACT_ |
+| all-touched / max | 10k | **0.58** | 1.14 | 15.3 |
+| | 100k | **1.85** | 10.9 | _IMPRACT_ |
+| | 1M | **13.7** | 108.9 | _IMPRACT_ |
+| all-touched / mean | 10k | **0.59** | 1.14 | 15.3 |
+| | 100k | **1.78** | 10.9 | _IMPRACT_ |
+| | 1M | **13.6** | 107.6 | _IMPRACT_ |
+| area-weighted / mean | 10k | **1.15** | 1.20 | n/a |
+| | 100k | **7.05** | 11.2 | n/a |
+| | 1M | **69.3** | 107.3 | n/a |
+
+`IMPRACT` = rasterstats not timed above the 20k cap — it ran ~15 s at 10k;
+**extrapolating** its ~linear cost puts 100k near ~150 s and 1M in the hours,
+roughly **1000×** eider (we did not run those cells). `n/a` = rasterstats has no
+exact area weighting (capability gap, not a loss).
+
+### Regime 1 — sub-cell assets (point sample over a coarse grid)
+
+| Convention / metric | n | eider (spatial) | eider (index-join) | exactextract | rasterstats |
+|---|---:|---:|---:|---:|---:|
+| centroid / max | 1M | 0.42 | **0.38** | — | _IMPRACT_ |
+| area-weighted / mean | 1M | **9.96** | — | 93.0 | n/a |
+
+When the asset sits inside one cell, modelling it as a point and using an
+**arithmetic cell-index equi-join** is the right tool — nothing else is close
+(0.38 s / 1M). This is the only regime where that shortcut is both correct and
+fastest. (`all-touched` is omitted here: on these sub-pixel polygons rasterstats
+disagrees with the exact geometry — see *Correctness first* — so a timing race
+there would not be comparing equal results.)
+
+### Verdict (honest)
+
+- **Centroid and all-touched, every scale: eider/DuckDB is fastest** — roughly
+  6–8× exactextract and ~25–1000× rasterstats, with *identical* results. Caveat:
+  part of the exactextract gap is the asymmetry above (it computes coverage even
+  when only "touched" is asked). The enabling trick is precomputing the cell
+  point/box as columns so DuckDB's spatial join engages — inline geometry in the
+  join predicate does *not*, and blows up (a real footgun we hit and fixed).
+- **Area-weighted mean — the fairest comparison (both compute coverage) — eider
+  stays ahead but it's closest:** ~1.6× at 100k (7.0 s vs 11.2 s) and ~1.5× at
+  1M many-cell (69 s vs 107 s); larger when footprints cover few cells (Regime 1
+  1M: 10 s vs 93 s). These are the same order of magnitude — exactextract is a
+  mature, robust C++ implementation and a fine choice here; eider's edge is
+  modest, not a blowout.
+- **rasterstats** is correct for centroid but ~1000× slower (not viable at
+  scale) and diverges on sub-pixel footprints.
+
+So for these conventions over many polygons, eider/DuckDB was the fastest
+*correct* option in every comparable cell measured — decisively for
+centroid/all-touched, modestly for area-weighted. And remember this hands every
+tool a warm local raster: eider's *other* advantage — never downloading the
+cells you don't need, from remote Zarr/COG/STAC — is a separate axis not
+measured here.
+
 ## Reproducing these numbers
 
-The benchmarks live in the repo and use criterion:
+The criterion microbenchmarks live in the repo:
 
 ```bash
 # Coordinate generation (extension crate)
@@ -37,3 +151,20 @@ cargo bench --package geozarr_core --bench scanner_bench
 Sources: `extension/benches/coordinate_bench.rs` and
 `geozarr_core/benches/scanner_bench.rs`. Numbers vary with hardware, network,
 and the remote store; treat them as order-of-magnitude, not absolute.
+
+The head-to-head harness is a standalone Python script:
+
+```bash
+python3 -m venv /tmp/bench_venv && source /tmp/bench_venv/bin/activate
+pip install -r scripts/bench_requirements.txt
+# build the eider extension if needed, then:
+export GEOZARR_ALLOW_PATH="$PWD"
+python scripts/bench_zonal_headtohead.py --regime both \
+  --counts 10000 100000 1000000 --reps 3 --budget-seconds 150 --rasterstats-max-n 20000 \
+  --json bench_full.json
+```
+
+It generates the synthetic COG + polygons, runs the correctness gate (timing is
+reported only after it passes), and prints the matrix. Source:
+`scripts/bench_zonal_headtohead.py`. See
+[Zonal statistics](./zonal_stats.mdx) for the convention definitions.
