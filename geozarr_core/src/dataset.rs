@@ -284,6 +284,27 @@ impl ZarrDataset {
     }
 
     fn resolve_dimension_names(metadata: &ArrayMetadata, rank: usize) -> Vec<String> {
+        // Resolution order: native Zarr v3 `dimension_names` -> `_ARRAY_DIMENSIONS`
+        // attribute (v2/xarray convention) -> positional `dim_i` fallback.
+        //
+        // Zarr v3 stores dimension names in the native `dimension_names` field of
+        // `zarr.json`, NOT in `_ARRAY_DIMENSIONS`. Reading only the attribute (as
+        // before) meant real v3 stores fell back to `dim_i`, so the lat/lon axes
+        // could not be identified and bbox -> chunk pruning silently no-oped.
+        if let ArrayMetadata::V3(meta) = metadata {
+            if let Some(dims) = &meta.dimension_names {
+                if dims.len() == rank {
+                    let names: Option<Vec<String>> = dims
+                        .iter()
+                        .map(|dim| dim.as_str().map(str::to_string))
+                        .collect();
+                    if let Some(names) = names {
+                        return names;
+                    }
+                }
+            }
+        }
+
         let attributes = match metadata {
             ArrayMetadata::V2(meta) => &meta.attributes,
             ArrayMetadata::V3(meta) => &meta.attributes,
@@ -403,5 +424,57 @@ mod tests {
         let metadata_attrs: ArrayMetadata = serde_json::from_str(json_meta).unwrap();
         let names = ZarrDataset::resolve_dimension_names(&metadata_attrs, 3);
         assert_eq!(names, vec!["time", "lat", "lon"]);
+    }
+
+    #[test]
+    fn test_resolve_dimension_names_v3_native_dimension_names() {
+        // Zarr v3 stores dimension names in the native `dimension_names` field of
+        // zarr.json, NOT in the `_ARRAY_DIMENSIONS` attribute (the v2/xarray
+        // convention). This store has ONLY the native field and no
+        // `_ARRAY_DIMENSIONS`, so resolution must read the native field.
+        let json_meta = r#"{
+            "zarr_format": 3,
+            "node_type": "array",
+            "shape": [4, 4],
+            "data_type": "int32",
+            "chunk_grid": {
+                "name": "regular",
+                "configuration": { "chunk_shape": [2, 2] }
+            },
+            "chunk_key_encoding": { "name": "default" },
+            "fill_value": 0,
+            "codecs": [
+                { "name": "bytes", "configuration": { "endian": "little" } }
+            ],
+            "dimension_names": ["lat", "lon"]
+        }"#;
+        let metadata: ArrayMetadata = serde_json::from_str(json_meta).unwrap();
+        let names = ZarrDataset::resolve_dimension_names(&metadata, 2);
+        assert_eq!(names, vec!["lat", "lon"]);
+    }
+
+    #[test]
+    fn test_resolve_dimension_names_v3_partial_names_fall_back() {
+        // If any native dimension name is null, the native field is ambiguous;
+        // fall back (here, to `dim_i` since there is no `_ARRAY_DIMENSIONS`).
+        let json_meta = r#"{
+            "zarr_format": 3,
+            "node_type": "array",
+            "shape": [4, 4],
+            "data_type": "int32",
+            "chunk_grid": {
+                "name": "regular",
+                "configuration": { "chunk_shape": [2, 2] }
+            },
+            "chunk_key_encoding": { "name": "default" },
+            "fill_value": 0,
+            "codecs": [
+                { "name": "bytes", "configuration": { "endian": "little" } }
+            ],
+            "dimension_names": ["lat", null]
+        }"#;
+        let metadata: ArrayMetadata = serde_json::from_str(json_meta).unwrap();
+        let names = ZarrDataset::resolve_dimension_names(&metadata, 2);
+        assert_eq!(names, vec!["dim_0", "dim_1"]);
     }
 }
