@@ -385,4 +385,34 @@ mod tests {
         let err = err_res.unwrap_err();
         assert_eq!(err.message, "duckdb connection error");
     }
+
+    #[tokio::test]
+    async fn test_run_sql_tool() {
+        let conn = eider_session::open_session().unwrap(); // NOTE: adjusted to open_session
+        let server = EiderServer::new(conn);
+
+        let params = RunSqlParams {
+            sql: "SELECT 42 as the_answer".to_string(),
+            limit: None,
+        };
+
+        let res = server.run_sql(Parameters(params)).await.unwrap();
+        // Since run_sql returns unstructured CallToolResult via run(), verify it returned successfully
+        let text = serde_json::to_string(&res.content[0]).unwrap();
+        assert!(text.contains("42"));
+    }
+
+    #[tokio::test]
+    async fn test_describe_table_tool_error_propagation() {
+        let conn = eider_session::open_session().unwrap(); // NOTE: adjusted to open_session
+        let server = EiderServer::new(conn);
+
+        let params = DescribeTableParams {
+            name: "non_existent_table_99".to_string(),
+        };
+
+        // Should return a proper rmcp error rather than panicking
+        let res = server.describe_table(Parameters(params)).await;
+        assert!(res.is_err());
+    }
 }
