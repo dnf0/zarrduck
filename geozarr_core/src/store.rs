@@ -258,6 +258,37 @@ fn sorted_features_by_datetime(
 }
 
 /// Sorted COG-asset names declared on a feature (media-type/href filtered).
+fn feature_asset_href(feature: &serde_json::Value, asset_name: &str) -> Result<String, String> {
+    let assets = feature
+        .get("assets")
+        .and_then(|a| a.as_object())
+        .ok_or("STAC feature has no assets")?;
+    let asset = assets
+        .get(asset_name)
+        .ok_or(format!("STAC feature missing asset {}", asset_name))?;
+    let href = asset
+        .get("href")
+        .and_then(|h| h.as_str())
+        .ok_or(format!("STAC feature asset {} missing href", asset_name))?;
+    Ok(href.to_string())
+}
+
+/// Split a full HTTP URL into an endpoint (scheme://host:port) and a root path.
+/// This prevents opendal from interpreting the path as a directory and returning
+/// `IsADirectory` when doing file-level range reads.
+fn split_http_endpoint_key(url_str: &str) -> Result<(String, String), String> {
+    let url = reqwest::Url::parse(url_str).map_err(|e| e.to_string())?;
+    let port = url.port().map(|p| format!(":{}", p)).unwrap_or_default();
+    let endpoint = format!(
+        "{}://{}{}",
+        url.scheme(),
+        url.host_str().unwrap_or(""),
+        port
+    );
+    let path = url.path().trim_start_matches('/').to_string();
+    Ok((endpoint, path))
+}
+
 fn cog_asset_names(
     feature: &serde_json::Value,
 ) -> std::result::Result<Vec<String>, Box<dyn std::error::Error>> {
@@ -275,24 +306,6 @@ fn cog_asset_names(
     }
     names.sort();
     Ok(names)
-}
-
-/// Resolve a named asset's `href` on a feature (string), erroring if absent.
-fn feature_asset_href(
-    feature: &serde_json::Value,
-    name: &str,
-) -> std::result::Result<String, Box<dyn std::error::Error>> {
-    let id = feature
-        .get("id")
-        .and_then(|i| i.as_str())
-        .unwrap_or("<no id>");
-    feature
-        .get("assets")
-        .and_then(|a| a.get(name))
-        .and_then(|a| a.get("href"))
-        .and_then(|h| h.as_str())
-        .map(|h| h.to_string())
-        .ok_or_else(|| format!("STAC item {id}: missing asset {name:?}").into())
 }
 
 /// Validate collection-wide grid uniformity across all built children, derive
@@ -424,7 +437,7 @@ pub fn resolve_sync_store(
                                 let mut set = tokio::task::JoinSet::new();
                                 for (name, idx, href) in jobs {
                                     set.spawn(async move {
-                                        let operator = if href.starts_with("s3://") {
+                                        let (operator, root_str) = if href.starts_with("s3://") {
                                             let bucket_and_path =
                                                 href.strip_prefix("s3://").unwrap();
                                             let bucket = bucket_and_path
@@ -436,25 +449,16 @@ pub fn resolve_sync_store(
                                             let builder = opendal::services::S3::default()
                                                 .bucket(bucket)
                                                 .root(root);
-                                            opendal::Operator::new(builder).unwrap().finish()
-                                        } else {
-                                            let builder =
-                                                opendal::services::Http::default().endpoint(&href);
-                                            opendal::Operator::new(builder).unwrap().finish()
-                                        };
-                                        let root_str = if href.starts_with("s3://") {
-                                            let bucket_and_path =
-                                                href.strip_prefix("s3://").unwrap();
-                                            let bucket = bucket_and_path
-                                                .split('/')
-                                                .next()
-                                                .unwrap_or(bucket_and_path);
-                                            bucket_and_path
+                                            let root_str = bucket_and_path
                                                 .strip_prefix(bucket)
                                                 .unwrap_or("/")
-                                                .to_string()
+                                                .to_string();
+                                            (opendal::Operator::new(builder).unwrap().finish(), root_str)
                                         } else {
-                                            "".to_string()
+                                            let (endpoint, path) = split_http_endpoint_key(&href).unwrap();
+                                            let builder =
+                                                opendal::services::Http::default().endpoint(&endpoint);
+                                            (opendal::Operator::new(builder).unwrap().finish(), path)
                                         };
                                         let header_bytes = operator
                                             .read_with(&root_str)
@@ -572,7 +576,9 @@ pub fn resolve_sync_store(
                                         let mut set = tokio::task::JoinSet::new();
                                         for (name, href) in cog_assets {
                                             set.spawn(async move {
-                                                let operator = if href.starts_with("s3://") {
+                                                let (operator, root_str) = if href
+                                                    .starts_with("s3://")
+                                                {
                                                     let bucket_and_path =
                                                         href.strip_prefix("s3://").unwrap();
                                                     let bucket = bucket_and_path
@@ -585,31 +591,28 @@ pub fn resolve_sync_store(
                                                     let builder = opendal::services::S3::default()
                                                         .bucket(bucket)
                                                         .root(root);
-                                                    opendal::Operator::new(builder)
-                                                        .unwrap()
-                                                        .finish()
-                                                } else {
-                                                    let builder =
-                                                        opendal::services::Http::default()
-                                                            .endpoint(&href);
-                                                    opendal::Operator::new(builder)
-                                                        .unwrap()
-                                                        .finish()
-                                                };
-
-                                                let root_str = if href.starts_with("s3://") {
-                                                    let bucket_and_path =
-                                                        href.strip_prefix("s3://").unwrap();
-                                                    let bucket = bucket_and_path
-                                                        .split('/')
-                                                        .next()
-                                                        .unwrap_or(bucket_and_path);
-                                                    bucket_and_path
+                                                    let root_str = bucket_and_path
                                                         .strip_prefix(bucket)
                                                         .unwrap_or("/")
-                                                        .to_string()
+                                                        .to_string();
+                                                    (
+                                                        opendal::Operator::new(builder)
+                                                            .unwrap()
+                                                            .finish(),
+                                                        root_str,
+                                                    )
                                                 } else {
-                                                    "".to_string()
+                                                    let (endpoint, path) =
+                                                        split_http_endpoint_key(&href).unwrap();
+                                                    let builder =
+                                                        opendal::services::Http::default()
+                                                            .endpoint(&endpoint);
+                                                    (
+                                                        opendal::Operator::new(builder)
+                                                            .unwrap()
+                                                            .finish(),
+                                                        path,
+                                                    )
                                                 };
 
                                                 let header_bytes = operator
@@ -624,9 +627,7 @@ pub fn resolve_sync_store(
                                                 (
                                                     name,
                                                     crate::virtual_store::VirtualCogStore::new(
-                                                        operator,
-                                                        "".to_string(),
-                                                        meta,
+                                                        operator, root_str, meta,
                                                     ),
                                                 )
                                             });
@@ -701,18 +702,8 @@ pub fn resolve_sync_store(
                                             opendal::services::S3::default().bucket(bucket);
                                         (opendal::Operator::new(builder).unwrap().finish(), root)
                                     } else {
-                                        let url = reqwest::Url::parse(&abs_href).unwrap();
-                                        let port = url
-                                            .port()
-                                            .map(|p| format!(":{}", p))
-                                            .unwrap_or_default();
-                                        let endpoint = format!(
-                                            "{}://{}{}",
-                                            url.scheme(),
-                                            url.host_str().unwrap(),
-                                            port
-                                        );
-                                        let path = url.path().trim_start_matches('/').to_string();
+                                        let (endpoint, path) =
+                                            split_http_endpoint_key(&abs_href).unwrap();
                                         let builder =
                                             opendal::services::Http::default().endpoint(&endpoint);
                                         (opendal::Operator::new(builder).unwrap().finish(), path)
@@ -753,24 +744,31 @@ pub fn resolve_sync_store(
             }
         }
 
-        let builder = opendal::services::Http::default().endpoint(path);
+        let (endpoint, root_str) = split_http_endpoint_key(path).unwrap();
+        let builder = opendal::services::Http::default().endpoint(&endpoint);
         let async_operator = opendal::Operator::new(builder)?.finish();
 
         let store: Arc<dyn ReadableStorageTraits> = if is_cog {
             let async_op_clone = async_operator.clone();
+            let root_str_clone = root_str.clone();
             let header_res = std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async { async_op_clone.read_with("").range(0..16384).await })
-                    .map_err(|e| e.to_string())
+                rt.block_on(async {
+                    async_op_clone
+                        .read_with(&root_str_clone)
+                        .range(0..16384)
+                        .await
+                })
+                .map_err(|e| e.to_string())
             })
             .join()
             .unwrap();
 
             let header_bytes = header_res?.to_vec();
             let meta = crate::cog::parse_cog_metadata(&header_bytes).unwrap_or_default();
-            Arc::new(crate::virtual_store::VirtualCogStore::new(
+            std::sync::Arc::new(crate::virtual_store::VirtualCogStore::new(
                 async_operator,
-                "".to_string(),
+                root_str,
                 meta,
             )?)
         } else {
@@ -1003,17 +1001,35 @@ pub async fn list_arrays(uri: &str) -> Result<Vec<String>, Box<dyn std::error::E
     }
 
     let operator = if uri.starts_with("http") {
-        opendal::Operator::new(opendal::services::Http::default().endpoint(uri))?.finish()
+        let (endpoint, _path) = split_http_endpoint_key(uri)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+        opendal::Operator::new(opendal::services::Http::default().endpoint(&endpoint))?.finish()
     } else {
         opendal::Operator::new(opendal::services::Fs::default().root(uri))?.finish()
     };
 
-    let is_group = operator.is_exist(".zgroup").await.unwrap_or(false);
+    let is_group = if uri.starts_with("http") {
+        let (_, path) = split_http_endpoint_key(uri)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+        operator
+            .is_exist(&format!("{}/.zgroup", path))
+            .await
+            .unwrap_or(false)
+    } else {
+        operator.is_exist(".zgroup").await.unwrap_or(false)
+    };
     let mut arrays = Vec::new();
 
     if is_group {
         // Try reading consolidated metadata first (crucial for HTTP where listing is unsupported)
-        if let Ok(metadata_bytes) = operator.read(".zmetadata").await {
+        let metadata_path = if uri.starts_with("http") {
+            let (_, path) = split_http_endpoint_key(uri)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+            format!("{}/.zmetadata", path)
+        } else {
+            ".zmetadata".to_string()
+        };
+        if let Ok(metadata_bytes) = operator.read(&metadata_path).await {
             if let Ok(metadata_json) =
                 serde_json::from_slice::<serde_json::Value>(&metadata_bytes.to_bytes())
             {
