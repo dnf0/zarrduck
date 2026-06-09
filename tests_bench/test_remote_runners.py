@@ -38,50 +38,86 @@ from scripts.bench_remote_partialread import (  # noqa: E402
 )
 
 EXTENSION_PATH = REPO_ROOT / "target" / "debug" / "eider.duckdb_extension"
-WINDOW_FRACTION = 0.1
+# A small (1%-area) window so chunk/shard pruning is demonstrable: a large
+# window touches most chunks (esp. sharded, where eider fetches whole shards),
+# leaving little to prune.
+WINDOW_FRACTION = 0.01
+
+# A store big enough that the small window prunes (and the sharded variant packs
+# several shard files: shards default to 2x chunks -> 256, so 1024/256 = 16).
+RUNNER_SHAPE = (1024, 1024)
+RUNNER_CHUNKS = (128, 128)
+
+# The three on-disk Zarr layouts the benchmark covers.
+ZARR_FMTS = ("zarr_v2", "zarr_v3", "zarr_v3_sharded")
 
 
 @pytest.fixture(scope="module")
-def served_store(tmp_path_factory):
-    """Generate the small Zarr + COG, serve them, and yield the read context."""
-    root = tmp_path_factory.mktemp("remote_store")
-    info = generate_zarr(root, shape=(512, 512), chunks=(128, 128), seed=1)
-    generate_cog(root / "grid.tif", shape=(512, 512), blocksize=128, seed=1)
+def served_zarr(tmp_path_factory):
+    """Serve one Zarr store per format from its own root; yield a per-fmt map."""
+    contexts: dict[str, dict] = {}
+    servers = []
+    try:
+        for fmt in ZARR_FMTS:
+            root = tmp_path_factory.mktemp(f"remote_{fmt}")
+            zfmt = fmt.removeprefix("zarr_")
+            info = generate_zarr(
+                root, shape=RUNNER_SHAPE, chunks=RUNNER_CHUNKS, seed=1, fmt=zfmt
+            )
+            server, port, acc = start_server(root)
+            servers.append(server)
+            os.environ["GEOZARR_ALLOW_PATH"] = str(root)
+            contexts[fmt] = {
+                "port": port,
+                "acc": acc,
+                "bbox": window_bbox(info, WINDOW_FRACTION),
+                "store_path": f"store.zarr/{ZARR_VAR_NAME}",
+            }
+        yield contexts
+    finally:
+        for server in servers:
+            server.shutdown()
 
+
+@pytest.fixture(scope="module")
+def served_cog(tmp_path_factory):
+    """Generate the small COG + STAC item, serve it, and yield the read context."""
+    root = tmp_path_factory.mktemp("remote_cog")
+    info = generate_cog(root / "grid.tif", shape=(512, 512), blocksize=128, seed=1)
     server, port, acc = start_server(root)
     # eider's local-path sandbox gate also covers the served STAC item it reads.
     os.environ["GEOZARR_ALLOW_PATH"] = str(root)
     cog_item_rel = write_cog_stac_item(root, port, cog_rel="grid.tif")
-
-    bbox = window_bbox(info, WINDOW_FRACTION)
     try:
         yield {
             "port": port,
             "acc": acc,
-            "bbox": bbox,
-            "zarr_store_path": f"store.zarr/{ZARR_VAR_NAME}",
-            "cog_store_path": f"{cog_item_rel}/{COG_ASSET_NAME}",
+            "bbox": window_bbox(info, WINDOW_FRACTION),
+            "store_path": f"{cog_item_rel}/{COG_ASSET_NAME}",
         }
     finally:
         server.shutdown()
 
 
 # --------------------------------------------------------------------------
-# Zarr: all three contenders agree, and the pruning contenders fetch less.
+# Zarr v2 / v3 / v3_sharded: all three contenders agree, eider & chunk-aware
+# fetch FEWER bytes than naive (i.e. eider prunes the format over HTTP).
 # --------------------------------------------------------------------------
 @pytest.mark.skipif(
     not EXTENSION_PATH.exists(), reason=f"eider extension not built at {EXTENSION_PATH}"
 )
-def test_zarr_three_way_agree_and_prune(served_store):
-    port = served_store["port"]
-    acc = served_store["acc"]
-    bbox = served_store["bbox"]
+@pytest.mark.parametrize("fmt", ZARR_FMTS)
+def test_zarr_three_way_agree_and_prune(served_zarr, fmt):
+    ctx = served_zarr[fmt]
+    port = ctx["port"]
+    acc = ctx["acc"]
+    bbox = ctx["bbox"]
 
     eider_sum, eider_bytes, eider_req = run_eider_remote(
-        port, served_store["zarr_store_path"], bbox, acc, EXTENSION_PATH, fmt="zarr"
+        port, ctx["store_path"], bbox, acc, EXTENSION_PATH, fmt=fmt
     )
-    ca_sum, ca_bytes, _ = run_chunkaware_remote(port, bbox, acc, fmt="zarr")
-    naive_sum, naive_bytes, _ = run_naive_remote(port, bbox, acc, fmt="zarr")
+    ca_sum, ca_bytes, _ = run_chunkaware_remote(port, bbox, acc, fmt=fmt)
+    naive_sum, naive_bytes, _ = run_naive_remote(port, bbox, acc, fmt=fmt)
 
     # eider genuinely fetched bytes over HTTP for the window.
     assert eider_req > 0
@@ -96,8 +132,9 @@ def test_zarr_three_way_agree_and_prune(served_store):
     assert eider_sum["count"] == ca_sum["count"] == naive_sum["count"]
     assert eider_sum["count"] > 0
 
-    # The pruning contenders fetch strictly fewer bytes than the naive read.
-    assert eider_bytes < naive_bytes
+    # The pruning contenders fetch strictly fewer bytes than the naive read:
+    # eider PRUNES this Zarr layout over HTTP (the whole point of the benchmark).
+    assert eider_bytes < naive_bytes, f"eider did not prune {fmt}: {eider_bytes} vs {naive_bytes}"
     assert ca_bytes < naive_bytes
 
 
@@ -107,13 +144,13 @@ def test_zarr_three_way_agree_and_prune(served_store):
 @pytest.mark.skipif(
     not EXTENSION_PATH.exists(), reason=f"eider extension not built at {EXTENSION_PATH}"
 )
-def test_cog_three_way_agree_and_prune(served_store):
-    port = served_store["port"]
-    acc = served_store["acc"]
-    bbox = served_store["bbox"]
+def test_cog_three_way_agree_and_prune(served_cog):
+    port = served_cog["port"]
+    acc = served_cog["acc"]
+    bbox = served_cog["bbox"]
 
     eider_sum, eider_bytes, eider_req = run_eider_remote(
-        port, served_store["cog_store_path"], bbox, acc, EXTENSION_PATH, fmt="cog"
+        port, served_cog["store_path"], bbox, acc, EXTENSION_PATH, fmt="cog"
     )
     ca_sum, ca_bytes, _ = run_chunkaware_remote(port, bbox, acc, fmt="cog")
     naive_sum, naive_bytes, _ = run_naive_remote(port, bbox, acc, fmt="cog")

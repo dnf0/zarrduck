@@ -78,24 +78,33 @@ def test_server_range_is_flagged(tmp_path):
         server.shutdown()
 
 
-def test_generate_zarr_reopens(tmp_path):
+def _read_array_zarr_json(store, var):
+    """Load the per-array v3 ``zarr.json`` for ``var`` from a store on disk."""
+    import json
+
+    path = os.path.join(store, var, "zarr.json")
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def test_generate_zarr_v2_reopens(tmp_path):
+    import numpy as np
     import xarray as xr
 
-    info = generate_zarr(tmp_path, shape=(512, 512), chunks=(128, 128), seed=1)
+    info = generate_zarr(tmp_path, shape=(512, 512), chunks=(128, 128), seed=1, fmt="v2")
+    assert info["fmt"] == "v2"
     ds = xr.open_zarr(str(info["store"]))
     var = ds[info["var"]]
     assert var.shape == (512, 512)
     assert var.dtype == "float32"
     assert "lat" in ds.coords and "lon" in ds.coords
     # Coordinates are monotonic ascending.
-    import numpy as np
-
     assert np.all(np.diff(ds["lat"].values) > 0)
     assert np.all(np.diff(ds["lon"].values) > 0)
 
 
-def test_generate_zarr_is_v2_not_v3(tmp_path):
-    info = generate_zarr(tmp_path, shape=(256, 256), chunks=(128, 128), seed=1)
+def test_generate_zarr_v2_is_v2_not_v3(tmp_path):
+    info = generate_zarr(tmp_path, shape=(256, 256), chunks=(128, 128), seed=1, fmt="v2")
     store = info["store"]
     found_zarray = []
     found_zarr_json = []
@@ -105,9 +114,88 @@ def test_generate_zarr_is_v2_not_v3(tmp_path):
                 found_zarray.append(os.path.join(root, f))
             if f == "zarr.json":
                 found_zarr_json.append(os.path.join(root, f))
-    # eider reads Zarr v2: expect v2 .zarray files, NOT v3 zarr.json.
+    # v2: expect classic .zarray files, NOT v3 zarr.json.
     assert found_zarray, "expected zarr v2 .zarray metadata"
     assert not found_zarr_json, "found zarr v3 zarr.json; must be v2"
+
+
+def test_generate_zarr_v3_reopens(tmp_path):
+    import numpy as np
+    import xarray as xr
+
+    info = generate_zarr(tmp_path, shape=(512, 512), chunks=(128, 128), seed=1, fmt="v3")
+    assert info["fmt"] == "v3"
+    assert info["shards"] is None
+    ds = xr.open_zarr(str(info["store"]), consolidated=True)
+    var = ds[info["var"]]
+    assert var.shape == (512, 512)
+    assert var.dtype == "float32"
+    assert np.all(np.diff(ds["lat"].values) > 0)
+    assert np.all(np.diff(ds["lon"].values) > 0)
+
+
+def test_generate_zarr_v3_native_metadata(tmp_path):
+    info = generate_zarr(tmp_path, shape=(256, 256), chunks=(128, 128), seed=1, fmt="v3")
+    store = info["store"]
+    # v3: per-array zarr.json present, NO classic .zarray anywhere.
+    found_zarray = []
+    found_zarr_json = []
+    for root, _dirs, files in os.walk(store):
+        for f in files:
+            if f == ".zarray":
+                found_zarray.append(os.path.join(root, f))
+            if f == "zarr.json":
+                found_zarr_json.append(os.path.join(root, f))
+    assert not found_zarray, "found classic .zarray; v3 must use zarr.json"
+    assert found_zarr_json, "expected v3 zarr.json metadata"
+
+    # The variable array carries native dimension_names, NOT v2 _ARRAY_DIMENSIONS.
+    array_meta = _read_array_zarr_json(store, info["var"])
+    assert array_meta["dimension_names"] == ["lat", "lon"]
+    assert "_ARRAY_DIMENSIONS" not in array_meta.get("attributes", {})
+
+
+def test_generate_zarr_v3_sharded_layout(tmp_path):
+    info = generate_zarr(
+        tmp_path, shape=(512, 512), chunks=(128, 128), seed=1, fmt="v3_sharded"
+    )
+    assert info["fmt"] == "v3_sharded"
+    # Default shards = 2x chunks per axis.
+    assert info["shards"] == (256, 256)
+
+    store = info["store"]
+    array_meta = _read_array_zarr_json(store, info["var"])
+    # Native v3 dimension names, no v2 attribute.
+    assert array_meta["dimension_names"] == ["lat", "lon"]
+    assert "_ARRAY_DIMENSIONS" not in array_meta.get("attributes", {})
+
+    # The variable uses the sharding codec; the array chunk grid is the SHARD
+    # shape and the codec's inner chunk_shape is the (smaller) chunk shape.
+    codecs = array_meta["codecs"]
+    assert codecs[0]["name"] == "sharding_indexed"
+    cfg = codecs[0]["configuration"]
+    assert cfg["chunk_shape"] == [128, 128]
+    assert array_meta["chunk_grid"]["configuration"]["chunk_shape"] == [256, 256]
+
+    # Multiple shard files exist under c/ (512/256 = 2 shards per axis -> 4).
+    shard_dir = os.path.join(store, info["var"], "c")
+    shard_files = [
+        os.path.join(r, f) for r, _d, fs in os.walk(shard_dir) for f in fs
+    ]
+    assert len(shard_files) == 4, f"expected 4 shard files, got {len(shard_files)}"
+
+
+def test_generate_zarr_v3_sharded_rejects_misaligned_shards(tmp_path):
+    import pytest
+
+    with pytest.raises(ValueError, match="whole multiples"):
+        generate_zarr(
+            tmp_path,
+            shape=(512, 512),
+            chunks=(128, 128),
+            fmt="v3_sharded",
+            shards=(200, 200),
+        )
 
 
 def test_generate_cog_reopens(tmp_path):
