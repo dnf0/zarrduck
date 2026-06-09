@@ -12,7 +12,7 @@ A high-performance, cloud-native [DuckDB](https://duckdb.org/) extension for rea
 
 Eider was designed to push the physical limits of network I/O and single-core SIMD throughput. It matches or beats the fastest available Python Zarr library (even the Rust-backed `zarrs` pipeline) because it avoids generating physical numpy arrays inside Python, instead streaming directly into DuckDB vectors.
 
-Generating a block of 2,048 projected coordinates natively inside the extension costs **~9.5 µs**, making the math essentially free compared to network latency.
+Generating a block of 2,048 projected coordinates natively inside the extension costs **~10.6 µs**, making the math essentially free compared to network latency.
 
 📊 **[View the interactive performance benchmarks on our documentation site!](https://dnf0.github.io/eider/docs/engineering/benchmarks)**
 
@@ -28,6 +28,8 @@ This project bridges the gap with two tools:
 - **Zero-Copy Streaming**: Chunks are loaded, decompressed, and decoded natively inside DuckDB's engine.
 - **Lock-Free Parallel Scanning**: Achieves maximum S3 throughput by utilizing DuckDB's multi-threaded worker pool to fetch and decode multiple chunks simultaneously.
 - **Cloud Native**: Powered by Apache OpenDAL, natively supporting reading and writing from local filesystems, `s3://`, `http://`, and `https://` with standard AWS credentials.
+- **Zarr V3 & Sharding**: Full support for Zarr V3, including Sharded arrays, optimizing remote HTTP/S3 fetches using byte-range reads to pull only the necessary inner chunks and indices.
+- **Bare COG & STAC**: Directly query STAC FeatureCollections and bare Cloud-Optimized GeoTIFFs with the same spatial pruning and performance as Zarr.
 - **Spatial Pruning**: Filter data at the chunk-level using bounding boxes (`lat_min`, `lon_max`), preventing out-of-bounds S3 requests before they are ever made.
 - **Universal Types**: Supports all common Zarr primitives (`f32`, `f64`, `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `bool`, and `String`).
 - **Missing Data Awareness**: Missing data tokens (Zarr `fill_value`s) are mapped perfectly to true SQL `NULL`s via DuckDB's `ValidityMask`.
