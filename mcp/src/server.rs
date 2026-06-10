@@ -145,6 +145,21 @@ pub struct RunSqlParams {
     pub limit: Option<usize>,
 }
 
+/// Parameters for `extract_point_timeseries`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExtractPointParams {
+    /// Zarr dataset/array URI.
+    pub uri: String,
+    /// Target latitude.
+    pub lat: f64,
+    /// Target longitude.
+    pub lon: f64,
+    /// Interpolation method: "nearest" or "idw". Defaults to "nearest".
+    pub method: Option<String>,
+    /// Value column to extract. Defaults to "value".
+    pub value_col: Option<String>,
+}
+
 /// The MCP server: a single eider+spatial DuckDB session behind a mutex.
 #[derive(Clone)]
 pub struct EiderServer {
@@ -304,6 +319,27 @@ impl EiderServer {
     ) -> Result<CallToolResult, ErrorData> {
         self.run(move |c| crate::tools::run_sql(c, &p.sql, p.limit))
             .await
+    }
+
+    #[tool(
+        name = "extract_point_timeseries",
+        description = "Extract a timeseries for a specific geographic point. method: nearest|idw."
+    )]
+    pub async fn extract_point_timeseries(
+        &self,
+        Parameters(params): Parameters<ExtractPointParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.run(move |conn| {
+            crate::tools::extract_point_timeseries(
+                conn,
+                &params.uri,
+                params.lat,
+                params.lon,
+                params.method.as_deref().unwrap_or("nearest"),
+                params.value_col.as_deref(),
+            )
+        })
+        .await
     }
 }
 
