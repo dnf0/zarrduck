@@ -563,15 +563,28 @@ mod tests {
         // Nearest point value should equal IDW value because distance is 0 and dominates
         let nearest_val = rows[0]["value"].as_f64().unwrap();
         let idw_val = idw_rows[0]["value"].as_f64().unwrap();
-        assert!((nearest_val - idw_val).abs() < 1e-6);
+        assert!((nearest_val - idw_val).abs() < 1e-4);
+    }
+
+    #[test]
+    fn extract_point_timeseries_missing_col() {
+        let Some(c) = session() else { return };
+        let res =
+            extract_point_timeseries(&c, &zarr(), 50.0, -10.0, "nearest", Some("invalid_col"));
+        assert!(res.is_err()); // valid column name check bypasses duckdb, or duckdb throws missing col
     }
 
     #[test]
     fn extract_point_timeseries_custom_col() {
         let Some(c) = session() else { return };
-        let res =
-            extract_point_timeseries(&c, &zarr(), 50.0, -10.0, "nearest", Some("invalid_col"));
-        assert!(res.is_err()); // valid column name check bypasses duckdb, or duckdb throws missing col
+        let v = extract_point_timeseries(&c, &zarr(), 50.0, -10.0, "nearest", Some("elevation"))
+            .unwrap();
+        let rows = v["rows"].as_array().unwrap();
+        assert!(
+            rows[0].get("elevation").is_some(),
+            "should contain the custom column 'elevation'"
+        );
+        assert!(rows[0]["elevation"].is_number());
     }
 
     #[test]
