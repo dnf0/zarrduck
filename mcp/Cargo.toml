@@ -22,6 +22,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 schemars = "=1.2.1"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "time", "process"] }
 # The protocol smoke test drives the server with a real in-process MCP client.
 rmcp = { version = "=1.7.0", features = ["client"] }
