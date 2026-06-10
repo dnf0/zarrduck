@@ -18,12 +18,16 @@ use color_eyre::eyre::Report;
 use duckdb::Connection;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, Meta, ServerCapabilities, ServerInfo};
 use rmcp::{tool, tool_handler, tool_router, ErrorData, ServerHandler};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::Mutex;
+
+struct MirrorInterruptHandle {
+    pub conn: std::sync::Mutex<duckdb::ffi::duckdb_connection>,
+}
 
 /// Per-call wall-clock budget. A query that overruns is interrupted.
 const TOOL_TIMEOUT: Duration = Duration::from_secs(120);
@@ -182,15 +186,44 @@ impl EiderServer {
     /// The watchdog holds an [`duckdb::InterruptHandle`] (`Send + Sync`) and
     /// fires `interrupt()` after [`TOOL_TIMEOUT`]; it is aborted once the query
     /// returns so a fast query is never affected.
-    async fn run<F>(&self, f: F) -> Result<CallToolResult, ErrorData>
+    async fn run<F>(
+        &self,
+        client_info: Option<(rmcp::Peer<rmcp::RoleServer>, rmcp::model::ProgressToken)>,
+        f: F,
+    ) -> Result<CallToolResult, ErrorData>
     where
         F: FnOnce(&Connection) -> Result<Value, Report>,
     {
         let guard = self.conn.lock().await;
         let interrupt = guard.interrupt_handle();
         let watchdog = tokio::spawn(async move {
-            tokio::time::sleep(TOOL_TIMEOUT).await;
-            interrupt.interrupt();
+            let start = tokio::time::Instant::now();
+            let mut interval = tokio::time::interval(Duration::from_millis(500));
+            loop {
+                interval.tick().await;
+                if start.elapsed() >= TOOL_TIMEOUT {
+                    interrupt.interrupt();
+                    break;
+                }
+                if let Some((ref client, ref token)) = client_info {
+                    let pct = unsafe {
+                        let ptr = &*interrupt as *const duckdb::InterruptHandle
+                            as *const MirrorInterruptHandle;
+                        let db_conn = (*ptr).conn.lock().unwrap();
+                        duckdb::ffi::duckdb_query_progress(*db_conn).percentage
+                    };
+                    if pct > 0.0 {
+                        let _ = client
+                            .notify_progress(rmcp::model::ProgressNotificationParam {
+                                progress_token: token.clone(),
+                                progress: pct,
+                                total: Some(100.0),
+                                message: None,
+                            })
+                            .await;
+                    }
+                }
+            }
         });
         let result = f(&guard);
         watchdog.abort();
@@ -214,10 +247,15 @@ impl EiderServer {
     )]
     pub async fn describe_dataset(
         &self,
+        meta: Meta,
+        client: rmcp::Peer<rmcp::RoleServer>,
         Parameters(p): Parameters<DescribeDatasetParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.run(move |c| crate::tools::describe_dataset(c, &p.uri))
-            .await
+        let token = meta.get_progress_token();
+        self.run(token.map(|t| (client, t)), move |c| {
+            crate::tools::describe_dataset(c, &p.uri)
+        })
+        .await
     }
 
     /// Estimate read cost (chunk/byte counts) for a region. Call this before a
@@ -228,12 +266,17 @@ impl EiderServer {
     )]
     pub async fn estimate_cost(
         &self,
+        meta: Meta,
+        client: rmcp::Peer<rmcp::RoleServer>,
         Parameters(p): Parameters<EstimateCostParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        let token = meta.get_progress_token();
         let bbox = p.bbox.as_ref().map(Bbox::to_value);
         let time = p.time.as_ref().map(TimeRange::to_value);
-        self.run(move |c| crate::tools::estimate_cost(c, &p.uri, bbox.as_ref(), time.as_ref()))
-            .await
+        self.run(token.map(|t| (client, t)), move |c| {
+            crate::tools::estimate_cost(c, &p.uri, bbox.as_ref(), time.as_ref())
+        })
+        .await
     }
 
     /// Read a bbox/time/asset window. The bbox is pushed down to prune chunks;
@@ -244,11 +287,14 @@ impl EiderServer {
     )]
     pub async fn read_region(
         &self,
+        meta: Meta,
+        client: rmcp::Peer<rmcp::RoleServer>,
         Parameters(p): Parameters<ReadRegionParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        let token = meta.get_progress_token();
         let bbox = p.bbox.as_ref().map(Bbox::to_value);
         let time = p.time.as_ref().map(TimeRange::to_value);
-        self.run(move |c| {
+        self.run(token.map(|t| (client, t)), move |c| {
             crate::tools::read_region(
                 c,
                 &p.uri,
@@ -269,9 +315,12 @@ impl EiderServer {
     )]
     pub async fn zonal_stats(
         &self,
+        meta: Meta,
+        client: rmcp::Peer<rmcp::RoleServer>,
         Parameters(p): Parameters<ZonalStatsParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.run(move |c| {
+        let token = meta.get_progress_token();
+        self.run(token.map(|t| (client, t)), move |c| {
             crate::tools::zonal_stats(
                 c,
                 &p.grid_uri,
@@ -291,8 +340,14 @@ impl EiderServer {
         name = "list_tables",
         description = "List tables in the session, including the temp-table result handles produced by read_region/zonal_stats/run_sql."
     )]
-    pub async fn list_tables(&self) -> Result<CallToolResult, ErrorData> {
-        self.run(crate::tools::list_tables).await
+    pub async fn list_tables(
+        &self,
+        meta: Meta,
+        client: rmcp::Peer<rmcp::RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let token = meta.get_progress_token();
+        self.run(token.map(|t| (client, t)), crate::tools::list_tables)
+            .await
     }
 
     /// Describe a table/handle's schema and a small sample.
@@ -302,10 +357,15 @@ impl EiderServer {
     )]
     pub async fn describe_table(
         &self,
+        meta: Meta,
+        client: rmcp::Peer<rmcp::RoleServer>,
         Parameters(p): Parameters<DescribeTableParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.run(move |c| crate::tools::describe_table(c, &p.name))
-            .await
+        let token = meta.get_progress_token();
+        self.run(token.map(|t| (client, t)), move |c| {
+            crate::tools::describe_table(c, &p.name)
+        })
+        .await
     }
 
     /// Read-only SQL escape hatch over the session.
@@ -315,10 +375,15 @@ impl EiderServer {
     )]
     pub async fn run_sql(
         &self,
+        meta: Meta,
+        client: rmcp::Peer<rmcp::RoleServer>,
         Parameters(p): Parameters<RunSqlParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.run(move |c| crate::tools::run_sql(c, &p.sql, p.limit))
-            .await
+        let token = meta.get_progress_token();
+        self.run(token.map(|t| (client, t)), move |c| {
+            crate::tools::run_sql(c, &p.sql, p.limit)
+        })
+        .await
     }
 
     #[tool(
@@ -327,9 +392,12 @@ impl EiderServer {
     )]
     pub async fn extract_point_timeseries(
         &self,
+        meta: Meta,
+        client: rmcp::Peer<rmcp::RoleServer>,
         Parameters(params): Parameters<ExtractPointParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        self.run(move |conn| {
+        let token = meta.get_progress_token();
+        self.run(token.map(|t| (client, t)), move |conn| {
             crate::tools::extract_point_timeseries(
                 conn,
                 &params.uri,
@@ -399,7 +467,7 @@ mod tests {
         let conn = eider_session::open_session().unwrap();
         let server = EiderServer::new(conn);
         let res = server
-            .run(|_conn| Ok(json!({"success": true})))
+            .run(None, |_conn| Ok(json!({"success": true})))
             .await
             .unwrap();
 
@@ -414,7 +482,9 @@ mod tests {
         let conn = eider_session::open_session().unwrap();
         let server = EiderServer::new(conn);
         let err_res = server
-            .run(|_conn| Err(color_eyre::eyre::eyre!("duckdb connection error")))
+            .run(None, |_conn| {
+                Err(color_eyre::eyre::eyre!("duckdb connection error"))
+            })
             .await;
 
         assert!(err_res.is_err());
@@ -432,7 +502,12 @@ mod tests {
             limit: None,
         };
 
-        let res = server.run_sql(Parameters(params)).await.unwrap();
+        let res = server
+            .run(None, move |c| {
+                crate::tools::run_sql(c, &params.sql, params.limit)
+            })
+            .await
+            .unwrap();
         // Since run_sql returns unstructured CallToolResult via run(), verify it returned successfully
         let text = serde_json::to_string(&res.content[0]).unwrap();
         assert!(text.contains("42"));
@@ -448,7 +523,9 @@ mod tests {
         };
 
         // Should return a proper rmcp error rather than panicking
-        let res = server.describe_table(Parameters(params)).await;
+        let res = server
+            .run(None, move |c| crate::tools::describe_table(c, &params.name))
+            .await;
         assert!(res.is_err());
     }
 }
