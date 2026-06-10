@@ -22,6 +22,7 @@ of tools where the *correct* thing is the *easy* thing:
   inspect a dataset, estimate cost, read a window into a table, then keep
   querying that table by `table_handle` — building a multi-step analysis
   without re-reading the grid each time.
+- **Live query progress.** The server streams native DuckDB query progress over the standard MCP notification wire, ensuring long spatial reads don't look like hanging processes to the user.
 
 ## Running the server
 
