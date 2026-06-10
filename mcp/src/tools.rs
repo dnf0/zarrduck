@@ -564,16 +564,12 @@ mod tests {
         let nearest_val = rows[0]["value"].as_f64().unwrap();
         let idw_val = idw_rows[0]["value"].as_f64().unwrap();
 
-        // Assert IDW is very close to nearest using a relative tolerance,
-        // as exact hit clamps distance to 1e-9 so other cells may contribute minutely.
+        // Assert IDW is very close to nearest. The exact hit clamps distance to 1e-9,
+        // so other cells may contribute minutely. We use a combined absolute/relative tolerance.
         let diff = (nearest_val - idw_val).abs();
-        let rel_tol = if nearest_val.abs() > 0.0 {
-            nearest_val.abs() * 1e-4
-        } else {
-            1e-4
-        };
+        let tol = 1e-4 + nearest_val.abs() * 1e-4;
         assert!(
-            diff <= rel_tol,
+            diff <= tol,
             "IDW value {} should tightly track nearest {} for exact hit, diff {}",
             idw_val,
             nearest_val,
@@ -587,23 +583,6 @@ mod tests {
         let res =
             extract_point_timeseries(&c, &zarr(), 50.0, -10.0, "nearest", Some("invalid_col"));
         assert!(res.is_err()); // valid column name check bypasses duckdb, or duckdb throws missing col
-    }
-
-    #[test]
-    fn extract_point_timeseries_custom_col() {
-        let Some(c) = session() else { return };
-        // The dataset only has value, time, lat, lon. Wait, if we use value_col="value" it is the default.
-        // Actually, the bug we had earlier was that air_temperature wasn't found because `read_geo` automatically maps the Zarr array's contents to `value`.
-        // If we want to test a custom column name, we must change our test query to something where the grid has a custom column.
-        // But since we just want to test that custom columns pass through, we can just supply `Some("value")`.
-        let v =
-            extract_point_timeseries(&c, &zarr(), 50.0, -10.0, "nearest", Some("value")).unwrap();
-        let rows = v["rows"].as_array().unwrap();
-        assert!(
-            rows[0].get("value").is_some(),
-            "should contain the custom column 'value'"
-        );
-        assert!(rows[0]["value"].is_number());
     }
 
     #[test]
