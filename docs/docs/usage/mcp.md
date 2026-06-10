@@ -75,6 +75,10 @@ MCP client spawns it for you (next section). For remote data, set the usual
 Use absolute paths throughout — the client launches the binary in its own
 working directory.
 
+## Progress streaming
+
+The server emits standard [MCP progress notifications](https://modelcontextprotocol.io/docs/tools#tool-progress) for all long-running spatial queries (like `zonal_stats` or large `read_region` calls). The percentage reflects native DuckDB query progress. To ensure a good user experience when queries take tens of seconds, your MCP client must support and render these progress notifications.
+
 ## Tool reference
 
 All read tools that return tabular data follow the same shape: a capped head of
@@ -106,6 +110,16 @@ Zarr chunks that intersect the window are fetched (see
 the same JSON shapes as `estimate_cost`; `asset` selects a named asset; `limit`
 caps the inlined head (full data stays in the handle). **When to use:** to pull
 a spatial / temporal slice into a session table for further querying.
+
+### `extract_point_timeseries(uri, lat, lon, method?="nearest", value_col?="value")`
+
+Returns the same `{ table_handle, row_count, columns, rows, truncated }` shape, plus the `method` used. Extracts a timeseries for a specific geographic point across all time steps. The bounding box pruning is highly optimized to fetch only the 1 or 4 closest cells.
+
+- `method` ∈ `{ nearest, bilinear }`:
+  - **`nearest`** — selects the single closest grid cell.
+  - **`bilinear`** — calculates an inverse-distance weighted average of the 4 closest cells.
+
+**When to use:** to extract a timeseries for a single latitude/longitude coordinate without needing to construct a geometry or run a full zonal aggregate.
 
 ### `zonal_stats(grid_uri, polygons, metric, convention, value_col?="value", limit?)`
 
