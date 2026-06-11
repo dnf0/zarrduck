@@ -8,7 +8,8 @@ fn fixt(name: &str) -> String {
 #[test]
 fn local_stac_item_resolves_to_group_with_assets() {
     std::env::set_var("GEOZARR_ALLOW_PATH", env!("CARGO_MANIFEST_DIR"));
-    let resolved = resolve_sync_store(&fixt("stac_item.json"), None).expect("STAC item should resolve");
+    let resolved =
+        resolve_sync_store(&fixt("stac_item.json"), None).expect("STAC item should resolve");
     let zmeta = resolved
         .store
         .get(&StoreKey::new(".zmetadata").unwrap())

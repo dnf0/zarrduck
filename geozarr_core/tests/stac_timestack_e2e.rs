@@ -13,7 +13,8 @@ fn allow() {
 #[test]
 fn timestack_opens_as_3d_with_time_coords() {
     allow();
-    let ds = ZarrDataset::open_with_asset(&fixt("stac_itemcollection.json"), Some("band"), None).unwrap();
+    let ds = ZarrDataset::open_with_asset(&fixt("stac_itemcollection.json"), Some("band"), None)
+        .unwrap();
     assert_eq!(
         ds.dim_names,
         vec!["time".to_string(), "lat".to_string(), "lon".to_string()]
@@ -39,7 +40,8 @@ fn timestack_slices_read_distinct_per_item_data() {
     // item0 -> cog_int16_uncompressed.tif (values row*10+col, so cell [0,0] == 0)
     // item1 -> cog_int16_alt.tif          (values base + 100, so cell [0,0] == 100)
     allow();
-    let ds = ZarrDataset::open_with_asset(&fixt("stac_itemcollection.json"), Some("band"), None).unwrap();
+    let ds = ZarrDataset::open_with_asset(&fixt("stac_itemcollection.json"), Some("band"), None)
+        .unwrap();
 
     // Read the full 3D [time, lat, lon] = [2, 2, 4] array.
     let vals: Vec<i16> = ds
@@ -72,7 +74,8 @@ fn timestack_slices_read_distinct_per_item_data() {
 #[test]
 fn timestack_time_pushdown_prunes_to_one_slice() {
     allow();
-    let ds = ZarrDataset::open_with_asset(&fixt("stac_itemcollection.json"), Some("band"), None).unwrap();
+    let ds = ZarrDataset::open_with_asset(&fixt("stac_itemcollection.json"), Some("band"), None)
+        .unwrap();
     // bracket only the first datetime
     let mut bounds = HashMap::new();
     bounds.insert(

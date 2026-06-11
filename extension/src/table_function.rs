@@ -127,10 +127,19 @@ impl VTab for ReadGeoVTab {
 
         let constraints = geozarr_core::query_planner::QueryConstraints { bounds, pins };
 
-        let is_stac_api = path.starts_with("http") && (path.contains("search") || path.contains("collections"));
+        let is_stac_api =
+            path.starts_with("http") && (path.contains("search") || path.contains("collections"));
         if is_stac_api {
-            let lat_bounds = constraints.bounds.get("lat").copied().unwrap_or((None, None));
-            let lon_bounds = constraints.bounds.get("lon").copied().unwrap_or((None, None));
+            let lat_bounds = constraints
+                .bounds
+                .get("lat")
+                .copied()
+                .unwrap_or((None, None));
+            let lon_bounds = constraints
+                .bounds
+                .get("lon")
+                .copied()
+                .unwrap_or((None, None));
             match (lon_bounds.0, lat_bounds.0, lon_bounds.1, lat_bounds.1) {
                 (Some(lon_min), Some(lat_min), Some(lon_max), Some(lat_max)) => {
                     let area = (lon_max - lon_min).abs() * (lat_max - lat_min).abs();
@@ -138,12 +147,19 @@ impl VTab for ReadGeoVTab {
                         return Err("Bounding box area too large for STAC API. Please provide a tighter bbox.".into());
                     }
                 }
-                _ => return Err("Bounding box (lat_min, lat_max, lon_min, lon_max) is required for STAC APIs.".into()),
+                _ => return Err(
+                    "Bounding box (lat_min, lat_max, lon_min, lon_max) is required for STAC APIs."
+                        .into(),
+                ),
             }
         }
 
         let asset = bind.get_named_parameter("asset").map(|v| v.to_string());
-        let dataset = geozarr_core::dataset::ZarrDataset::open_with_asset(&path, asset.as_deref(), Some(&constraints))?;
+        let dataset = geozarr_core::dataset::ZarrDataset::open_with_asset(
+            &path,
+            asset.as_deref(),
+            Some(&constraints),
+        )?;
 
         let schema = dataset
             .schema()
