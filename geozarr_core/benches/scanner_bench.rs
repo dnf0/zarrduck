@@ -2,8 +2,6 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use geozarr_core::scanner::ChunkReader;
 use std::sync::Arc;
 use zarrs::array::chunk_grid::RegularChunkGrid;
-use zarrs::array::codec::BytesCodec;
-use zarrs::array::{Array, DataType, FillValue};
 use zarrs::storage::store::MemoryStore;
 
 fn bench_scanner(c: &mut Criterion) {

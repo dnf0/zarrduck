@@ -71,10 +71,8 @@ fn test_new_data_types() -> Result<()> {
 
 #[test]
 fn test_read_geo_function_compiles() {
-    let candidate_paths = vec![
-        "../target/debug/eider_extension.duckdb_extension",
-        "target/debug/eider_extension.duckdb_extension",
-    ];
+    let candidate_paths = ["../target/debug/eider_extension.duckdb_extension",
+        "target/debug/eider_extension.duckdb_extension"];
 
     // We just verify the extension file was successfully packaged by `cargo duckdb-ext build`.
     // Loading it dynamically into the host duckdb CLI is not tested here because
@@ -85,7 +83,7 @@ fn test_read_geo_function_compiles() {
     if !exists {
         // Try building it automatically for the test
         let _ = std::process::Command::new("cargo")
-            .args(&["duckdb-ext", "build"])
+            .args(["duckdb-ext", "build"])
             .status();
 
         exists = candidate_paths.iter().any(|p| Path::new(p).exists());

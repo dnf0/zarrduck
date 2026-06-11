@@ -362,7 +362,7 @@ mod tests {
             shape: vec![100, 100],
             strides: vec![100, 1],
         };
-        let mut out = vec![0.0; 2];
+        let mut out = [0.0; 2];
         let coords = vec![100.0, 101.0, 102.0];
 
         populate_coordinate_batch_f64(
