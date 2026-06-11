@@ -361,7 +361,7 @@ fn build_time_stack(
 
 pub fn resolve_sync_store(
     path: &str,
-    _constraints: Option<&crate::query_planner::QueryConstraints>,
+    constraints: Option<&crate::query_planner::QueryConstraints>,
 ) -> std::result::Result<ResolvedStore, Box<dyn std::error::Error>> {
     let is_cog = path.ends_with(".tif") || path.ends_with(".tiff");
 
@@ -402,7 +402,12 @@ pub fn resolve_sync_store(
     } else if path.starts_with("http://") || path.starts_with("https://") {
         if !is_cog && !path.ends_with(".zarr") && !path.ends_with(".zarr/") {
             // Check if it's a STAC Item
-            if let Ok(resp) = reqwest::blocking::get(path) {
+            let fetch_url = if let Some(c) = constraints {
+                crate::feature_collection::build_stac_url(path, c)
+            } else {
+                path.to_string()
+            };
+            if let Ok(resp) = reqwest::blocking::get(&fetch_url) {
                 if let Ok(json) = resp.json::<serde_json::Value>() {
                     if json.get("stac_version").is_some()
                         && json.get("type").and_then(|t| t.as_str()) == Some("FeatureCollection")
