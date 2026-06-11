@@ -374,11 +374,11 @@ impl ChunkStream for ZarrChunkStream {
 
 impl GeoDataset for Arc<ZarrDataset> {
     fn schema(&self) -> Result<Vec<(String, DataType)>, GeoDatasetError> {
-        ZarrDataset::schema(self).map_err(|e| GeoDatasetError::Schema(e))
+        ZarrDataset::schema(self).map_err(GeoDatasetError::Schema)
     }
 
     fn scan(
-        &self, 
+        &self,
         constraints: &QueryConstraints
     ) -> Result<Box<dyn ChunkStream>, GeoDatasetError> {
         let (bounds_min, bounds_max) = self.compute_bounds(constraints);
@@ -386,14 +386,20 @@ impl GeoDataset for Arc<ZarrDataset> {
         let rank = self.shape.len();
         let mut chunk_bounds_min = vec![0; rank];
         let mut chunk_bounds_max = vec![0; rank];
+        let mut num_chunks = 1u64;
+        
         for i in 0..rank {
+            if self.chunk_shape[i] == 0 {
+                return Err(GeoDatasetError::Scan(format!("Zero chunk shape for dimension {}", i)));
+            }
+            if bounds_min[i] > bounds_max[i] {
+                num_chunks = 0;
+                break;
+            }
             chunk_bounds_min[i] = bounds_min[i] / self.chunk_shape[i];
             chunk_bounds_max[i] = bounds_max[i] / self.chunk_shape[i];
+            num_chunks *= chunk_bounds_max[i].saturating_sub(chunk_bounds_min[i]) + 1;
         }
-
-        let num_chunks: u64 = (0..rank)
-            .map(|i| chunk_bounds_max[i].saturating_sub(chunk_bounds_min[i]) + 1)
-            .product();
 
         let grid_iterator = GridIterator::new(
             &bounds_min,

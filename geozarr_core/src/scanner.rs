@@ -20,8 +20,13 @@ impl GridIterator {
         let mut min = vec![0u64; rank];
         let mut max = vec![0u64; rank];
         for i in 0..rank {
-            min[i] = bounds_min[i] / chunk_shape[i];
-            max[i] = bounds_max[i] / chunk_shape[i];
+            let cs = if chunk_shape[i] == 0 { 1 } else { chunk_shape[i] };
+            min[i] = bounds_min[i] / cs;
+            if bounds_min[i] <= bounds_max[i] {
+                max[i] = bounds_max[i] / cs;
+            } else {
+                max[i] = min[i];
+            }
         }
         Self {
             current: Some(min.clone()),
@@ -36,7 +41,10 @@ impl GridIterator {
         let mut current_idx = chunk_idx;
         
         for i in (0..rank).rev() {
-            let dim_len = self.bounds_max[i] - self.bounds_min[i] + 1;
+            let mut dim_len = self.bounds_max[i].saturating_sub(self.bounds_min[i]) + 1;
+            if self.bounds_max[i] < self.bounds_min[i] {
+                dim_len = 1;
+            }
             pos[i] = self.bounds_min[i] + (current_idx % dim_len);
             current_idx /= dim_len;
         }
@@ -252,5 +260,25 @@ mod tests {
             elements,
             vec![6.0, 7.0, 8.0, 11.0, 12.0, 13.0, 16.0, 17.0, 18.0]
         );
+    }
+
+    #[test]
+    fn test_grid_iterator_get_chunk_pos() {
+        let bounds_min = vec![2, 5, 1];
+        let bounds_max = vec![12, 15, 3];
+        let shape = vec![20, 20, 20];
+        let chunk_shape = vec![4, 4, 2];
+
+        let mut it = GridIterator::new(&bounds_min, &bounds_max, &shape, &chunk_shape);
+        
+        let mut expected = Vec::new();
+        while let Some(pos) = it.next() {
+            expected.push(pos);
+        }
+
+        let num_chunks = expected.len() as u64;
+        let actual: Vec<_> = (0..num_chunks).map(|i| it.get_chunk_pos(i)).collect();
+
+        assert_eq!(actual, expected);
     }
 }
