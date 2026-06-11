@@ -98,20 +98,8 @@ impl VTab for ReadGeoVTab {
 
         let path = bind.get_parameter(0).to_string();
 
-        let asset = bind.get_named_parameter("asset").map(|v| v.to_string());
-        let dataset = geozarr_core::dataset::ZarrDataset::open_with_asset(&path, asset.as_deref(), None)?;
-
-        let schema = dataset
-            .schema()
-            .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-        for (name, data_type) in schema {
-            let type_id = zarr_to_duckdb_logical_type(&data_type)
-                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-            bind.add_result_column(&name, type_id.into());
-        }
-
         let mut bounds = HashMap::new();
-        for name in &dataset.dim_names {
+        for name in &["lat", "lon", "time", "y", "x"] {
             let min_param_name = format!("{}_min", name);
             let max_param_name = format!("{}_max", name);
 
@@ -121,7 +109,7 @@ impl VTab for ReadGeoVTab {
             let max_val_opt = bind
                 .get_named_parameter(&max_param_name)
                 .and_then(|v| v.to_string().parse::<f64>().ok());
-            bounds.insert(name.clone(), (min_val_opt, max_val_opt));
+            bounds.insert(name.to_string(), (min_val_opt, max_val_opt));
         }
 
         let mut pins = HashMap::new();
@@ -138,6 +126,34 @@ impl VTab for ReadGeoVTab {
         }
 
         let constraints = geozarr_core::query_planner::QueryConstraints { bounds, pins };
+
+        let is_stac_api = path.starts_with("http") && (path.contains("search") || path.contains("collections"));
+        if is_stac_api {
+            let lat_bounds = constraints.bounds.get("lat").copied().unwrap_or((None, None));
+            let lon_bounds = constraints.bounds.get("lon").copied().unwrap_or((None, None));
+            match (lon_bounds.0, lat_bounds.0, lon_bounds.1, lat_bounds.1) {
+                (Some(lon_min), Some(lat_min), Some(lon_max), Some(lat_max)) => {
+                    let area = (lon_max - lon_min).abs() * (lat_max - lat_min).abs();
+                    if area > 1000.0 {
+                        return Err("Bounding box area too large for STAC API. Please provide a tighter bbox.".into());
+                    }
+                }
+                _ => return Err("Bounding box (lat_min, lat_max, lon_min, lon_max) is required for STAC APIs.".into()),
+            }
+        }
+
+        let asset = bind.get_named_parameter("asset").map(|v| v.to_string());
+        let dataset = geozarr_core::dataset::ZarrDataset::open_with_asset(&path, asset.as_deref(), Some(&constraints))?;
+
+        let schema = dataset
+            .schema()
+            .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+        for (name, data_type) in schema {
+            let type_id = zarr_to_duckdb_logical_type(&data_type)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            bind.add_result_column(&name, type_id.into());
+        }
+
         let (bounds_min, bounds_max) = dataset.compute_bounds(&constraints);
 
         Ok(ReadGeoBindData {
