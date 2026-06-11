@@ -21,6 +21,7 @@ fn zarr_to_duckdb_logical_type(data_type: &DataType) -> std::result::Result<Logi
         DataType::UInt32 => Ok(LogicalTypeId::UInteger),
         DataType::UInt64 => Ok(LogicalTypeId::UBigint),
         _ => Err(format!("Unsupported data type: {:?}", data_type)),
+    }
 }
 
 use geozarr_core::types::ChunkBuffer;
@@ -85,8 +86,10 @@ impl VTab for ReadGeoVTab {
 
         let asset = bind.get_named_parameter("asset").map(|v| v.to_string());
         let dataset = geozarr_core::dataset::ZarrDataset::open_with_asset(&path, asset.as_deref())?;
+        let dataset_arc = std::sync::Arc::new(dataset);
 
-        let schema = dataset
+        use geozarr_core::geo_dataset::GeoDataset;
+        let schema = dataset_arc
             .schema()
             .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
         for (name, data_type) in schema {
@@ -96,7 +99,7 @@ impl VTab for ReadGeoVTab {
         }
 
         let mut bounds = HashMap::new();
-        for name in &dataset.dim_names {
+        for name in &dataset_arc.dim_names {
             let min_param_name = format!("{}_min", name);
             let max_param_name = format!("{}_max", name);
 
@@ -123,24 +126,24 @@ impl VTab for ReadGeoVTab {
         }
 
         let constraints = geozarr_core::query_planner::QueryConstraints { bounds, pins };
-        let stream = dataset.scan(&constraints)
+        let stream = dataset_arc.scan(&constraints)
             .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
 
-        let (bounds_min, bounds_max) = dataset.compute_bounds(&constraints);
+        let (bounds_min, bounds_max) = dataset_arc.compute_bounds(&constraints);
 
         Ok(ReadGeoBindData {
             stream: stream.into(),
             path,
-            shape: dataset.shape,
-            chunk_shape: dataset.chunk_shape,
-            data_type: dataset.data_type,
-            dim_names: dataset.dim_names,
-            coords: dataset.coords,
-            lon_0_360_dims: dataset.lon_0_360_dims,
+            shape: dataset_arc.shape.clone(),
+            chunk_shape: dataset_arc.chunk_shape.clone(),
+            data_type: dataset_arc.data_type.clone(),
+            dim_names: dataset_arc.dim_names.clone(),
+            coords: dataset_arc.coords.clone(),
+            lon_0_360_dims: dataset_arc.lon_0_360_dims.clone(),
             bounds_min,
             bounds_max,
-            fill_value_bytes: dataset.fill_value_bytes,
-            spatial_transform: dataset.spatial_transform,
+            fill_value_bytes: dataset_arc.fill_value_bytes.clone(),
+            spatial_transform: dataset_arc.spatial_transform.clone(),
         })
     }
 
