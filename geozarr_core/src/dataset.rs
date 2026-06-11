@@ -36,15 +36,19 @@ pub(crate) fn select_asset_path(assets: &[String], asset: Option<&str>) -> Resul
 }
 
 impl ZarrDataset {
-    pub fn open(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::open_with_asset(path, None)
+    pub fn open(
+        path: &str,
+        constraints: Option<&crate::query_planner::QueryConstraints>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::open_with_asset(path, None, constraints)
     }
 
     pub fn open_with_asset(
         path: &str,
         asset: Option<&str>,
+        constraints: Option<&crate::query_planner::QueryConstraints>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let resolved_store = crate::store::resolve_sync_store(path)?;
+        let resolved_store = crate::store::resolve_sync_store(path, constraints)?;
         let is_remote = resolved_store.is_remote;
         let stac_assets = resolved_store.stac_assets.clone();
         let store_arc = resolved_store.store;

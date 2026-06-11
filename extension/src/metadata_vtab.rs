@@ -37,7 +37,7 @@ impl VTab for ReadZarrMetadataVTab {
 
     fn bind(bind: &BindInfo) -> Result<Self::BindData, Box<dyn std::error::Error>> {
         let path = bind.get_parameter(0).to_string();
-        let store = geozarr_core::store::resolve_sync_store(&path).map_err(|e| e.to_string())?;
+        let store = geozarr_core::store::resolve_sync_store(&path, None).map_err(|e| e.to_string())?;
         let array = zarrs::array::Array::open(store.store, "/").map_err(|e| e.to_string())?;
 
         let shape = format!("{:?}", array.shape());

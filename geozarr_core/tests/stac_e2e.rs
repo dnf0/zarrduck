@@ -11,10 +11,10 @@ fn allow() {
 fn stac_asset_is_georeferenced_like_the_cog() {
     allow();
     let ds =
-        ZarrDataset::open_with_asset(&fixt("stac_item.json"), Some("band_uncompressed")).unwrap();
+        ZarrDataset::open_with_asset(&fixt("stac_item.json"), Some("band_uncompressed"), None).unwrap();
     assert_eq!(ds.dim_names, vec!["lat".to_string(), "lon".to_string()]);
     assert!(ds.spatial_transform.is_some());
-    let cog = ZarrDataset::open(&fixt("cog_int16_uncompressed.tif")).unwrap();
+    let cog = ZarrDataset::open(&fixt("cog_int16_uncompressed.tif"), None).unwrap();
     assert_eq!(ds.shape, cog.shape);
     let (_, vtype) = ds.schema().unwrap().pop().unwrap();
     assert_eq!(
@@ -26,7 +26,7 @@ fn stac_asset_is_georeferenced_like_the_cog() {
 #[test]
 fn stac_multiple_assets_without_selection_errors() {
     allow();
-    let msg = match ZarrDataset::open(&fixt("stac_item.json")) {
+    let msg = match ZarrDataset::open(&fixt("stac_item.json"), None) {
         Ok(_) => panic!("expected multiple-asset selection error"),
         Err(e) => format!("{e}"),
     };
@@ -39,7 +39,7 @@ fn stac_multiple_assets_without_selection_errors() {
 #[test]
 fn stac_unknown_asset_errors() {
     allow();
-    let msg = match ZarrDataset::open_with_asset(&fixt("stac_item.json"), Some("nope")) {
+    let msg = match ZarrDataset::open_with_asset(&fixt("stac_item.json"), Some("nope"), None) {
         Ok(_) => panic!("expected unknown-asset error"),
         Err(e) => format!("{e}"),
     };

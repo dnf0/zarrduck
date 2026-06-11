@@ -8,7 +8,7 @@ fn fixt(name: &str) -> String {
 #[test]
 fn local_stac_item_resolves_to_group_with_assets() {
     std::env::set_var("GEOZARR_ALLOW_PATH", env!("CARGO_MANIFEST_DIR"));
-    let resolved = resolve_sync_store(&fixt("stac_item.json")).expect("STAC item should resolve");
+    let resolved = resolve_sync_store(&fixt("stac_item.json"), None).expect("STAC item should resolve");
     let zmeta = resolved
         .store
         .get(&StoreKey::new(".zmetadata").unwrap())
@@ -24,7 +24,7 @@ fn local_itemcollection_resolves_to_timestack() {
     // ItemCollections now stack the selected asset across time (Task 5),
     // superseding the former "not yet supported" error.
     std::env::set_var("GEOZARR_ALLOW_PATH", env!("CARGO_MANIFEST_DIR"));
-    let resolved = resolve_sync_store(&fixt("stac_itemcollection.json"))
+    let resolved = resolve_sync_store(&fixt("stac_itemcollection.json"), None)
         .expect("ItemCollection should resolve to a time-stack");
     assert_eq!(
         resolved.stac_assets.as_deref(),

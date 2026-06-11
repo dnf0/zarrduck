@@ -361,6 +361,7 @@ fn build_time_stack(
 
 pub fn resolve_sync_store(
     path: &str,
+    _constraints: Option<&crate::query_planner::QueryConstraints>,
 ) -> std::result::Result<ResolvedStore, Box<dyn std::error::Error>> {
     let is_cog = path.ends_with(".tif") || path.ends_with(".tiff");
 
@@ -1085,7 +1086,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_sync_store_cog() {
-        let result = resolve_sync_store("test.tif");
+        let result = resolve_sync_store("test.tif", None);
         // Without the actual file it will fail, but we just check the path logic exists
         assert!(result.is_err());
     }

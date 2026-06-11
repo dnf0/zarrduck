@@ -99,7 +99,7 @@ impl VTab for ReadGeoVTab {
         let path = bind.get_parameter(0).to_string();
 
         let asset = bind.get_named_parameter("asset").map(|v| v.to_string());
-        let dataset = geozarr_core::dataset::ZarrDataset::open_with_asset(&path, asset.as_deref())?;
+        let dataset = geozarr_core::dataset::ZarrDataset::open_with_asset(&path, asset.as_deref(), None)?;
 
         let schema = dataset
             .schema()

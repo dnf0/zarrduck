@@ -14,7 +14,7 @@ fn fixture(name: &str) -> String {
 
 #[test]
 fn cog_metadata_is_georeferenced() {
-    let ds = ZarrDataset::open(&fixture("cog_int16_uncompressed.tif")).unwrap();
+    let ds = ZarrDataset::open(&fixture("cog_int16_uncompressed.tif"), None).unwrap();
     assert_eq!(ds.dim_names, vec!["lat".to_string(), "lon".to_string()]);
     assert!(
         ds.spatial_transform.is_some(),
@@ -32,7 +32,7 @@ fn cog_metadata_is_georeferenced() {
 
 #[test]
 fn cog_bbox_prunes_via_lat_lon() {
-    let ds = ZarrDataset::open(&fixture("cog_int16_uncompressed.tif")).unwrap();
+    let ds = ZarrDataset::open(&fixture("cog_int16_uncompressed.tif"), None).unwrap();
     // Full extent: lon in [-180,-174], lat in [86,90] (origin -180/90, 2deg, 4x2).
     // Constrain to the western half (lon <= -177) -> fewer columns.
     let mut bounds = HashMap::new();
@@ -51,8 +51,8 @@ fn cog_bbox_prunes_via_lat_lon() {
 
 #[test]
 fn cog_deflate_matches_uncompressed_metadata() {
-    let a = ZarrDataset::open(&fixture("cog_int16_uncompressed.tif")).unwrap();
-    let b = ZarrDataset::open(&fixture("cog_int16_deflate.tif")).unwrap();
+    let a = ZarrDataset::open(&fixture("cog_int16_uncompressed.tif"), None).unwrap();
+    let b = ZarrDataset::open(&fixture("cog_int16_deflate.tif"), None).unwrap();
     assert_eq!(a.shape, b.shape);
     assert_eq!(a.dim_names, b.dim_names);
 }
@@ -62,8 +62,8 @@ fn cog_deflate_matches_uncompressed_values() {
     // Read the full array through the public `zarrs::Array` exposed on
     // `ZarrDataset`, decoding both the deflate-compressed and uncompressed
     // COGs end-to-end, and assert they decode to identical i16 values.
-    let a = ZarrDataset::open(&fixture("cog_int16_uncompressed.tif")).unwrap();
-    let b = ZarrDataset::open(&fixture("cog_int16_deflate.tif")).unwrap();
+    let a = ZarrDataset::open(&fixture("cog_int16_uncompressed.tif"), None).unwrap();
+    let b = ZarrDataset::open(&fixture("cog_int16_deflate.tif"), None).unwrap();
 
     let subset = zarrs::array_subset::ArraySubset::new_with_shape(a.shape.clone());
     let a_vals: Vec<i16> = a

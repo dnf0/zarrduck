@@ -63,7 +63,7 @@ impl CoordinateResolver {
                 .rsplit_once('/')
                 .map(|(p, _)| p.to_string());
             if let Some(ref parent) = parent_path {
-                if let Ok(parent_store) = crate::store::resolve_sync_store(parent) {
+                if let Ok(parent_store) = crate::store::resolve_sync_store(parent, None) {
                     for dim_index in &missing_dims {
                         let name = &dim_names[*dim_index];
                         if let Ok(coord_array) =
