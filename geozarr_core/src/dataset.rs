@@ -360,15 +360,14 @@ impl ChunkStream for ZarrChunkStream {
         
         let grid_pos = self.grid_iterator.get_chunk_pos(chunk_idx);
         
-        crate::scanner::read_chunk_into_buffer(
+        let subset_info = crate::scanner::read_chunk_into_buffer(
             &self.dataset,
             &grid_pos,
             &self.bounds_min,
             &self.bounds_max,
             buffer
-        )
-            .map(|_| ChunkReadStatus::Read)
-            .map_err(|e| GeoDatasetError::ChunkRead(e.to_string()))
+        ).map_err(|e| GeoDatasetError::ChunkRead(e.to_string()))?;
+        Ok(ChunkReadStatus::Read(subset_info))
     }
 }
 

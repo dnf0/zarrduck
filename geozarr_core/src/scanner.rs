@@ -80,7 +80,7 @@ impl Iterator for GridIterator {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct SubsetInfo {
     pub global_starts: Vec<u64>,
     pub shape: Vec<u64>,
@@ -162,13 +162,13 @@ impl ChunkReader {
 #[macro_export]
 macro_rules! read_chunk_into_buffer_dispatch {
     ($rust_type:ty, $enum_variant:path, $chunk_reader:expr, $grid_pos:expr, $bounds_min:expr, $bounds_max:expr, $buffer:expr) => {{
-        let (elements, _) = $chunk_reader.read_chunk_subset::<$rust_type>(
+        let (elements, subset_info) = $chunk_reader.read_chunk_subset::<$rust_type>(
             $grid_pos,
             $bounds_min,
             $bounds_max,
         )?;
         *$buffer = $enum_variant(elements);
-        Ok(())
+        Ok(subset_info)
     }};
 }
 
@@ -178,7 +178,7 @@ pub fn read_chunk_into_buffer(
     bounds_min: &[u64],
     bounds_max: &[u64],
     buffer: &mut crate::types::ChunkBuffer,
-) -> Result<(), String> {
+) -> Result<SubsetInfo, String> {
     let chunk_reader = ChunkReader::new(
         dataset.array.clone(),
         dataset.is_remote,

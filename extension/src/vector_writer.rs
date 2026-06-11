@@ -135,7 +135,7 @@ pub fn populate_coordinate_batch_i64(
 
 pub fn write_chunk_unified<T, Extract, Insert>(
     extract: Extract,
-    wrap: fn(Vec<T>) -> ChunkBuffer,
+    _wrap: fn(Vec<T>) -> ChunkBuffer,
     mut insert_value: Insert,
     output: &mut DataChunkHandle,
     local_state: &mut LocalState,

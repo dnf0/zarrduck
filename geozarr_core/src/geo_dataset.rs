@@ -30,10 +30,10 @@ impl fmt::Display for GeoDatasetError {
 impl std::error::Error for GeoDatasetError {}
 
 /// Indicates the result of a chunk read operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum ChunkReadStatus {
-    /// Data was successfully read into the buffer.
-    Read,
+    /// Data was successfully read into the buffer, with spatial subset information.
+    Read(crate::scanner::SubsetInfo),
     /// The stream has been exhausted and no more data is available.
     Exhausted,
 }
