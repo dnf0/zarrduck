@@ -29,6 +29,20 @@ impl GridIterator {
             bounds_max: max,
         }
     }
+
+    pub fn get_chunk_pos(&self, chunk_idx: u64) -> Vec<u64> {
+        let rank = self.bounds_min.len();
+        let mut pos = vec![0u64; rank];
+        let mut current_idx = chunk_idx;
+        
+        for i in (0..rank).rev() {
+            let dim_len = self.bounds_max[i] - self.bounds_min[i] + 1;
+            pos[i] = self.bounds_min[i] + (current_idx % dim_len);
+            current_idx /= dim_len;
+        }
+        
+        pos
+    }
 }
 
 impl Iterator for GridIterator {
@@ -136,6 +150,45 @@ impl ChunkReader {
         ))
     }
 }
+
+#[macro_export]
+macro_rules! read_chunk_into_buffer_dispatch {
+    ($rust_type:ty, $enum_variant:path, $chunk_reader:expr, $grid_pos:expr, $bounds_min:expr, $bounds_max:expr, $buffer:expr) => {{
+        let (elements, _) = $chunk_reader.read_chunk_subset::<$rust_type>(
+            $grid_pos,
+            $bounds_min,
+            $bounds_max,
+        )?;
+        *$buffer = $enum_variant(elements);
+        Ok(())
+    }};
+}
+
+pub fn read_chunk_into_buffer(
+    dataset: &crate::dataset::ZarrDataset,
+    grid_pos: &[u64],
+    bounds_min: &[u64],
+    bounds_max: &[u64],
+    buffer: &mut crate::types::ChunkBuffer,
+) -> Result<(), String> {
+    let chunk_reader = ChunkReader::new(
+        dataset.array.clone(),
+        dataset.is_remote,
+        dataset.shape.clone(),
+        dataset.chunk_shape.clone(),
+    );
+
+    crate::dispatch_zarr_type!(
+        dataset.data_type,
+        read_chunk_into_buffer_dispatch,
+        &chunk_reader,
+        grid_pos,
+        bounds_min,
+        bounds_max,
+        buffer
+    )
+}
+
 
 #[cfg(test)]
 mod tests {

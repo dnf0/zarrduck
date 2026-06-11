@@ -3,6 +3,10 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use zarrs::array::{Array, ArrayMetadata, DataType};
+use crate::geo_dataset::{GeoDataset, ChunkStream, GeoDatasetError, ChunkReadStatus};
+use crate::query_planner::QueryConstraints;
+use crate::types::ChunkBuffer;
+use crate::scanner::GridIterator;
 
 pub struct ZarrDataset {
     pub array: Arc<Array<dyn zarrs::storage::ReadableStorageTraits>>,
@@ -330,6 +334,87 @@ impl ZarrDataset {
 
         (0..rank).map(|i| format!("dim_{}", i)).collect()
     }
+}
+
+pub struct ZarrChunkStream {
+    dataset: Arc<ZarrDataset>,
+    grid_iterator: GridIterator,
+    num_chunks: u64,
+    bounds_min: Vec<u64>,
+    bounds_max: Vec<u64>,
+}
+
+impl ChunkStream for ZarrChunkStream {
+    fn estimated_chunks(&self) -> Option<u64> {
+        Some(self.num_chunks)
+    }
+
+    fn read_chunk(
+        &self, 
+        chunk_idx: u64, 
+        buffer: &mut ChunkBuffer
+    ) -> Result<ChunkReadStatus, GeoDatasetError> {
+        if chunk_idx >= self.num_chunks {
+            return Ok(ChunkReadStatus::Exhausted);
+        }
+        
+        let grid_pos = self.grid_iterator.get_chunk_pos(chunk_idx);
+        
+        crate::scanner::read_chunk_into_buffer(
+            &self.dataset,
+            &grid_pos,
+            &self.bounds_min,
+            &self.bounds_max,
+            buffer
+        )
+            .map(|_| ChunkReadStatus::Read)
+            .map_err(|e| GeoDatasetError::ChunkRead(e.to_string()))
+    }
+}
+
+impl GeoDataset for Arc<ZarrDataset> {
+    fn schema(&self) -> Result<Vec<(String, DataType)>, GeoDatasetError> {
+        ZarrDataset::schema(self).map_err(|e| GeoDatasetError::Schema(e))
+    }
+
+    fn scan(
+        &self, 
+        constraints: &QueryConstraints
+    ) -> Result<Box<dyn ChunkStream>, GeoDatasetError> {
+        let (bounds_min, bounds_max) = self.compute_bounds(constraints);
+        
+        let rank = self.shape.len();
+        let mut chunk_bounds_min = vec![0; rank];
+        let mut chunk_bounds_max = vec![0; rank];
+        for i in 0..rank {
+            chunk_bounds_min[i] = bounds_min[i] / self.chunk_shape[i];
+            chunk_bounds_max[i] = bounds_max[i] / self.chunk_shape[i];
+        }
+
+        let num_chunks: u64 = (0..rank)
+            .map(|i| chunk_bounds_max[i].saturating_sub(chunk_bounds_min[i]) + 1)
+            .product();
+
+        let grid_iterator = GridIterator::new(
+            &bounds_min,
+            &bounds_max,
+            &self.shape,
+            &self.chunk_shape,
+        );
+
+        Ok(Box::new(ZarrChunkStream {
+            dataset: Arc::clone(self),
+            grid_iterator,
+            num_chunks,
+            bounds_min,
+            bounds_max,
+        }))
+    }
+}
+
+pub fn open_dataset(path: &str, asset: Option<&str>) -> Result<Box<dyn GeoDataset>, GeoDatasetError> {
+    let zarr = ZarrDataset::open_with_asset(path, asset).map_err(|e| GeoDatasetError::Other(e.to_string()))?;
+    Ok(Box::new(Arc::new(zarr)))
 }
 
 #[cfg(test)]
