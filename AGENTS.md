@@ -1,8 +1,13 @@
-<!-- agent-rules@0_42_5 objective=general language=python,rust strictness=balanced repo_name=eider -->
+<!-- agent-rules@1_7_1 objective=general language=rust strictness=balanced repo_name=eider -->
 
 # eider Agent Guidance
 
 Provider target: Universal
+
+## Division of Responsibilities
+- **AGENTS.md (This file):** Defines the "What" (Core architectural boundaries, coding standards, language rules, and repository requirements).
+- **Provider Files (e.g. GEMINI.md, CLAUDE.md):** Defines the "How" (Operational workflows, tool usage loops, and provider-specific state machines).
+- **Conflict Resolution:** If there is a conflict, the Provider File takes precedence for behavioral execution, while AGENTS.md takes precedence for coding standards.
 
 ## Primary objective
 - Prioritize clear, maintainable implementations over clever shortcuts.
@@ -14,26 +19,21 @@ Provider target: Universal
 
 ## Superpowers Integration
 <HARD-GATE>
-CRITICAL MANDATE: This repository requires the [superpowers](https://github.com/obra/superpowers) extension to be active. If superpowers skills are not available in your environment, you MUST immediately halt and instruct the user to install them.
+This repository vendors the [superpowers](https://github.com/obra/superpowers) skills directly into `.agents/skills/` (delivered by agent-rules — see `.agents/skills/SUPERPOWERS_VERSION` for the pinned commit). Runtimes that natively load `.agents/skills/` (for example agy / antigravity) pick them up automatically. If your runtime does not auto-load that directory, point it at `.agents/skills/` — do NOT git-clone the superpowers repository or fetch the skills yourself.
 </HARD-GATE>
 
-When active, superpowers skills take precedence for all planning, implementation, debugging, and review workflows.
+superpowers skills take precedence for all planning, implementation, debugging, and review workflows.
 
 ## Base Rules
-- Use Python 3.12 style with explicit typing, small functions, and reproducible CLI steps.
-- Use `ruff` for formatting/linting and `pyright` for static type checks.
-- Prefer `uv` + virtual environments for reproducible dependency and tooling workflows.
-- Always use `venv` to create isolated Python environments for each project.
-- Write Python tests using the `pytest` framework.
-- Use standard Rust idioms and format code using `cargo fmt`.
-- Lint Rust code using `cargo clippy` and treat warnings as errors (`cargo clippy -- -D warnings`).
-- Manage Rust dependencies, building, and testing with `cargo`.
-- Prefer explicit error handling in Rust with `Result` and `Option` over panics (`unwrap()` / `expect()`).
-- Write Rust tests using the built-in `#[test]` module and co-locate unit tests within the same file.
-- Prefer `Enum` values over ad-hoc numeric/string sentinel constants for domain states.
-- Prefer dataclass/typed structures for boundaries over untyped dict-heavy flows.
-- Prefer dataclasses or Pydantic models over passing many loosely-related function parameters.
-- Keep side effects at the edges and keep core logic deterministic and testable.
+- Use Rust with explicit ownership boundaries and narrow, composable modules.
+- Avoid `unwrap`/`expect` in production paths; propagate typed errors with context.
+- Prefer `Result`-centric APIs and domain enums/newtypes over primitive flags.
+- Isolate `unsafe` blocks and document invariants at each unsafe boundary.
+- Use `cargo fmt` to keep formatting consistent.
+- Use `cargo clippy` to catch common mistakes and improve code quality.
+- Manage dependencies and feature flags explicitly in `Cargo.toml`.
+- Use `cargo test` for automated testing.
+- Prefer immutable data flow and explicit lifetimes/borrowing at API boundaries.
 - Prioritize clear, maintainable implementations over clever shortcuts.
 - Version APIs explicitly, preferably in URL paths (for example `/api/v1/...`).
 - Model resources with nouns and rely on HTTP verbs for operations.
@@ -120,8 +120,7 @@ When active, superpowers skills take precedence for all planning, implementation
 - Apply balanced strictness when deciding whether to block.
 
 ## Verification Checklist
-- Run `uv run ruff check src tests`.
-- Run `uv run pyright src`.
-- Run `uv run pytest -q`.
+- Run `cargo fmt -- --check`.
+- Run `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
+- Run `cargo test --workspace --all-features`.
 - Run `agent-rules diff --dest <repo> --provider <provider/all>` when regenerating guidance.
-t-rules diff --dest <repo> --provider <provider/all>` when regenerating guidance.

@@ -1,4 +1,4 @@
-<!-- agent-rules@0_42_5 objective=general language=python,rust strictness=balanced repo_name=eider -->
+<!-- agent-rules@1_5_1 objective=general language=python,rust strictness=balanced repo_name=eider -->
 
 # eider Antigravity Guidance
 

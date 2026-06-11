@@ -1,0 +1,19 @@
+# Vendored snapshot of obra/superpowers skills (delivered into .agents/skills/).
+# Source: https://github.com/obra/superpowers
+# Re-vendor with: scripts/vendor-superpowers.sh <ref-or-sha>
+pinned: obra/superpowers@6fd4507659784c351abbd2bc264c7162cfd386dc
+skills:
+  - brainstorming
+  - dispatching-parallel-agents
+  - executing-plans
+  - finishing-a-development-branch
+  - receiving-code-review
+  - requesting-code-review
+  - subagent-driven-development
+  - systematic-debugging
+  - test-driven-development
+  - using-git-worktrees
+  - using-superpowers
+  - verification-before-completion
+  - writing-plans
+  - writing-skills

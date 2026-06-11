@@ -1,4 +1,4 @@
-<!-- agent-rules@0_42_5 objective=general language=python strictness=balanced repo_name=eider -->
+<!-- agent-rules@1_7_1 objective=general language=rust strictness=balanced repo_name=eider -->
 
 # eider Codex Guidance
 
