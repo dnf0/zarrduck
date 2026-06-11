@@ -1,9 +1,8 @@
 #![allow(clippy::type_complexity)]
 
-use crate::table_function::{GlobalState, LocalState, ReadGeoBindData};
+use crate::table_function::{LocalState, ReadGeoBindData};
 use duckdb::core::DataChunkHandle;
 use geozarr_core::types::ChunkBuffer;
-use std::sync::Mutex;
 use zarrs::array::ElementOwned;
 
 pub trait FillValueCmp {
@@ -140,7 +139,7 @@ pub fn write_chunk_unified<T, Extract, Insert>(
     mut insert_value: Insert,
     output: &mut DataChunkHandle,
     local_state: &mut LocalState,
-    global_state: &Mutex<GlobalState>,
+    next_chunk: &std::sync::atomic::AtomicU64,
     bind_data: &ReadGeoBindData,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
@@ -160,41 +159,20 @@ where
 
     loop {
         if local_state.current_chunk_buffer.is_none() {
-            let mut g_state = global_state
-                .lock()
-                .map_err(|e| format!("Mutex poisoned: {}", e))?;
-
-            let assigned_grid = g_state.grid_iterator.next();
-            drop(g_state);
-
-            let assigned_grid = match assigned_grid {
-                Some(grid) => grid,
-                None => break,
-            };
-            local_state.assigned_grid = assigned_grid.clone();
-
-            let chunk_reader = geozarr_core::scanner::ChunkReader::new(
-                bind_data.array.clone(),
-                bind_data.is_remote,
-                bind_data.shape.clone(),
-                bind_data.chunk_shape.clone(),
-            );
-
-            let (elements, subset_info) = chunk_reader
-                .read_chunk_subset::<T>(
-                    &assigned_grid,
-                    &bind_data.bounds_min,
-                    &bind_data.bounds_max,
-                )
-                .map_err(|e| format!("zarrs read error: {}", e))?;
-
-            if elements.is_empty() {
-                continue;
+            let chunk_idx = next_chunk.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let mut chunk_buffer = geozarr_core::types::ChunkBuffer::Float32(vec![]); // Dummy initialization
+            
+            match bind_data.stream.read_chunk(chunk_idx, &mut chunk_buffer) {
+                Ok(geozarr_core::geo_dataset::ChunkReadStatus::Read(subset_info)) => {
+                    local_state.current_chunk_buffer = Some(chunk_buffer);
+                    local_state.subset_info = Some(subset_info);
+                    local_state.element_cursor = 0;
+                }
+                Ok(geozarr_core::geo_dataset::ChunkReadStatus::Exhausted) => {
+                    break;
+                }
+                Err(e) => return Err(format!("Chunk read error: {}", e).into()),
             }
-
-            local_state.current_chunk_buffer = Some(wrap(elements));
-            local_state.subset_info = Some(subset_info);
-            local_state.element_cursor = 0;
         }
 
         let buffer = extract(local_state.current_chunk_buffer.as_ref().unwrap())?;
@@ -287,7 +265,7 @@ where
 
 #[macro_export]
 macro_rules! dispatch_write_chunk {
-    (String, $enum_variant:path, $output:expr, $local_state:expr, $global_state:expr, $bind_data:expr) => {{
+    (String, $enum_variant:path, $output:expr, $local_state:expr, $next_chunk:expr, $bind_data:expr) => {{
         use duckdb::core::Inserter;
         $crate::vector_writer::write_chunk_unified::<String, _, _>(
             |buf| match buf {
@@ -312,11 +290,11 @@ macro_rules! dispatch_write_chunk {
             },
             $output,
             $local_state,
-            $global_state,
+            $next_chunk,
             $bind_data,
         )
     }};
-    ($rust_type:ty, $enum_variant:path, $output:expr, $local_state:expr, $global_state:expr, $bind_data:expr) => {{
+    ($rust_type:ty, $enum_variant:path, $output:expr, $local_state:expr, $next_chunk:expr, $bind_data:expr) => {{
         $crate::vector_writer::write_chunk_unified::<$rust_type, _, _>(
             |buf| match buf {
                 $enum_variant(v) => Ok(v),
@@ -344,7 +322,7 @@ macro_rules! dispatch_write_chunk {
             },
             $output,
             $local_state,
-            $global_state,
+            $next_chunk,
             $bind_data,
         )
     }};
