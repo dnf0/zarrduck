@@ -208,5 +208,90 @@ class TestStacServer(unittest.TestCase):
         finally:
             server.shutdown()
 
+import time
+import argparse
+import statistics
+
+def time_call(fn, reps=3, warmup=1):
+    for _ in range(warmup):
+        fn()
+    samples = []
+    for _ in range(reps):
+        start = time.perf_counter()
+        fn()
+        samples.append(time.perf_counter() - start)
+    return statistics.median(samples)
+
+def main():
+    parser = argparse.ArgumentParser(description="STAC Pushdown Benchmark")
+    parser.add_argument("--json", type=str, help="Output JSON path")
+    parser.add_argument("--reps", type=int, default=3, help="Timing reps")
+    parser.add_argument("--extension", type=str, default="target/release/eider.duckdb_extension")
+    args = parser.parse_args()
+
+    ext_path = Path(args.extension).resolve()
+    if not ext_path.exists():
+        print(f"Extension not found at {ext_path}. Please build it first.")
+        return 1
+
+    server, port, acc = start_stac_server()
+    bbox = (0.0, 0.0, 1.0, 1.0)
+    
+    try:
+        print(f"Benchmarking STAC Pushdown vs Naive (reps={args.reps})")
+        print("-" * 60)
+        print(f"{'Method':<15} | {'Requests':>10} | {'Bytes':>10} | {'Time (s)':>10}")
+        print("-" * 60)
+
+        results = {}
+
+        # Run Naive
+        def run_n():
+            run_eider_stac(port, bbox, acc, ext_path, use_pushdown=False)
+        
+        _, naive_bytes, naive_reqs = run_eider_stac(port, bbox, acc, ext_path, use_pushdown=False)
+        naive_time = time_call(run_n, reps=args.reps)
+        
+        print(f"{'Naive':<15} | {naive_reqs:>10} | {naive_bytes:>10} | {naive_time:>10.3f}")
+        results["naive"] = {
+            "requests": naive_reqs,
+            "bytes": naive_bytes,
+            "time_s": naive_time
+        }
+
+        # Run Pushdown
+        def run_p():
+            run_eider_stac(port, bbox, acc, ext_path, use_pushdown=True)
+            
+        _, push_bytes, push_reqs = run_eider_stac(port, bbox, acc, ext_path, use_pushdown=True)
+        push_time = time_call(run_p, reps=args.reps)
+
+        print(f"{'Pushdown':<15} | {push_reqs:>10} | {push_bytes:>10} | {push_time:>10.3f}")
+        results["pushdown"] = {
+            "requests": push_reqs,
+            "bytes": push_bytes,
+            "time_s": push_time
+        }
+
+        print("-" * 60)
+        print(f"Request Reduction: {naive_reqs / max(push_reqs, 1):.1f}x")
+        print(f"Byte Reduction:    {naive_bytes / max(push_bytes, 1):.1f}x")
+        print(f"Speedup:           {naive_time / max(push_time, 0.0001):.1f}x")
+
+        if args.json:
+            with open(args.json, "w") as f:
+                json.dump(results, f, indent=2)
+
+    finally:
+        server.shutdown()
+        
+    return 0
+
 if __name__ == "__main__":
-    unittest.main()
+    # If run via unittest, don't run main
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        sys.argv.pop(1)
+        unittest.main()
+    else:
+        sys.exit(main())
