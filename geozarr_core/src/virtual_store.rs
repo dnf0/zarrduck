@@ -369,6 +369,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_multiband_multitile_chunk_read_selects_tile_and_band() {
+        use zarrs::storage::ReadableStorageTraits;
+        // 4x4 image, 2x2 tiles => 2x2 grid (4 tiles), 2 bands, 16-bit interleaved LE.
+        // Each tile is 4 pixels; value for (tile, pixel, band) = tile*100 + pixel*10 + band.
+        let samples = 2usize;
+        let pixels_per_tile = 4usize;
+        let num_tiles = 4usize;
+        let tile_bytes = pixels_per_tile * samples * 2;
+
+        let mut raw: Vec<u8> = Vec::new();
+        for t in 0..num_tiles as i16 {
+            for p in 0..pixels_per_tile as i16 {
+                for b in 0..samples as i16 {
+                    raw.extend_from_slice(&(t * 100 + p * 10 + b).to_le_bytes());
+                }
+            }
+        }
+
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        op.write("tiles.bin", raw.clone()).await.unwrap();
+
+        let tile_offsets: Vec<u64> = (0..num_tiles).map(|t| (t * tile_bytes) as u64).collect();
+        let tile_byte_counts: Vec<u64> = vec![tile_bytes as u64; num_tiles];
+
+        let meta = crate::cog::CogMetadata {
+            image_width: 4,
+            image_length: 4,
+            tile_width: 2,
+            tile_length: 2,
+            tile_offsets,
+            tile_byte_counts,
+            is_little_endian: true,
+            bits_per_sample: 16,
+            sample_format: 2,
+            samples_per_pixel: samples as u16,
+            compression: 1,
+            predictor: 1,
+            planar_configuration: 1,
+            ..Default::default()
+        };
+        let store = VirtualCogStore::new(op, "tiles.bin".to_string(), meta).unwrap();
+
+        // grid_width = ceil(4/2) = 2, so flat_idx = y*2 + x.
+        let cases = [(0usize, 0usize, 1usize, 1usize), (1, 1, 0, 2), (1, 1, 1, 3)];
+        for (band, y, x, expected_tile) in cases {
+            let key = format!("{band}.{y}.{x}");
+            let out = store
+                .get(&zarrs::storage::StoreKey::new(&key).unwrap())
+                .unwrap()
+                .unwrap();
+            assert_eq!(out.len(), pixels_per_tile * 2, "key {key} one band's worth");
+            let expected: Vec<u8> = (0..pixels_per_tile as i16)
+                .flat_map(|p| (expected_tile as i16 * 100 + p * 10 + band as i16).to_le_bytes())
+                .collect();
+            assert_eq!(out.to_vec(), expected, "key {key} tile+band de-interleaved");
+        }
+    }
+
+    #[tokio::test]
     async fn test_deflate_tile_is_inflated() {
         use std::io::Write;
         use zarrs::storage::ReadableStorageTraits;
