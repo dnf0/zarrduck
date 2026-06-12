@@ -46,7 +46,7 @@ def run_eider_stac(
     If use_pushdown is True, uses lon_min/etc parameters.
     Otherwise, reads everything and relies on duckdb's WHERE clause."""
     
-    url = f"http://127.0.0.1:{port}/search/data"
+    url = f"http://127.0.0.1:{port}/search"
     lon_min, lat_min, lon_max, lat_max = bbox
     
     conn = _eider_conn(extension_path)
@@ -57,6 +57,7 @@ def run_eider_stac(
                 SELECT lat, lon, value
                 FROM read_geo(
                     '{url}',
+                    asset := 'data',
                     lon_min := {lon_min}, lat_min := {lat_min},
                     lon_max := {lon_max}, lat_max := {lat_max}
                 )
@@ -67,7 +68,12 @@ def run_eider_stac(
         else:
             sql = f"""
                 SELECT lat, lon, value
-                FROM read_geo('{url}')
+                FROM read_geo(
+                    '{url}', 
+                    asset := 'data',
+                    lon_min := {lon_min}, lat_min := {lat_min},
+                    lon_max := {lon_max}, lat_max := {lat_max}
+                )
                 WHERE lon >= {lon_min} AND lon <= {lon_max}
                   AND lat >= {lat_min} AND lat <= {lat_max}
             """
@@ -96,11 +102,19 @@ def _make_stac_handler(accumulator: ByteAccumulator):
                 return
 
             query = urllib.parse.parse_qs(parsed.query)
-            is_bounded = "bbox" in query
+            
             page = int(query.get("page", ["1"])[0])
 
-            # Mock data: Unbounded = 100 pages, Bounded = 1 page
-            total_pages = 1 if is_bounded else 100
+            # Unbounded/large box = 100 pages, Small box = 1 page
+            is_large = True
+            if "bbox" in query:
+                bbox_str = query["bbox"][0]
+                coords = [float(x) for x in bbox_str.split(",")]
+                # small box like 0,0,1,1
+                if coords[2] - coords[0] < 10.0:
+                    is_large = False
+                    
+            total_pages = 100 if is_large else 1
             
             features = []
             # Add a mock item
@@ -122,11 +136,12 @@ def _make_stac_handler(accumulator: ByteAccumulator):
             if page < total_pages:
                 # Add next link
                 next_url = f"http://127.0.0.1:{self.server.server_address[1]}/search?page={page+1}"
-                if is_bounded:
+                if "bbox" in query:
                     next_url += f"&bbox={query['bbox'][0]}"
                 links.append({"rel": "next", "href": next_url})
 
             response_data = {
+                "stac_version": "1.0.0",
                 "type": "FeatureCollection",
                 "features": features,
                 "links": links
@@ -193,16 +208,17 @@ class TestStacServer(unittest.TestCase):
             if not ext_path.exists():
                 self.skipTest("eider extension not built")
 
-            bbox = (0.0, 0.0, 1.0, 1.0)
+            bbox_small = (0.0, 0.0, 1.0, 1.0)
+            bbox_large = (0.0, 0.0, 31.0, 31.0)
             
-            # Run naive
+            # Run naive (needs bbox to pass bind check, but large enough to trigger 100 pages)
             acc.reset()
-            _, naive_bytes, naive_reqs = run_eider_stac(port, bbox, acc, ext_path, use_pushdown=False)
+            _, naive_bytes, naive_reqs = run_eider_stac(port, bbox_large, acc, ext_path, use_pushdown=False)
             self.assertEqual(naive_reqs, 100) # Should hit all 100 pages
             
             # Run pushdown
             acc.reset()
-            _, push_bytes, push_reqs = run_eider_stac(port, bbox, acc, ext_path, use_pushdown=True)
+            _, push_bytes, push_reqs = run_eider_stac(port, bbox_small, acc, ext_path, use_pushdown=True)
             self.assertEqual(push_reqs, 1) # Should hit only 1 page
             self.assertTrue(push_bytes < naive_bytes)
         finally:

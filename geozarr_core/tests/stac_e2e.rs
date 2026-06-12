@@ -10,8 +10,8 @@ fn allow() {
 #[test]
 fn stac_asset_is_georeferenced_like_the_cog() {
     allow();
-    let ds =
-        ZarrDataset::open_with_asset(&fixt("stac_item.json"), Some("band_uncompressed"), None).unwrap();
+    let ds = ZarrDataset::open_with_asset(&fixt("stac_item.json"), Some("band_uncompressed"), None)
+        .unwrap();
     assert_eq!(ds.dim_names, vec!["lat".to_string(), "lon".to_string()]);
     assert!(ds.spatial_transform.is_some());
     let cog = ZarrDataset::open(&fixt("cog_int16_uncompressed.tif"), None).unwrap();
