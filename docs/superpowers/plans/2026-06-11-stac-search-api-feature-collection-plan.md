@@ -1,6 +1,6 @@
 # STAC Search API / FeatureCollection Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Implement safe STAC Search API pushdown by bounding box in DuckDB, enabling fast and constrained remote dataset queries.
 
@@ -19,7 +19,7 @@ Update `geozarr_core` to allow passing constraints into the store resolution pha
 - Modify: `geozarr_core/src/store.rs`
 - Modify: `extension/src/metadata_vtab.rs`
 
-- [ ] **Step 1: Update `resolve_sync_store` signature**
+- [x] **Step 1: Update `resolve_sync_store` signature**
 In `geozarr_core/src/store.rs`:
 ```rust
 pub fn resolve_sync_store(
@@ -28,7 +28,7 @@ pub fn resolve_sync_store(
 ) -> std::result::Result<ResolvedStore, Box<dyn std::error::Error>> {
 ```
 
-- [ ] **Step 2: Update `ZarrDataset::open` and `open_with_asset`**
+- [x] **Step 2: Update `ZarrDataset::open` and `open_with_asset`**
 In `geozarr_core/src/dataset.rs`:
 ```rust
     pub fn open(
@@ -46,17 +46,17 @@ In `geozarr_core/src/dataset.rs`:
         let resolved_store = crate::store::resolve_sync_store(path, constraints)?;
 ```
 
-- [ ] **Step 3: Fix callers to pass `None`**
+- [x] **Step 3: Fix callers to pass `None`**
 In `extension/src/metadata_vtab.rs`:
 ```rust
         let store = geozarr_core::store::resolve_sync_store(&path, None).map_err(|e| e.to_string())?;
 ```
 And in `geozarr_core/src/dataset.rs` (if any tests call `open`), pass `None`.
 
-- [ ] **Step 4: Run `cargo check` to fix remaining test compilation errors**
+- [x] **Step 4: Run `cargo check` to fix remaining test compilation errors**
 Run `cargo check` and fix any `resolve_sync_store`, `open`, or `open_with_asset` test calls in `geozarr_core/src/store.rs` or `geozarr_core/src/dataset.rs` to pass `None`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add geozarr_core/src/dataset.rs geozarr_core/src/store.rs extension/src/metadata_vtab.rs
 git commit -m "refactor: add constraints parameter to store resolution"
@@ -69,7 +69,7 @@ git commit -m "refactor: add constraints parameter to store resolution"
 **Files:**
 - Modify: `geozarr_core/src/store.rs`
 
-- [ ] **Step 1: Build STAC URL**
+- [x] **Step 1: Build STAC URL**
 In `geozarr_core/src/store.rs`, inside `resolve_sync_store`, locate the `reqwest::blocking::get(path)` call for the STAC logic (around line 404):
 ```rust
         if !is_cog && !path.ends_with(".zarr") && !path.ends_with(".zarr/") {
@@ -82,10 +82,10 @@ In `geozarr_core/src/store.rs`, inside `resolve_sync_store`, locate the `reqwest
             if let Ok(resp) = reqwest::blocking::get(&fetch_url) {
 ```
 
-- [ ] **Step 2: Run tests to verify it builds**
+- [x] **Step 2: Run tests to verify it builds**
 Run `cargo check --workspace` to ensure no errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 ```bash
 git add geozarr_core/src/store.rs
 git commit -m "feat: pushdown bbox to stac API via build_stac_url"
@@ -98,7 +98,7 @@ git commit -m "feat: pushdown bbox to stac API via build_stac_url"
 **Files:**
 - Modify: `extension/src/table_function.rs`
 
-- [ ] **Step 1: Move constraint parsing to the top of `bind`**
+- [x] **Step 1: Move constraint parsing to the top of `bind`**
 In `extension/src/table_function.rs`, inside `ReadGeoVTab::bind`, move the `bounds` and `pins` parsing to immediately after `let path = bind.get_parameter(0).to_string();`.
 Also, we need to extract from `["lat", "lon", "time", "y", "x"]` since the dataset isn't open yet.
 
@@ -140,7 +140,7 @@ Also, we need to extract from `["lat", "lon", "time", "y", "x"]` since the datas
         let constraints = geozarr_core::query_planner::QueryConstraints { bounds, pins };
 ```
 
-- [ ] **Step 2: Add validation check**
+- [x] **Step 2: Add validation check**
 Right after `let constraints = ...`:
 
 ```rust
@@ -160,7 +160,7 @@ Right after `let constraints = ...`:
         }
 ```
 
-- [ ] **Step 3: Update `open_with_asset` call and remove old bounds loop**
+- [x] **Step 3: Update `open_with_asset` call and remove old bounds loop**
 ```rust
         let asset = bind.get_named_parameter("asset").map(|v| v.to_string());
         let dataset = geozarr_core::dataset::ZarrDataset::open_with_asset(&path, asset.as_deref(), Some(&constraints))?;
@@ -179,10 +179,10 @@ Right after `let constraints = ...`:
         let (bounds_min, bounds_max) = dataset.compute_bounds(&constraints);
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 Run `cargo test --workspace` to ensure all functionality compiles and tests pass. Note that `PlanReadGeoVTab` will also need its `open_with_asset` call updated, but it uses `ReadGeoVTab::bind(bind)` internally, so it automatically gets the fix!
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add extension/src/table_function.rs
 git commit -m "feat: parse constraints first and validate stac bounding box"
