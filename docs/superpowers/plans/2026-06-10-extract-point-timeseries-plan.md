@@ -1,6 +1,6 @@
 # extract_point_timeseries Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build the `extract_point_timeseries` MCP tool to allow agents to easily extract a timeseries for a specific geographic point using a fast two-phase DuckDB query approach.
 
@@ -15,7 +15,7 @@
 **Files:**
 - Modify: `mcp/src/tools.rs`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `mod tests` inside `mcp/src/tools.rs`:
 ```rust
@@ -51,12 +51,12 @@ Append to `mod tests` inside `mcp/src/tools.rs`:
     }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test -p eider-mcp -- test_extract_point`
 Expected: FAIL (cannot find function `extract_point_timeseries`)
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Append to the public functions in `mcp/src/tools.rs` (above `mod tests`):
 ```rust
@@ -138,12 +138,12 @@ pub fn extract_point_timeseries(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test -p eider-mcp -- extract_point_timeseries`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mcp/src/tools.rs
@@ -155,7 +155,7 @@ git commit -m "feat(mcp): implement extract_point_timeseries pure logic"
 **Files:**
 - Modify: `mcp/src/server.rs`
 
-- [ ] **Step 1: Write parameter structs and handler**
+- [x] **Step 1: Write parameter structs and handler**
 
 Add the struct and update the router in `mcp/src/server.rs`:
 
@@ -214,12 +214,12 @@ Register it in `fn router() -> ToolRouter<Self>`:
         r
 ```
 
-- [ ] **Step 2: Run build/clippy to verify**
+- [x] **Step 2: Run build/clippy to verify**
 
 Run: `cargo clippy -p eider-mcp`
 Expected: PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add mcp/src/server.rs

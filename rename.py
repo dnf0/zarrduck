@@ -8,7 +8,7 @@ def replace_in_file(filepath):
     except Exception:
         return False
 
-    new_content = content.replace('zarrduck', 'eider').replace('Zarrduck', 'Eider').replace('ZARRDUCK', 'EIDER')
+    new_content = content.replace('eider', 'eider').replace('Eider', 'Eider').replace('EIDER', 'EIDER')
     if new_content != content:
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(new_content)

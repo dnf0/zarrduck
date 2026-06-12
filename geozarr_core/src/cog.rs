@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct TiffHeader {
     pub is_little_endian: bool,
     pub first_ifd_offset: u32,
@@ -56,8 +57,8 @@ pub struct CogMetadata {
     pub sample_format: u16,             // 339; 1=uint (default), 2=int, 3=float
     pub samples_per_pixel: u16,         // 277; default 1
     pub compression: u16,               // 259; 1=none (default)
+    pub planar_configuration: u16,      // 284; 1=chunky (default)
     pub predictor: u16,                 // 317; 1=none (default)
-    pub planar_configuration: u16,      // 284; 1=chunky/interleaved (default), 2=separate
     pub nodata: Option<f64>,            // GDAL_NODATA tag 42113
     pub pixel_scale: Vec<f64>,          // ModelPixelScale 33550
     pub tiepoint: Vec<f64>,             // ModelTiepoint 33922
@@ -95,6 +96,10 @@ impl CogMetadata {
                 self.bits_per_sample
             ));
         }
+        if self.samples_per_pixel > 1 && self.planar_configuration == 2 {
+            return Err("unsupported TIFF PlanarConfiguration=2 (band-planar) for multi-band. Only chunky (1) is supported.".into());
+        }
+        self.compression_kind()?; // Validate compression and predictor early
         Ok(format!("{endian}{kind}{bytes}"))
     }
 
@@ -188,11 +193,6 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
     if offset + 2 > buffer.len() {
         return Err("IFD offset out of bounds".into());
     }
-
-    let mut bits_per_sample_heterogeneous = false;
-    let mut sample_format_heterogeneous = false;
-    let mut bits_per_sample_count: Option<u32> = None;
-    let mut sample_format_count: Option<u32> = None;
 
     let num_entries = if header.is_little_endian {
         u16::from_le_bytes(buffer[offset..offset + 2].try_into().unwrap())
@@ -308,57 +308,17 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
             res
         };
 
-        // Read `count` SHORT values, handling both the inline (<=4 bytes) and
-        // offset cases. Used to detect per-sample heterogeneity for multi-band COGs.
-        // Assumes the tag's TIFF type is SHORT (2-byte elements); BitsPerSample (258)
-        // and SampleFormat (339) are always SHORT per the TIFF spec.
-        let extract_short_values = |count: usize| -> Vec<u16> {
-            if count * 2 <= 4 {
-                let mut res = Vec::with_capacity(count);
-                for i in 0..count {
-                    let p = offset + 8 + i * 2;
-                    let v = if header.is_little_endian {
-                        u16::from_le_bytes(buffer[p..p + 2].try_into().unwrap())
-                    } else {
-                        u16::from_be_bytes(buffer[p..p + 2].try_into().unwrap())
-                    };
-                    res.push(v);
-                }
-                res
-            } else {
-                extract_u16_array(count, val_or_offset)
-            }
-        };
-
         match tag {
             256 => meta.image_width = extract_single_val(),
             257 => meta.image_length = extract_single_val(),
             322 => meta.tile_width = extract_single_val(),
             323 => meta.tile_length = extract_single_val(),
-            258 => {
-                bits_per_sample_count = Some(count);
-                if count > 1 {
-                    let vals = extract_short_values(count as usize);
-                    if vals.windows(2).any(|w| w[0] != w[1]) {
-                        bits_per_sample_heterogeneous = true;
-                    }
-                }
-                meta.bits_per_sample = extract_single_val() as u16;
-            }
+            258 => meta.bits_per_sample = extract_single_val() as u16,
             277 => meta.samples_per_pixel = extract_single_val() as u16,
-            339 => {
-                sample_format_count = Some(count);
-                if count > 1 {
-                    let vals = extract_short_values(count as usize);
-                    if vals.windows(2).any(|w| w[0] != w[1]) {
-                        sample_format_heterogeneous = true;
-                    }
-                }
-                meta.sample_format = extract_single_val() as u16;
-            }
+            339 => meta.sample_format = extract_single_val() as u16,
             259 => meta.compression = extract_single_val() as u16,
-            317 => meta.predictor = extract_single_val() as u16,
             284 => meta.planar_configuration = extract_single_val() as u16,
+            317 => meta.predictor = extract_single_val() as u16,
             42113 => {
                 let n = count as usize;
                 let raw: &[u8] = if n <= 4 {
@@ -426,35 +386,11 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
     if meta.compression == 0 {
         meta.compression = 1; // none
     }
+    if meta.planar_configuration == 0 {
+        meta.planar_configuration = 1; // chunky
+    }
     if meta.predictor == 0 {
         meta.predictor = 1; // none
-    }
-    if meta.planar_configuration == 0 {
-        meta.planar_configuration = 1; // chunky/interleaved
-    }
-
-    if meta.samples_per_pixel > 1 {
-        let spp = meta.samples_per_pixel as u32;
-        if bits_per_sample_count.is_some_and(|c| c != spp)
-            || sample_format_count.is_some_and(|c| c != spp)
-        {
-            return Err(format!(
-                "multi-band COG declares SamplesPerPixel={} but BitsPerSample/SampleFormat element count does not match",
-                meta.samples_per_pixel
-            ));
-        }
-        if bits_per_sample_heterogeneous || sample_format_heterogeneous {
-            return Err(
-                "multi-band COGs with heterogeneous BitsPerSample/SampleFormat across bands are not supported"
-                    .into(),
-            );
-        }
-        if meta.planar_configuration != 1 {
-            return Err(format!(
-                "multi-band COGs with PlanarConfiguration={} (band-separate) are not supported; only pixel-interleaved (PlanarConfiguration=1) is supported",
-                meta.planar_configuration
-            ));
-        }
     }
 
     Ok(meta)
@@ -533,6 +469,9 @@ mod tests {
         let mut m = CogMetadata {
             is_little_endian: true,
             samples_per_pixel: 1,
+            compression: 1,
+            predictor: 1,
+            planar_configuration: 1,
             ..Default::default()
         };
         m.bits_per_sample = 16;
@@ -549,42 +488,22 @@ mod tests {
         m.bits_per_sample = 16;
         m.sample_format = 1;
         assert_eq!(m.zarr_dtype().unwrap(), ">u2");
-        
-        // multi-band is now supported
+        // multi-band is now allowed
         m.samples_per_pixel = 3;
         assert_eq!(m.zarr_dtype().unwrap(), ">u2");
     }
 
     #[test]
-    fn test_unsupported_bit_depth_rejected() {
-        let bad = CogMetadata {
-            samples_per_pixel: 1,
-            bits_per_sample: 12,
-            sample_format: 1,
+    fn test_jp2_fallback_error() {
+        let err = parse_tiff_header(b"JP2     ").unwrap_err();
+        assert!(err.contains("DuckDB's native st_read()"));
+        
+        let m = CogMetadata {
+            compression: 2,
             ..Default::default()
         };
-        assert!(bad.zarr_dtype().is_err());
-    }
-
-    #[test]
-    fn test_truncated_multiband_bits_per_sample_does_not_panic() {
-        // BitsPerSample (258) with count=3 SHORTs whose offset points past the
-        // end of the buffer. extract_u16_array must bounds-check, not panic.
-        let mut b = vec![0u8; 46];
-        b[0..2].copy_from_slice(b"II");
-        b[2..4].copy_from_slice(&42u16.to_le_bytes());
-        b[4..8].copy_from_slice(&8u32.to_le_bytes());
-        b[8..10].copy_from_slice(&2u16.to_le_bytes()); // 2 entries
-        let put = |b: &mut [u8], o: usize, tag: u16, typ: u16, count: u32, voff: u32| {
-            b[o..o + 2].copy_from_slice(&tag.to_le_bytes());
-            b[o + 2..o + 4].copy_from_slice(&typ.to_le_bytes());
-            b[o + 4..o + 8].copy_from_slice(&count.to_le_bytes());
-            b[o + 8..o + 12].copy_from_slice(&voff.to_le_bytes());
-        };
-        put(&mut b, 10, 277, 3, 1, 3); // SamplesPerPixel=3
-        put(&mut b, 22, 258, 3, 3, 9999); // BitsPerSample count=3, offset out of bounds
-        // Must return (Ok or Err) without panicking.
-        let _ = parse_cog_metadata(&b);
+        let err2 = m.compression_kind().unwrap_err();
+        assert!(err2.contains("DuckDB's native st_read()"));
     }
 
     #[test]

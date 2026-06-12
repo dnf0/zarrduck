@@ -12,7 +12,7 @@
 
 ## Conventions & prerequisites
 
-Repo root `/Users/danielfisher/repos/zarrduck`, branch `feat/cog-first-class` (already created off `main`). TDD: failing test → run → implement → pass → commit. Conventional Commits; every commit `--no-gpg-sign` ending with:
+Repo root `/Users/danielfisher/repos/eider`, branch `feat/cog-first-class` (already created off `main`). TDD: failing test → run → implement → pass → commit. Conventional Commits; every commit `--no-gpg-sign` ending with:
 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 
 Pre-commit hook runs fmt/clippy/whitespace; if it blocks, fix and re-commit. The working tree may have unrelated modified/untracked files — **never `git add -A`**; stage only the files each task names.

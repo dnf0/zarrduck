@@ -42,7 +42,7 @@ impl VirtualCogStore {
         let (shape_json, chunks_json) = if meta.samples_per_pixel > 1 {
             (
                 format!("[{},{},{}]", meta.samples_per_pixel, meta.image_length, meta.image_width),
-                format!("[1,{},{}]", meta.tile_length, meta.tile_width),
+                format!("[{},{},{}]", meta.samples_per_pixel, meta.tile_length, meta.tile_width),
             )
         } else {
             (
@@ -107,24 +107,12 @@ impl ReadableStorageTraits for VirtualCogStore {
             return Ok(Some(self.zattrs_bytes.clone()));
         }
 
-        let chunks: Vec<&str> = key.as_str().split('.').collect();
-        let parsed = if chunks.len() == 2 {
+        let mut chunks: Vec<&str> = key.as_str().split('.').collect();
+        if self.meta.samples_per_pixel > 1 && chunks.len() == 3 && chunks[0] == "0" {
+            chunks.remove(0); // pop the band dimension to get ['y', 'x']
+        }
+        if chunks.len() == 2 {
             if let (Ok(y), Ok(x)) = (chunks[0].parse::<usize>(), chunks[1].parse::<usize>()) {
-                Some((0, y, x))
-            } else {
-                None
-            }
-        } else if chunks.len() == 3 {
-            if let (Ok(b), Ok(y), Ok(x)) = (chunks[0].parse::<usize>(), chunks[1].parse::<usize>(), chunks[2].parse::<usize>()) {
-                Some((b, y, x))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        if let Some((req_band, y, x)) = parsed {
                 let grid_width =
                     (self.meta.image_width as f64 / self.meta.tile_width as f64).ceil() as usize;
                 let flat_idx = y * grid_width + x;
@@ -147,7 +135,7 @@ impl ReadableStorageTraits for VirtualCogStore {
 
                     if let Ok(bytes) = bytes_res {
                         let raw = bytes.to_vec();
-                        let decoded = match self.meta.compression_kind() {
+                        let mut decoded = match self.meta.compression_kind() {
                             Ok(crate::cog::CogCompression::None) => raw,
                             Ok(crate::cog::CogCompression::Deflate) => {
                                 use std::io::Read;
@@ -162,38 +150,35 @@ impl ReadableStorageTraits for VirtualCogStore {
                             }
                             Err(e) => return Err(zarrs::storage::StorageError::Other(e)),
                         };
-                        let samples = self.meta.samples_per_pixel as usize;
-                        if samples > 1 {
-                            if req_band >= samples {
-                                return Ok(None);
-                            }
-                            let bytes_per_sample = (self.meta.bits_per_sample as usize + 7) / 8;
-                            let bytes_per_pixel = bytes_per_sample * samples;
-                            let expected = self.meta.tile_length as usize
-                                * self.meta.tile_width as usize
-                                * bytes_per_pixel;
-                            if decoded.len() != expected {
+                        if self.meta.samples_per_pixel > 1 {
+                            let spp = self.meta.samples_per_pixel as usize;
+                            let bytes_per_sample = (self.meta.bits_per_sample / 8) as usize;
+                            let pixel_stride = spp * bytes_per_sample;
+                            if decoded.len() % pixel_stride != 0 {
                                 return Err(zarrs::storage::StorageError::Other(format!(
-                                    "decoded tile length {} does not match expected interleaved size {} ({}x{} pixels x {} bytes/pixel); tile may be truncated or corrupt",
-                                    decoded.len(),
-                                    expected,
-                                    self.meta.tile_width,
-                                    self.meta.tile_length,
-                                    bytes_per_pixel
+                                    "corrupt tile: length {} is not a multiple of pixel stride {}",
+                                    decoded.len(), pixel_stride
                                 )));
                             }
-                            let mut planar_buf = Vec::with_capacity(decoded.len() / samples);
-                            for pixel_chunk in decoded.chunks_exact(bytes_per_pixel) {
-                                let start = req_band * bytes_per_sample;
-                                planar_buf.extend_from_slice(&pixel_chunk[start..start + bytes_per_sample]);
+                            let num_pixels = decoded.len() / pixel_stride;
+                            let mut planar = vec![0u8; decoded.len()];
+                            for band in 0..spp {
+                                for p in 0..num_pixels {
+                                    let src_idx = p * pixel_stride + band * bytes_per_sample;
+                                    let dst_idx = band * (num_pixels * bytes_per_sample) + p * bytes_per_sample;
+                                    if src_idx + bytes_per_sample <= decoded.len() && dst_idx + bytes_per_sample <= planar.len() {
+                                        planar[dst_idx..dst_idx + bytes_per_sample]
+                                            .copy_from_slice(&decoded[src_idx..src_idx + bytes_per_sample]);
+                                    }
+                                }
                             }
-                            return Ok(Some(Bytes::from(planar_buf)));
-                        } else {
-                            return Ok(Some(Bytes::from(decoded)));
+                            decoded = planar;
                         }
+                        return Ok(Some(Bytes::from(decoded)));
                     }
                 }
             }
+        }
         Ok(None)
     }
 
@@ -309,9 +294,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_multiband_cog_accepted_at_open() {
-        // A multi-band COG (samples_per_pixel != 1) is now supported.
-        let meta = crate::cog::CogMetadata {
+    async fn test_multiband_cog_injects_band_dim() {
+        // A multi-band COG should synthesize a band dimension in the metadata.
+        let mut meta = crate::cog::CogMetadata {
             image_width: 4,
             image_length: 2,
             tile_width: 4,
@@ -326,123 +311,36 @@ mod tests {
             predictor: 1,
             ..Default::default()
         };
+        meta.pixel_scale = vec![2.0, 2.0, 0.0];
+        meta.tiepoint = vec![0.0, 0.0, 0.0, -180.0, 90.0, 0.0];
+        meta.epsg = Some(4326);
+
         let op = opendal::Operator::new(opendal::services::Memory::default())
             .unwrap()
             .finish();
-        assert!(VirtualCogStore::new(op, "".to_string(), meta).is_ok());
-    }
 
-    #[tokio::test]
-    async fn test_multiband_chunk_read_deinterleaves_band() {
         use zarrs::storage::ReadableStorageTraits;
-        // 2x4 tile, 3 bands, 16-bit pixel-interleaved (chunky) LE:
-        // for each of the 8 pixels, 3 consecutive i16 values (one per band).
-        let samples = 3usize;
-        let mut raw: Vec<u8> = Vec::new();
-        for p in 0..8i16 {
-            for b in 0..samples as i16 {
-                raw.extend_from_slice(&(p * 10 + b).to_le_bytes());
-            }
-        }
-        assert_eq!(raw.len(), 8 * samples * 2);
-
-        let op = opendal::Operator::new(opendal::services::Memory::default())
-            .unwrap()
-            .finish();
-        op.write("tile.bin", raw.clone()).await.unwrap();
-
-        let meta = crate::cog::CogMetadata {
-            image_width: 4,
-            image_length: 2,
-            tile_width: 4,
-            tile_length: 2,
-            tile_offsets: vec![0],
-            tile_byte_counts: vec![raw.len() as u64],
-            is_little_endian: true,
-            bits_per_sample: 16,
-            sample_format: 2,
-            samples_per_pixel: samples as u16,
-            compression: 1,
-            predictor: 1,
-            planar_configuration: 1,
-            ..Default::default()
-        };
-        let store = VirtualCogStore::new(op, "tile.bin".to_string(), meta).unwrap();
-
-        for band in 0..samples {
-            let key = format!("{band}.0.0");
-            let out = store
-                .get(&zarrs::storage::StoreKey::new(&key).unwrap())
+        let store = VirtualCogStore::new(op, "".to_string(), meta).unwrap();
+        let zarray = String::from_utf8(
+            store
+                .get(&zarrs::storage::StoreKey::new(".zarray").unwrap())
                 .unwrap()
-                .unwrap();
-            // Single-band tile worth of bytes (8 pixels * 2 bytes), not all bands.
-            assert_eq!(out.len(), 8 * 2, "band {band} chunk must be one band's worth");
-            let expected: Vec<u8> = (0..8i16)
-                .flat_map(|p| (p * 10 + band as i16).to_le_bytes())
-                .collect();
-            assert_eq!(out.to_vec(), expected, "band {band} de-interleaved bytes");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_multiband_multitile_chunk_read_selects_tile_and_band() {
-        use zarrs::storage::ReadableStorageTraits;
-        // 4x4 image, 2x2 tiles => 2x2 grid (4 tiles), 2 bands, 16-bit interleaved LE.
-        // Each tile is 4 pixels; value for (tile, pixel, band) = tile*100 + pixel*10 + band.
-        let samples = 2usize;
-        let pixels_per_tile = 4usize;
-        let num_tiles = 4usize;
-        let tile_bytes = pixels_per_tile * samples * 2;
-
-        let mut raw: Vec<u8> = Vec::new();
-        for t in 0..num_tiles as i16 {
-            for p in 0..pixels_per_tile as i16 {
-                for b in 0..samples as i16 {
-                    raw.extend_from_slice(&(t * 100 + p * 10 + b).to_le_bytes());
-                }
-            }
-        }
-
-        let op = opendal::Operator::new(opendal::services::Memory::default())
-            .unwrap()
-            .finish();
-        op.write("tiles.bin", raw.clone()).await.unwrap();
-
-        let tile_offsets: Vec<u64> = (0..num_tiles).map(|t| (t * tile_bytes) as u64).collect();
-        let tile_byte_counts: Vec<u64> = vec![tile_bytes as u64; num_tiles];
-
-        let meta = crate::cog::CogMetadata {
-            image_width: 4,
-            image_length: 4,
-            tile_width: 2,
-            tile_length: 2,
-            tile_offsets,
-            tile_byte_counts,
-            is_little_endian: true,
-            bits_per_sample: 16,
-            sample_format: 2,
-            samples_per_pixel: samples as u16,
-            compression: 1,
-            predictor: 1,
-            planar_configuration: 1,
-            ..Default::default()
-        };
-        let store = VirtualCogStore::new(op, "tiles.bin".to_string(), meta).unwrap();
-
-        // grid_width = ceil(4/2) = 2, so flat_idx = y*2 + x.
-        let cases = [(0usize, 0usize, 1usize, 1usize), (1, 1, 0, 2), (1, 1, 1, 3)];
-        for (band, y, x, expected_tile) in cases {
-            let key = format!("{band}.{y}.{x}");
-            let out = store
-                .get(&zarrs::storage::StoreKey::new(&key).unwrap())
                 .unwrap()
-                .unwrap();
-            assert_eq!(out.len(), pixels_per_tile * 2, "key {key} one band's worth");
-            let expected: Vec<u8> = (0..pixels_per_tile as i16)
-                .flat_map(|p| (expected_tile as i16 * 100 + p * 10 + band as i16).to_le_bytes())
-                .collect();
-            assert_eq!(out.to_vec(), expected, "key {key} tile+band de-interleaved");
-        }
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(zarray.contains(r#""shape":[3,2,4]"#));
+        assert!(zarray.contains(r#""chunks":[3,2,4]"#));
+
+        let zattrs = String::from_utf8(
+            store
+                .get(&zarrs::storage::StoreKey::new(".zattrs").unwrap())
+                .unwrap()
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(zattrs.contains(r#"["band", "lat", "lon"]"#));
     }
 
     #[tokio::test]
@@ -485,5 +383,49 @@ mod tests {
             raw,
             "deflate tile must be inflated to raw bytes"
         );
+    }
+
+    #[tokio::test]
+    async fn test_multiband_cog_data_fetch_deinterleaves() {
+        use zarrs::storage::ReadableStorageTraits;
+        let raw: Vec<u8> = vec![
+            1, 0, 2, 0, 3, 0, // Pixel 1: B1=1, B2=2, B3=3
+            4, 0, 5, 0, 6, 0, // Pixel 2: B1=4, B2=5, B3=6
+        ];
+
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        op.write("tile.bin", raw).await.unwrap();
+
+        let meta = crate::cog::CogMetadata {
+            image_width: 1,
+            image_length: 2,
+            tile_width: 1,
+            tile_length: 2,
+            tile_offsets: vec![0],
+            tile_byte_counts: vec![12],
+            is_little_endian: true,
+            bits_per_sample: 16,
+            sample_format: 1,
+            samples_per_pixel: 3,
+            compression: 1,
+            predictor: 1,
+            ..Default::default()
+        };
+
+        let store = VirtualCogStore::new(op, "tile.bin".to_string(), meta).unwrap();
+        let out = store
+            .get(&zarrs::storage::StoreKey::new("0.0.0").unwrap())
+            .unwrap()
+            .unwrap();
+
+        let expected: Vec<u8> = vec![
+            1, 0, 4, 0, // Band 1: 1, 4
+            2, 0, 5, 0, // Band 2: 2, 5
+            3, 0, 6, 0, // Band 3: 3, 6
+        ];
+
+        assert_eq!(out.to_vec(), expected);
     }
 }

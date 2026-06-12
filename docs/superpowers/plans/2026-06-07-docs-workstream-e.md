@@ -12,7 +12,7 @@
 
 ## Conventions & prerequisites
 
-Work from repo root `/Users/danielfisher/repos/zarrduck` on branch `docs/workstream-e-engineering` (already created off `main`). Conventional Commits; every commit `--no-gpg-sign` and ends with:
+Work from repo root `/Users/danielfisher/repos/eider` on branch `docs/workstream-e-engineering` (already created off `main`). Conventional Commits; every commit `--no-gpg-sign` and ends with:
 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 
 The working tree may contain unrelated modified/untracked files (demo artifacts, scratch `.rs` files). **Never `git add -A`** — stage only the files each task names.
