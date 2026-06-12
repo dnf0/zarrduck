@@ -166,6 +166,19 @@ impl ReadableStorageTraits for VirtualCogStore {
                         if samples > 1 {
                             let bytes_per_sample = (self.meta.bits_per_sample as usize + 7) / 8;
                             let bytes_per_pixel = bytes_per_sample * samples;
+                            let expected = self.meta.tile_length as usize
+                                * self.meta.tile_width as usize
+                                * bytes_per_pixel;
+                            if decoded.len() != expected {
+                                return Err(zarrs::storage::StorageError::Other(format!(
+                                    "decoded tile length {} does not match expected interleaved size {} ({}x{} pixels x {} bytes/pixel); tile may be truncated or corrupt",
+                                    decoded.len(),
+                                    expected,
+                                    self.meta.tile_width,
+                                    self.meta.tile_length,
+                                    bytes_per_pixel
+                                )));
+                            }
                             let mut planar_buf = Vec::with_capacity(decoded.len() / samples);
                             for pixel_chunk in decoded.chunks_exact(bytes_per_pixel) {
                                 let start = req_band * bytes_per_sample;

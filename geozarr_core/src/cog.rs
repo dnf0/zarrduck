@@ -310,6 +310,8 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
 
         // Read `count` SHORT values, handling both the inline (<=4 bytes) and
         // offset cases. Used to detect per-sample heterogeneity for multi-band COGs.
+        // Assumes the tag's TIFF type is SHORT (2-byte elements); BitsPerSample (258)
+        // and SampleFormat (339) are always SHORT per the TIFF spec.
         let extract_short_values = |count: usize| -> Vec<u16> {
             if count * 2 <= 4 {
                 let mut res = Vec::with_capacity(count);
