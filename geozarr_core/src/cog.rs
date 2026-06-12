@@ -11,7 +11,7 @@ pub fn parse_tiff_header(buffer: &[u8]) -> Result<TiffHeader, String> {
     let is_little_endian = match &buffer[0..2] {
         b"II" => true,
         b"MM" => false,
-        _ => return Err("Invalid TIFF byte order".into()),
+        _ => return Err("Invalid TIFF byte order (likely a JP2 or other unsupported format). Please use DuckDB's native st_read() via the spatial extension instead.".into()),
     };
 
     let magic = if is_little_endian {
@@ -68,12 +68,6 @@ impl CogMetadata {
     /// Numpy/Zarr-V2 dtype string for this COG's single band, e.g. "<i2".
     /// Errors on multi-band or unsupported bit-depth/sample-format combinations.
     pub fn zarr_dtype(&self) -> Result<String, String> {
-        if self.samples_per_pixel != 1 {
-            return Err(format!(
-                "multi-band COGs not yet supported (SamplesPerPixel={})",
-                self.samples_per_pixel
-            ));
-        }
         let endian = if self.bits_per_sample <= 8 {
             "|"
         } else if self.is_little_endian {
@@ -110,7 +104,7 @@ impl CogMetadata {
             8 | 32946 => CogCompression::Deflate,
             other => {
                 return Err(format!(
-                "unsupported COG compression {other} (only uncompressed and Deflate are supported)"
+                "unsupported COG compression {other} (only uncompressed and Deflate are supported). Please use DuckDB's native st_read() via the spatial extension instead."
             ))
             }
         };
@@ -481,17 +475,10 @@ mod tests {
         m.bits_per_sample = 16;
         m.sample_format = 1;
         assert_eq!(m.zarr_dtype().unwrap(), ">u2");
-        // multi-band is rejected
+        
+        // multi-band is now supported
         m.samples_per_pixel = 3;
-        assert!(m.zarr_dtype().is_err());
-        // unsupported bit depth rejected
-        let bad = CogMetadata {
-            samples_per_pixel: 1,
-            bits_per_sample: 12,
-            sample_format: 1,
-            ..Default::default()
-        };
-        assert!(bad.zarr_dtype().is_err());
+        assert_eq!(m.zarr_dtype().unwrap(), ">u2");
     }
 
     #[test]

@@ -33,7 +33,24 @@ impl VirtualCogStore {
             None => "0".to_string(),
         };
         let dims = meta.dim_names(); // ["lat","lon"] or ["y","x"]
-        let dims_json = format!("[\"{}\", \"{}\"]", dims[0], dims[1]);
+        let dims_json = if meta.samples_per_pixel > 1 {
+            format!("[\"band\", \"{}\", \"{}\"]", dims[0], dims[1])
+        } else {
+            format!("[\"{}\", \"{}\"]", dims[0], dims[1])
+        };
+
+        let (shape_json, chunks_json) = if meta.samples_per_pixel > 1 {
+            (
+                format!("[{},{},{}]", meta.samples_per_pixel, meta.image_length, meta.image_width),
+                format!("[{},{},{}]", meta.samples_per_pixel, meta.tile_length, meta.tile_width),
+            )
+        } else {
+            (
+                format!("[{},{}]", meta.image_length, meta.image_width),
+                format!("[{},{}]", meta.tile_length, meta.tile_width),
+            )
+        };
+
         let geozarr = match (meta.spatial_transform(), meta.crs()) {
             (Some(t), crs) => {
                 let crs_json = crs
@@ -46,9 +63,10 @@ impl VirtualCogStore {
             }
             (None, _) => "{}".to_string(),
         };
+
         let zarray = format!(
-            r#"{{"zarr_format":2,"shape":[{},{}],"chunks":[{},{}],"dtype":"{}","compressor":null,"fill_value":{},"filters":null,"order":"C"}}"#,
-            meta.image_length, meta.image_width, meta.tile_length, meta.tile_width, dtype, fill
+            r#"{{"zarr_format":2,"shape":{},"chunks":{},"dtype":"{}","compressor":null,"fill_value":{},"filters":null,"order":"C"}}"#,
+            shape_json, chunks_json, dtype, fill
         );
         let zattrs = format!(
             r#"{{"_ARRAY_DIMENSIONS":{},"geozarr":{}}}"#,
@@ -90,8 +108,23 @@ impl ReadableStorageTraits for VirtualCogStore {
         }
 
         let chunks: Vec<&str> = key.as_str().split('.').collect();
-        if chunks.len() == 2 {
+        let parsed = if chunks.len() == 2 {
             if let (Ok(y), Ok(x)) = (chunks[0].parse::<usize>(), chunks[1].parse::<usize>()) {
+                Some((0, y, x))
+            } else {
+                None
+            }
+        } else if chunks.len() == 3 {
+            if let (Ok(b), Ok(y), Ok(x)) = (chunks[0].parse::<usize>(), chunks[1].parse::<usize>(), chunks[2].parse::<usize>()) {
+                Some((b, y, x))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some((req_band, y, x)) = parsed {
                 let grid_width =
                     (self.meta.image_width as f64 / self.meta.tile_width as f64).ceil() as usize;
                 let flat_idx = y * grid_width + x;
@@ -129,11 +162,22 @@ impl ReadableStorageTraits for VirtualCogStore {
                             }
                             Err(e) => return Err(zarrs::storage::StorageError::Other(e)),
                         };
-                        return Ok(Some(Bytes::from(decoded)));
+                        let samples = self.meta.samples_per_pixel as usize;
+                        if samples > 1 {
+                            let bytes_per_sample = (self.meta.bits_per_sample as usize + 7) / 8;
+                            let bytes_per_pixel = bytes_per_sample * samples;
+                            let mut planar_buf = Vec::with_capacity(decoded.len() / samples);
+                            for pixel_chunk in decoded.chunks_exact(bytes_per_pixel) {
+                                let start = req_band * bytes_per_sample;
+                                planar_buf.extend_from_slice(&pixel_chunk[start..start + bytes_per_sample]);
+                            }
+                            return Ok(Some(Bytes::from(planar_buf)));
+                        } else {
+                            return Ok(Some(Bytes::from(decoded)));
+                        }
                     }
                 }
             }
-        }
         Ok(None)
     }
 
@@ -249,10 +293,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_multiband_cog_rejected_at_open() {
-        // A multi-band COG (samples_per_pixel != 1) is otherwise valid but
-        // unsupported; opening it must fail loudly rather than silently
-        // misreading the data as single-band <f4.
+    async fn test_multiband_cog_accepted_at_open() {
+        // A multi-band COG (samples_per_pixel != 1) is now supported.
         let meta = crate::cog::CogMetadata {
             image_width: 4,
             image_length: 2,
@@ -271,7 +313,7 @@ mod tests {
         let op = opendal::Operator::new(opendal::services::Memory::default())
             .unwrap()
             .finish();
-        assert!(VirtualCogStore::new(op, "".to_string(), meta).is_err());
+        assert!(VirtualCogStore::new(op, "".to_string(), meta).is_ok());
     }
 
     #[tokio::test]
