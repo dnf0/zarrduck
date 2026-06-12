@@ -483,19 +483,18 @@ pub fn resolve_sync_store(
                             break;
                         }
                     } else if current_page > 1 {
-                        return Err(Box::new(std::io::Error::other(
-                            format!(
-                                "Failed to parse STAC pagination response from {}",
-                                fetch_url
-                            ),
-                        )));
+                        return Err(Box::new(std::io::Error::other(format!(
+                            "Failed to parse STAC pagination response from {}",
+                            fetch_url
+                        ))));
                     } else {
                         break;
                     }
                 } else if current_page > 1 {
-                    return Err(Box::new(std::io::Error::other(
-                        format!("Failed to fetch STAC pagination page from {}", fetch_url),
-                    )));
+                    return Err(Box::new(std::io::Error::other(format!(
+                        "Failed to fetch STAC pagination page from {}",
+                        fetch_url
+                    ))));
                 } else {
                     break;
                 }
