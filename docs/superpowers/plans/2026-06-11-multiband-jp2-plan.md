@@ -15,7 +15,7 @@
 **Files:**
 - Modify: `geozarr_core/src/cog.rs`
 
-- [ ] **Step 1: Remove `samples_per_pixel` check in `zarr_dtype`**
+- [x] **Step 1: Remove `samples_per_pixel` check in `zarr_dtype`**
 In `geozarr_core/src/cog.rs`, find the `zarr_dtype` function (around line 70) and remove the early return error for `samples_per_pixel != 1`.
 
 ```rust
@@ -44,7 +44,7 @@ In `geozarr_core/src/cog.rs`, find the `zarr_dtype` function (around line 70) an
     }
 ```
 
-- [ ] **Step 2: Update Fallback Errors in `cog.rs`**
+- [x] **Step 2: Update Fallback Errors in `cog.rs`**
 Update the TIFF header validation in `parse_tiff_header` (around line 11):
 ```rust
     let is_little_endian = match &buffer[0..2] {
@@ -63,14 +63,14 @@ And in `compression_kind` (around line 111):
             }
 ```
 
-- [ ] **Step 3: Run `cargo check`**
+- [x] **Step 3: Run `cargo check`**
 Run: `cargo check -p geozarr_core`
 Expected: Passes. Note: test `test_zarr_dtype_and_band_guard` may fail since we removed the guard.
 
-- [ ] **Step 4: Fix `test_zarr_dtype_and_band_guard`**
+- [x] **Step 4: Fix `test_zarr_dtype_and_band_guard`**
 In `geozarr_core/src/cog.rs` (around line 464), remove the lines asserting `zarr_dtype()` is err for multiband. Delete the `bad` variable and the `assert!(bad.zarr_dtype().is_err());` line. Make sure `cargo test -p geozarr_core` passes.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add geozarr_core/src/cog.rs
 git commit -m "feat(cog): allow multiband parsing and add jp2 fallback hints"
@@ -81,7 +81,7 @@ git commit -m "feat(cog): allow multiband parsing and add jp2 fallback hints"
 **Files:**
 - Modify: `geozarr_core/src/virtual_store.rs`
 
-- [ ] **Step 1: Update metadata generation**
+- [x] **Step 1: Update metadata generation**
 In `geozarr_core/src/virtual_store.rs`, in the `VirtualCogStore::new()` method (around line 35), replace the `dims_json`, `zarray`, and `zattrs` formatting blocks to conditionally include bands.
 
 ```rust
@@ -127,7 +127,7 @@ In `geozarr_core/src/virtual_store.rs`, in the `VirtualCogStore::new()` method (
         );
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 ```bash
 git add geozarr_core/src/virtual_store.rs
 git commit -m "feat(store): expose multi-band shape in zarr metadata"
@@ -138,7 +138,7 @@ git commit -m "feat(store): expose multi-band shape in zarr metadata"
 **Files:**
 - Modify: `geozarr_core/src/virtual_store.rs`
 
-- [ ] **Step 1: Update Chunk Key parsing**
+- [x] **Step 1: Update Chunk Key parsing**
 In `geozarr_core/src/virtual_store.rs` `VirtualCogStore::get()`, we need to ignore the `band` index in the chunk key because a single COG tile provides all bands.
 
 Replace `let chunks: Vec<&str> = key.as_str().split('.').collect();` with:
@@ -149,7 +149,7 @@ Replace `let chunks: Vec<&str> = key.as_str().split('.').collect();` with:
         }
 ```
 
-- [ ] **Step 2: Add planar de-interleaving**
+- [x] **Step 2: Add planar de-interleaving**
 Inside `VirtualCogStore::get()`, right after `let mut decoded = match self.meta.compression_kind() { ... };` (around line 128), add the de-interleaving logic before `return Ok(Some(Bytes::from(decoded)));`:
 
 ```rust
@@ -174,7 +174,7 @@ Inside `VirtualCogStore::get()`, right after `let mut decoded = match self.meta.
                         }
 ```
 
-- [ ] **Step 3: Test and Commit**
+- [x] **Step 3: Test and Commit**
 Run `cargo test -p geozarr_core`
 If everything passes:
 ```bash
