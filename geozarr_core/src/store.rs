@@ -402,17 +402,63 @@ pub fn resolve_sync_store(
     } else if path.starts_with("http://") || path.starts_with("https://") {
         if !is_cog && !path.ends_with(".zarr") && !path.ends_with(".zarr/") {
             // Check if it's a STAC Item
-            let fetch_url = if let Some(c) = constraints {
+            let mut fetch_url = if let Some(c) = constraints {
                 crate::feature_collection::build_stac_url(path, c)
             } else {
                 path.to_string()
             };
-            if let Ok(resp) = reqwest::blocking::get(&fetch_url) {
-                if let Ok(json) = resp.json::<serde_json::Value>() {
-                    if json.get("stac_version").is_some()
-                        && json.get("type").and_then(|t| t.as_str()) == Some("FeatureCollection")
-                    {
-                        let sorted = sorted_features_by_datetime(&json)?;
+
+            let mut all_features = Vec::new();
+            let mut first_json: Option<serde_json::Value> = None;
+            let mut single_feature_json: Option<serde_json::Value> = None;
+
+            println!("ENTERING LOOP path={}", path); loop {
+                if let Ok(resp) = reqwest::blocking::get(&fetch_url) {
+                    if let Ok(mut json) = resp.json::<serde_json::Value>() {
+                        if json.get("stac_version").is_some()
+                            && json.get("type").and_then(|t| t.as_str()) == Some("FeatureCollection")
+                        {
+                            if let Some(features) = json.get_mut("features").and_then(|f| f.as_array_mut()) {
+                                all_features.append(features);
+                            }
+
+                            if first_json.is_none() {
+                                first_json = Some(json.clone());
+                            }
+
+                            let mut next_href = None;
+                            if let Some(links) = json.get("links").and_then(|l| l.as_array()) {
+                                if let Some(next_link) = links.iter().find(|l| l.get("rel").and_then(|r| r.as_str()) == Some("next")) {
+                                    if let Some(href) = next_link.get("href").and_then(|h| h.as_str()) {
+                                        next_href = Some(href.to_string());
+                                    }
+                                }
+                            }
+
+                            if let Some(href) = next_href {
+                                fetch_url = href;
+                                continue;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            single_feature_json = Some(json);
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            if let Some(mut json) = first_json {
+                if !all_features.is_empty() {
+                    if let Some(obj) = json.as_object_mut() {
+                        obj.insert("features".to_string(), serde_json::Value::Array(all_features));
+                    }
+                    let sorted = sorted_features_by_datetime(&json)?;
                         let asset_names = cog_asset_names(&sorted[0].1)?;
                         let times: Vec<f64> = sorted.iter().map(|(t, _)| *t).collect();
 
@@ -545,9 +591,10 @@ pub fn resolve_sync_store(
                             stac_assets: Some(stac_assets),
                         });
                     }
-                    if json.get("stac_version").is_some()
-                        && json.get("type").and_then(|t| t.as_str()) == Some("Feature")
-                    {
+                } else if let Some(json) = single_feature_json {
+                if json.get("stac_version").is_some()
+                    && json.get("type").and_then(|t| t.as_str()) == Some("Feature")
+                {
                         if let Some(assets) = json.get("assets").and_then(|a| a.as_object()) {
                             let mut cog_assets = Vec::new();
                             for (name, asset) in assets {
@@ -668,14 +715,13 @@ pub fn resolve_sync_store(
                         }
                     }
                 }
-            }
 
             // If it wasn't a STAC item itself, check if its parent is a STAC item.
             // E.g., path is "https://.../S2B_T21NYC_20221205T140704_L2A/swir22"
             let mut parts: Vec<&str> = path.split('/').collect();
             if parts.len() > 3 {
                 let asset_name = parts.pop().unwrap();
-                let parent_url = parts.join("/");
+                let parent_url = parts.join("/"); println!("PARENT URL: {}", parent_url);
                 if let Ok(resp) = reqwest::blocking::get(&parent_url) {
                     if let Ok(json) = resp.json::<serde_json::Value>() {
                         if json.get("stac_version").is_some()

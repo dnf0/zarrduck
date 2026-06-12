@@ -12,7 +12,7 @@
 
 ## Conventions for this plan
 
-- **Working directory:** all `cargo`/`git` commands run from the repo root `/Users/danielfisher/repos/zarrduck` unless stated. Cargo commands target the CLI with `-p eider`.
+- **Working directory:** all `cargo`/`git` commands run from the repo root `/Users/danielfisher/repos/eider` unless stated. Cargo commands target the CLI with `-p eider`.
 - **Two test rhythms appear here.** Most of `eider`'s pure logic *already exists*, so its unit tests are **characterization tests**: write the test, run it, expect it to **PASS immediately** (it documents/locks current behavior). Where we *extract new* logic (hybrid refactor), classic TDD applies: test fails first, then implement. Each task states which rhythm it uses.
 - **Extension prerequisite:** integration tests for `info`/`extract`/`export`/`ingest` require the built extension. Build it once before running those: `cargo duckdb-ext build` (produces `target/debug/eider.duckdb_extension`, already present in this workspace).
 - **Commit style:** Conventional Commits, `--no-gpg-sign` (repo policy skips GPG). End commit messages with the `Co-Authored-By` trailer. Never commit to `main` — work stays on `test/cli-comprehensive-suite`.

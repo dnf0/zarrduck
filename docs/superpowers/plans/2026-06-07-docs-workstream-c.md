@@ -12,7 +12,7 @@
 
 ## Conventions & verified facts
 
-Work from repo root `/Users/danielfisher/repos/zarrduck` on branch `docs/workstream-c-cli-reference` (do NOT commit to `main`). Conventional Commits, `--no-gpg-sign`, end commit messages with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
+Work from repo root `/Users/danielfisher/repos/eider` on branch `docs/workstream-c-cli-reference` (do NOT commit to `main`). Conventional Commits, `--no-gpg-sign`, end commit messages with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 
 Command surface (from `cli/src/main.rs` clap defs — the canonical source is `eider <cmd> --help`, which Task 1 captures):
 
