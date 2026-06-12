@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct TiffHeader {
     pub is_little_endian: bool,
     pub first_ifd_offset: u32,
@@ -11,7 +12,7 @@ pub fn parse_tiff_header(buffer: &[u8]) -> Result<TiffHeader, String> {
     let is_little_endian = match &buffer[0..2] {
         b"II" => true,
         b"MM" => false,
-        _ => return Err("Invalid TIFF byte order".into()),
+        _ => return Err("Invalid TIFF byte order (likely a JP2 or other unsupported format). Please use DuckDB's native st_read() via the spatial extension instead.".into()),
     };
 
     let magic = if is_little_endian {
@@ -56,6 +57,7 @@ pub struct CogMetadata {
     pub sample_format: u16,             // 339; 1=uint (default), 2=int, 3=float
     pub samples_per_pixel: u16,         // 277; default 1
     pub compression: u16,               // 259; 1=none (default)
+    pub planar_configuration: u16,      // 284; 1=chunky (default)
     pub predictor: u16,                 // 317; 1=none (default)
     pub nodata: Option<f64>,            // GDAL_NODATA tag 42113
     pub pixel_scale: Vec<f64>,          // ModelPixelScale 33550
@@ -68,12 +70,6 @@ impl CogMetadata {
     /// Numpy/Zarr-V2 dtype string for this COG's single band, e.g. "<i2".
     /// Errors on multi-band or unsupported bit-depth/sample-format combinations.
     pub fn zarr_dtype(&self) -> Result<String, String> {
-        if self.samples_per_pixel != 1 {
-            return Err(format!(
-                "multi-band COGs not yet supported (SamplesPerPixel={})",
-                self.samples_per_pixel
-            ));
-        }
         let endian = if self.bits_per_sample <= 8 {
             "|"
         } else if self.is_little_endian {
@@ -100,6 +96,10 @@ impl CogMetadata {
                 self.bits_per_sample
             ));
         }
+        if self.samples_per_pixel > 1 && self.planar_configuration == 2 {
+            return Err("unsupported TIFF PlanarConfiguration=2 (band-planar) for multi-band. Only chunky (1) is supported.".into());
+        }
+        self.compression_kind()?; // Validate compression and predictor early
         Ok(format!("{endian}{kind}{bytes}"))
     }
 
@@ -110,7 +110,7 @@ impl CogMetadata {
             8 | 32946 => CogCompression::Deflate,
             other => {
                 return Err(format!(
-                "unsupported COG compression {other} (only uncompressed and Deflate are supported)"
+                "unsupported COG compression {other} (only uncompressed and Deflate are supported). Please use DuckDB's native st_read() via the spatial extension instead."
             ))
             }
         };
@@ -317,6 +317,7 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
             277 => meta.samples_per_pixel = extract_single_val() as u16,
             339 => meta.sample_format = extract_single_val() as u16,
             259 => meta.compression = extract_single_val() as u16,
+            284 => meta.planar_configuration = extract_single_val() as u16,
             317 => meta.predictor = extract_single_val() as u16,
             42113 => {
                 let n = count as usize;
@@ -384,6 +385,9 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
     }
     if meta.compression == 0 {
         meta.compression = 1; // none
+    }
+    if meta.planar_configuration == 0 {
+        meta.planar_configuration = 1; // chunky
     }
     if meta.predictor == 0 {
         meta.predictor = 1; // none
@@ -465,6 +469,9 @@ mod tests {
         let mut m = CogMetadata {
             is_little_endian: true,
             samples_per_pixel: 1,
+            compression: 1,
+            predictor: 1,
+            planar_configuration: 1,
             ..Default::default()
         };
         m.bits_per_sample = 16;
@@ -481,17 +488,22 @@ mod tests {
         m.bits_per_sample = 16;
         m.sample_format = 1;
         assert_eq!(m.zarr_dtype().unwrap(), ">u2");
-        // multi-band is rejected
+        // multi-band is now allowed
         m.samples_per_pixel = 3;
-        assert!(m.zarr_dtype().is_err());
-        // unsupported bit depth rejected
-        let bad = CogMetadata {
-            samples_per_pixel: 1,
-            bits_per_sample: 12,
-            sample_format: 1,
+        assert_eq!(m.zarr_dtype().unwrap(), ">u2");
+    }
+
+    #[test]
+    fn test_jp2_fallback_error() {
+        let err = parse_tiff_header(b"JP2     ").unwrap_err();
+        assert!(err.contains("DuckDB's native st_read()"));
+        
+        let m = CogMetadata {
+            compression: 2,
             ..Default::default()
         };
-        assert!(bad.zarr_dtype().is_err());
+        let err2 = m.compression_kind().unwrap_err();
+        assert!(err2.contains("DuckDB's native st_read()"));
     }
 
     #[test]

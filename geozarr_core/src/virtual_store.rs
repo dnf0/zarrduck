@@ -33,7 +33,24 @@ impl VirtualCogStore {
             None => "0".to_string(),
         };
         let dims = meta.dim_names(); // ["lat","lon"] or ["y","x"]
-        let dims_json = format!("[\"{}\", \"{}\"]", dims[0], dims[1]);
+        let dims_json = if meta.samples_per_pixel > 1 {
+            format!("[\"band\", \"{}\", \"{}\"]", dims[0], dims[1])
+        } else {
+            format!("[\"{}\", \"{}\"]", dims[0], dims[1])
+        };
+
+        let (shape_json, chunks_json) = if meta.samples_per_pixel > 1 {
+            (
+                format!("[{},{},{}]", meta.samples_per_pixel, meta.image_length, meta.image_width),
+                format!("[{},{},{}]", meta.samples_per_pixel, meta.tile_length, meta.tile_width),
+            )
+        } else {
+            (
+                format!("[{},{}]", meta.image_length, meta.image_width),
+                format!("[{},{}]", meta.tile_length, meta.tile_width),
+            )
+        };
+
         let geozarr = match (meta.spatial_transform(), meta.crs()) {
             (Some(t), crs) => {
                 let crs_json = crs
@@ -46,9 +63,10 @@ impl VirtualCogStore {
             }
             (None, _) => "{}".to_string(),
         };
+
         let zarray = format!(
-            r#"{{"zarr_format":2,"shape":[{},{}],"chunks":[{},{}],"dtype":"{}","compressor":null,"fill_value":{},"filters":null,"order":"C"}}"#,
-            meta.image_length, meta.image_width, meta.tile_length, meta.tile_width, dtype, fill
+            r#"{{"zarr_format":2,"shape":{},"chunks":{},"dtype":"{}","compressor":null,"fill_value":{},"filters":null,"order":"C"}}"#,
+            shape_json, chunks_json, dtype, fill
         );
         let zattrs = format!(
             r#"{{"_ARRAY_DIMENSIONS":{},"geozarr":{}}}"#,
@@ -89,7 +107,10 @@ impl ReadableStorageTraits for VirtualCogStore {
             return Ok(Some(self.zattrs_bytes.clone()));
         }
 
-        let chunks: Vec<&str> = key.as_str().split('.').collect();
+        let mut chunks: Vec<&str> = key.as_str().split('.').collect();
+        if self.meta.samples_per_pixel > 1 && chunks.len() == 3 && chunks[0] == "0" {
+            chunks.remove(0); // pop the band dimension to get ['y', 'x']
+        }
         if chunks.len() == 2 {
             if let (Ok(y), Ok(x)) = (chunks[0].parse::<usize>(), chunks[1].parse::<usize>()) {
                 let grid_width =
@@ -114,7 +135,7 @@ impl ReadableStorageTraits for VirtualCogStore {
 
                     if let Ok(bytes) = bytes_res {
                         let raw = bytes.to_vec();
-                        let decoded = match self.meta.compression_kind() {
+                        let mut decoded = match self.meta.compression_kind() {
                             Ok(crate::cog::CogCompression::None) => raw,
                             Ok(crate::cog::CogCompression::Deflate) => {
                                 use std::io::Read;
@@ -129,6 +150,30 @@ impl ReadableStorageTraits for VirtualCogStore {
                             }
                             Err(e) => return Err(zarrs::storage::StorageError::Other(e)),
                         };
+                        if self.meta.samples_per_pixel > 1 {
+                            let spp = self.meta.samples_per_pixel as usize;
+                            let bytes_per_sample = (self.meta.bits_per_sample / 8) as usize;
+                            let pixel_stride = spp * bytes_per_sample;
+                            if decoded.len() % pixel_stride != 0 {
+                                return Err(zarrs::storage::StorageError::Other(format!(
+                                    "corrupt tile: length {} is not a multiple of pixel stride {}",
+                                    decoded.len(), pixel_stride
+                                )));
+                            }
+                            let num_pixels = decoded.len() / pixel_stride;
+                            let mut planar = vec![0u8; decoded.len()];
+                            for band in 0..spp {
+                                for p in 0..num_pixels {
+                                    let src_idx = p * pixel_stride + band * bytes_per_sample;
+                                    let dst_idx = band * (num_pixels * bytes_per_sample) + p * bytes_per_sample;
+                                    if src_idx + bytes_per_sample <= decoded.len() && dst_idx + bytes_per_sample <= planar.len() {
+                                        planar[dst_idx..dst_idx + bytes_per_sample]
+                                            .copy_from_slice(&decoded[src_idx..src_idx + bytes_per_sample]);
+                                    }
+                                }
+                            }
+                            decoded = planar;
+                        }
                         return Ok(Some(Bytes::from(decoded)));
                     }
                 }
@@ -249,11 +294,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_multiband_cog_rejected_at_open() {
-        // A multi-band COG (samples_per_pixel != 1) is otherwise valid but
-        // unsupported; opening it must fail loudly rather than silently
-        // misreading the data as single-band <f4.
-        let meta = crate::cog::CogMetadata {
+    async fn test_multiband_cog_injects_band_dim() {
+        // A multi-band COG should synthesize a band dimension in the metadata.
+        let mut meta = crate::cog::CogMetadata {
             image_width: 4,
             image_length: 2,
             tile_width: 4,
@@ -268,10 +311,36 @@ mod tests {
             predictor: 1,
             ..Default::default()
         };
+        meta.pixel_scale = vec![2.0, 2.0, 0.0];
+        meta.tiepoint = vec![0.0, 0.0, 0.0, -180.0, 90.0, 0.0];
+        meta.epsg = Some(4326);
+
         let op = opendal::Operator::new(opendal::services::Memory::default())
             .unwrap()
             .finish();
-        assert!(VirtualCogStore::new(op, "".to_string(), meta).is_err());
+
+        use zarrs::storage::ReadableStorageTraits;
+        let store = VirtualCogStore::new(op, "".to_string(), meta).unwrap();
+        let zarray = String::from_utf8(
+            store
+                .get(&zarrs::storage::StoreKey::new(".zarray").unwrap())
+                .unwrap()
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(zarray.contains(r#""shape":[3,2,4]"#));
+        assert!(zarray.contains(r#""chunks":[3,2,4]"#));
+
+        let zattrs = String::from_utf8(
+            store
+                .get(&zarrs::storage::StoreKey::new(".zattrs").unwrap())
+                .unwrap()
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(zattrs.contains(r#"["band", "lat", "lon"]"#));
     }
 
     #[tokio::test]
@@ -314,5 +383,49 @@ mod tests {
             raw,
             "deflate tile must be inflated to raw bytes"
         );
+    }
+
+    #[tokio::test]
+    async fn test_multiband_cog_data_fetch_deinterleaves() {
+        use zarrs::storage::ReadableStorageTraits;
+        let raw: Vec<u8> = vec![
+            1, 0, 2, 0, 3, 0, // Pixel 1: B1=1, B2=2, B3=3
+            4, 0, 5, 0, 6, 0, // Pixel 2: B1=4, B2=5, B3=6
+        ];
+
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        op.write("tile.bin", raw).await.unwrap();
+
+        let meta = crate::cog::CogMetadata {
+            image_width: 1,
+            image_length: 2,
+            tile_width: 1,
+            tile_length: 2,
+            tile_offsets: vec![0],
+            tile_byte_counts: vec![12],
+            is_little_endian: true,
+            bits_per_sample: 16,
+            sample_format: 1,
+            samples_per_pixel: 3,
+            compression: 1,
+            predictor: 1,
+            ..Default::default()
+        };
+
+        let store = VirtualCogStore::new(op, "tile.bin".to_string(), meta).unwrap();
+        let out = store
+            .get(&zarrs::storage::StoreKey::new("0.0.0").unwrap())
+            .unwrap()
+            .unwrap();
+
+        let expected: Vec<u8> = vec![
+            1, 0, 4, 0, // Band 1: 1, 4
+            2, 0, 5, 0, // Band 2: 2, 5
+            3, 0, 6, 0, // Band 3: 3, 6
+        ];
+
+        assert_eq!(out.to_vec(), expected);
     }
 }

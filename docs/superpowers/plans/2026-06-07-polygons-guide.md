@@ -12,7 +12,7 @@
 
 ## Conventions & prerequisites
 
-Repo root `/Users/danielfisher/repos/zarrduck`, branch `docs/polygons-guide` (off `main`). Conventional Commits; every commit `--no-gpg-sign` ending with:
+Repo root `/Users/danielfisher/repos/eider`, branch `docs/polygons-guide` (off `main`). Conventional Commits; every commit `--no-gpg-sign` ending with:
 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 Pre-commit runs fmt/clippy/whitespace. Never `git add -A`; stage only named files.
 

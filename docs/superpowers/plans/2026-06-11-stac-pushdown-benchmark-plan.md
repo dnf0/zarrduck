@@ -1,6 +1,6 @@
 # STAC Search API Pushdown Benchmark Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build a standalone benchmark script to measure the network payload and HTTP request savings of eider's STAC Search API BBox pushdown.
 
@@ -15,7 +15,7 @@
 **Files:**
 - Create: `scripts/bench_stac_pushdown.py`
 
-- [ ] **Step 1: Write the failing server test**
+- [x] **Step 1: Write the failing server test**
 
 ```python
 # scripts/bench_stac_pushdown.py
@@ -83,12 +83,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python scripts/bench_stac_pushdown.py`
 Expected: FAIL with `NotImplementedError`
 
-- [ ] **Step 3: Write the server implementation**
+- [x] **Step 3: Write the server implementation**
 Replace the NotImplementedError with the implementation:
 
 ```python
@@ -167,12 +167,12 @@ def start_stac_server() -> tuple[ThreadingHTTPServer, int, ByteAccumulator]:
     return server, port, accumulator
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python scripts/bench_stac_pushdown.py`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/bench_stac_pushdown.py
@@ -184,7 +184,7 @@ git commit -m "bench: add mock stac server for pushdown test"
 **Files:**
 - Modify: `scripts/bench_stac_pushdown.py`
 
-- [ ] **Step 1: Write the failing tests for runners**
+- [x] **Step 1: Write the failing tests for runners**
 Append to `TestStacServer`:
 
 ```python
@@ -213,12 +213,12 @@ Append to `TestStacServer`:
             server.shutdown()
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python scripts/bench_stac_pushdown.py`
 Expected: FAIL with `NameError: name 'run_eider_stac' is not defined`
 
-- [ ] **Step 3: Write the runner implementation**
+- [x] **Step 3: Write the runner implementation**
 
 ```python
 # Add imports at top
@@ -280,11 +280,11 @@ def run_eider_stac(
         conn.close()
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `python scripts/bench_stac_pushdown.py test`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add scripts/bench_stac_pushdown.py
 git commit -m "bench: add eider runners for stac pushdown"
@@ -295,7 +295,7 @@ git commit -m "bench: add eider runners for stac pushdown"
 **Files:**
 - Modify: `scripts/bench_stac_pushdown.py`
 
-- [ ] **Step 1: Write the main harness**
+- [x] **Step 1: Write the main harness**
 Replace the `unittest.main()` block at the bottom with the timing harness:
 
 ```python
@@ -388,11 +388,11 @@ if __name__ == "__main__":
         sys.exit(main())
 ```
 
-- [ ] **Step 2: Verify it runs**
+- [x] **Step 2: Verify it runs**
 Run: `python scripts/bench_stac_pushdown.py --extension target/debug/eider.duckdb_extension`
 Expected: A table comparing Naive vs Pushdown.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/bench_stac_pushdown.py

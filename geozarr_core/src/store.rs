@@ -410,89 +410,107 @@ pub fn resolve_sync_store(
 
             let mut all_features = Vec::new();
             let mut first_json: Option<serde_json::Value> = None;
+            let mut single_feature_json: Option<serde_json::Value> = None;
+            
+            let mut visited_urls = std::collections::HashSet::new();
+            let max_pages = 1000;
+            let mut current_page = 0;
 
-            while let Ok(resp) = reqwest::blocking::get(&fetch_url) {
-                if let Ok(mut json) = resp.json::<serde_json::Value>() {
-                    if json.get("stac_version").is_some()
-                        && json.get("type").and_then(|t| t.as_str()) == Some("FeatureCollection")
-                    {
-                        if let Some(features) =
-                            json.get_mut("features").and_then(|f| f.as_array_mut())
+            loop {
+                if current_page >= max_pages {
+                    eprintln!("Warning: STAC pagination stopped after reaching max pages ({})", max_pages);
+                    break;
+                }
+                if !visited_urls.insert(fetch_url.clone()) {
+                    eprintln!("Warning: STAC pagination stopped due to cycle at {}", fetch_url);
+                    break;
+                }
+                current_page += 1;
+
+                if let Ok(resp) = reqwest::blocking::get(&fetch_url) {
+                    if let Ok(mut json) = resp.json::<serde_json::Value>() {
+                        if json.get("stac_version").is_some()
+                            && json.get("type").and_then(|t| t.as_str()) == Some("FeatureCollection")
                         {
-                            all_features.append(features);
-                        }
+                            if let Some(features) = json.get_mut("features").and_then(|f| f.as_array_mut()) {
+                                all_features.append(features);
+                            }
 
-                        if first_json.is_none() {
-                            first_json = Some(json.clone());
-                        }
+                            if first_json.is_none() {
+                                first_json = Some(json.clone());
+                            }
 
-                        let mut next_href = None;
-                        if let Some(links) = json.get("links").and_then(|l| l.as_array()) {
-                            if let Some(next_link) = links
-                                .iter()
-                                .find(|l| l.get("rel").and_then(|r| r.as_str()) == Some("next"))
-                            {
-                                if let Some(href) = next_link.get("href").and_then(|h| h.as_str()) {
-                                    next_href = Some(href.to_string());
+                            let mut next_href = None;
+                            if let Some(links) = json.get("links").and_then(|l| l.as_array()) {
+                                if let Some(next_link) = links.iter().find(|l| l.get("rel").and_then(|r| r.as_str()) == Some("next")) {
+                                    if let Some(href) = next_link.get("href").and_then(|h| h.as_str()) {
+                                        // Resolve relative URLs
+                                        if let Ok(base_url) = reqwest::Url::parse(&fetch_url) {
+                                            if let Ok(resolved) = base_url.join(href) {
+                                                next_href = Some(resolved.to_string());
+                                            } else {
+                                                next_href = Some(href.to_string());
+                                            }
+                                        } else {
+                                            next_href = Some(href.to_string());
+                                        }
+                                    }
                                 }
                             }
-                        }
 
-                        if let Some(href) = next_href {
-                            fetch_url = href;
-                            continue;
+                            if let Some(href) = next_href {
+                                fetch_url = href;
+                                continue;
+                            } else {
+                                break;
+                            }
                         } else {
+                            single_feature_json = Some(json);
                             break;
                         }
+                    } else if current_page > 1 {
+                        return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to parse STAC pagination response from {}", fetch_url))));
                     } else {
-                        if first_json.is_none() {
-                            first_json = Some(json);
-                        }
                         break;
                     }
+                } else if current_page > 1 {
+                    return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to fetch STAC pagination page from {}", fetch_url))));
                 } else {
                     break;
                 }
             }
 
             if let Some(mut json) = first_json {
-                if json.get("stac_version").is_some()
-                    && json.get("type").and_then(|t| t.as_str()) == Some("FeatureCollection")
-                {
-                    if !all_features.is_empty() {
-                        if let Some(obj) = json.as_object_mut() {
-                            obj.insert(
-                                "features".to_string(),
-                                serde_json::Value::Array(all_features),
-                            );
-                        }
+                if !all_features.is_empty() {
+                    if let Some(obj) = json.as_object_mut() {
+                        obj.insert("features".to_string(), serde_json::Value::Array(all_features));
                     }
                     let sorted = sorted_features_by_datetime(&json)?;
-                    let asset_names = cog_asset_names(&sorted[0].1)?;
-                    let times: Vec<f64> = sorted.iter().map(|(t, _)| *t).collect();
+                        let asset_names = cog_asset_names(&sorted[0].1)?;
+                        let times: Vec<f64> = sorted.iter().map(|(t, _)| *t).collect();
 
-                    // Resolve each asset href per (time-sorted) feature, relative
-                    // to the collection URL when not absolute.
-                    let mut jobs: Vec<(String, usize, String)> = Vec::new();
-                    for name in &asset_names {
-                        for (idx, (_, feature)) in sorted.iter().enumerate() {
-                            let href = feature_asset_href(feature, name)?;
-                            let abs_href = if href.starts_with("http") || href.starts_with("s3://")
-                            {
-                                href
-                            } else {
-                                let mut base = path.to_string();
-                                if let Some(i) = base.rfind('/') {
-                                    base.truncate(i + 1);
-                                }
-                                format!("{}{}", base, href)
-                            };
-                            jobs.push((name.clone(), idx, abs_href));
+                        // Resolve each asset href per (time-sorted) feature, relative
+                        // to the collection URL when not absolute.
+                        let mut jobs: Vec<(String, usize, String)> = Vec::new();
+                        for name in &asset_names {
+                            for (idx, (_, feature)) in sorted.iter().enumerate() {
+                                let href = feature_asset_href(feature, name)?;
+                                let abs_href =
+                                    if href.starts_with("http") || href.starts_with("s3://") {
+                                        href
+                                    } else {
+                                        let mut base = path.to_string();
+                                        if let Some(i) = base.rfind('/') {
+                                            base.truncate(i + 1);
+                                        }
+                                        format!("{}{}", base, href)
+                                    };
+                                jobs.push((name.clone(), idx, abs_href));
+                            }
                         }
-                    }
 
-                    // Concurrent header-fetch, mirroring the single-Item arm.
-                    let built = std::thread::spawn(move || {
+                        // Concurrent header-fetch, mirroring the single-Item arm.
+                        let built = std::thread::spawn(move || {
                             let rt = tokio::runtime::Runtime::new().unwrap();
                             rt.block_on(async {
                                 let mut set = tokio::task::JoinSet::new();
@@ -560,164 +578,170 @@ pub fn resolve_sync_store(
                         .join()
                         .unwrap()?;
 
-                    // Re-assemble time-ordered children per asset.
-                    let n = sorted.len();
-                    let mut assets: std::collections::HashMap<
-                        String,
-                        Vec<Option<crate::virtual_store::VirtualCogStore>>,
-                    > = std::collections::HashMap::new();
-                    for name in &asset_names {
-                        let mut v = Vec::with_capacity(n);
-                        for _ in 0..n {
-                            v.push(None);
+                        // Re-assemble time-ordered children per asset.
+                        let n = sorted.len();
+                        let mut assets: std::collections::HashMap<
+                            String,
+                            Vec<Option<crate::virtual_store::VirtualCogStore>>,
+                        > = std::collections::HashMap::new();
+                        for name in &asset_names {
+                            let mut v = Vec::with_capacity(n);
+                            for _ in 0..n {
+                                v.push(None);
+                            }
+                            assets.insert(name.clone(), v);
                         }
-                        assets.insert(name.clone(), v);
-                    }
-                    for (name, idx, store) in built {
-                        if let Some(slot) = assets.get_mut(&name).and_then(|v| v.get_mut(idx)) {
-                            *slot = Some(store);
+                        for (name, idx, store) in built {
+                            if let Some(slot) = assets.get_mut(&name).and_then(|v| v.get_mut(idx)) {
+                                *slot = Some(store);
+                            }
                         }
-                    }
-                    let mut assets_final: std::collections::HashMap<
-                        String,
-                        Vec<crate::virtual_store::VirtualCogStore>,
-                    > = std::collections::HashMap::new();
-                    for (name, slots) in assets {
-                        let children: Option<Vec<_>> = slots.into_iter().collect();
-                        let children = children.ok_or_else(|| {
-                            format!("STAC FeatureCollection: missing asset {name:?} on some item")
-                        })?;
-                        assets_final.insert(name, children);
-                    }
+                        let mut assets_final: std::collections::HashMap<
+                            String,
+                            Vec<crate::virtual_store::VirtualCogStore>,
+                        > = std::collections::HashMap::new();
+                        for (name, slots) in assets {
+                            let children: Option<Vec<_>> = slots.into_iter().collect();
+                            let children = children.ok_or_else(|| {
+                                format!(
+                                    "STAC FeatureCollection: missing asset {name:?} on some item"
+                                )
+                            })?;
+                            assets_final.insert(name, children);
+                        }
 
-                    let store = build_time_stack(assets_final, times)?;
-                    let stac_assets = store.asset_names();
-                    return Ok(ResolvedStore {
-                        store,
-                        is_remote: true,
-                        stac_assets: Some(stac_assets),
-                    });
-                }
+                        let store = build_time_stack(assets_final, times)?;
+                        let stac_assets = store.asset_names();
+                        return Ok(ResolvedStore {
+                            store,
+                            is_remote: true,
+                            stac_assets: Some(stac_assets),
+                        });
+                    }
+                } else if let Some(json) = single_feature_json {
                 if json.get("stac_version").is_some()
                     && json.get("type").and_then(|t| t.as_str()) == Some("Feature")
                 {
-                    if let Some(assets) = json.get("assets").and_then(|a| a.as_object()) {
-                        let mut cog_assets = Vec::new();
-                        for (name, asset) in assets {
-                            let t = asset.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                            let href = asset.get("href").and_then(|h| h.as_str()).unwrap_or("");
-                            let is_asset_cog = t.contains("tiff")
-                                || t.contains("cog")
-                                || href.ends_with(".tif")
-                                || href.ends_with(".tiff");
+                        if let Some(assets) = json.get("assets").and_then(|a| a.as_object()) {
+                            let mut cog_assets = Vec::new();
+                            for (name, asset) in assets {
+                                let t = asset.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                let href = asset.get("href").and_then(|h| h.as_str()).unwrap_or("");
+                                let is_asset_cog = t.contains("tiff")
+                                    || t.contains("cog")
+                                    || href.ends_with(".tif")
+                                    || href.ends_with(".tiff");
 
-                            if is_asset_cog {
-                                // Resolve relative URLs if needed, but usually STAC assets are absolute
-                                let abs_href =
-                                    if href.starts_with("http") || href.starts_with("s3://") {
-                                        href.to_string()
-                                    } else {
-                                        let mut base = path.to_string();
-                                        if let Some(idx) = base.rfind('/') {
-                                            base.truncate(idx + 1);
-                                        }
-                                        format!("{}{}", base, href)
-                                    };
-                                cog_assets.push((name.to_string(), abs_href));
+                                if is_asset_cog {
+                                    // Resolve relative URLs if needed, but usually STAC assets are absolute
+                                    let abs_href =
+                                        if href.starts_with("http") || href.starts_with("s3://") {
+                                            href.to_string()
+                                        } else {
+                                            let mut base = path.to_string();
+                                            if let Some(idx) = base.rfind('/') {
+                                                base.truncate(idx + 1);
+                                            }
+                                            format!("{}{}", base, href)
+                                        };
+                                    cog_assets.push((name.to_string(), abs_href));
+                                }
                             }
-                        }
 
-                        if !cog_assets.is_empty() {
-                            // Fetch headers concurrently
-                            let children = std::thread::spawn(move || {
-                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                rt.block_on(async {
-                                    let mut set = tokio::task::JoinSet::new();
-                                    for (name, href) in cog_assets {
-                                        set.spawn(async move {
-                                            let (operator, root_str) = if href.starts_with("s3://")
-                                            {
-                                                let bucket_and_path =
-                                                    href.strip_prefix("s3://").unwrap();
-                                                let bucket = bucket_and_path
-                                                    .split('/')
-                                                    .next()
-                                                    .unwrap_or(bucket_and_path);
-                                                let root = bucket_and_path
-                                                    .strip_prefix(bucket)
-                                                    .unwrap_or("/");
-                                                let builder = opendal::services::S3::default()
-                                                    .bucket(bucket)
-                                                    .root(root);
-                                                let root_str = bucket_and_path
-                                                    .strip_prefix(bucket)
-                                                    .unwrap_or("/")
-                                                    .to_string();
+                            if !cog_assets.is_empty() {
+                                // Fetch headers concurrently
+                                let children = std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                    rt.block_on(async {
+                                        let mut set = tokio::task::JoinSet::new();
+                                        for (name, href) in cog_assets {
+                                            set.spawn(async move {
+                                                let (operator, root_str) = if href
+                                                    .starts_with("s3://")
+                                                {
+                                                    let bucket_and_path =
+                                                        href.strip_prefix("s3://").unwrap();
+                                                    let bucket = bucket_and_path
+                                                        .split('/')
+                                                        .next()
+                                                        .unwrap_or(bucket_and_path);
+                                                    let root = bucket_and_path
+                                                        .strip_prefix(bucket)
+                                                        .unwrap_or("/");
+                                                    let builder = opendal::services::S3::default()
+                                                        .bucket(bucket)
+                                                        .root(root);
+                                                    let root_str = bucket_and_path
+                                                        .strip_prefix(bucket)
+                                                        .unwrap_or("/")
+                                                        .to_string();
+                                                    (
+                                                        opendal::Operator::new(builder)
+                                                            .unwrap()
+                                                            .finish(),
+                                                        root_str,
+                                                    )
+                                                } else {
+                                                    let (endpoint, path) =
+                                                        split_http_endpoint_key(&href).unwrap();
+                                                    let builder =
+                                                        opendal::services::Http::default()
+                                                            .endpoint(&endpoint);
+                                                    (
+                                                        opendal::Operator::new(builder)
+                                                            .unwrap()
+                                                            .finish(),
+                                                        path,
+                                                    )
+                                                };
+
+                                                let header_bytes = operator
+                                                    .read_with(&root_str)
+                                                    .range(0..16384)
+                                                    .await
+                                                    .unwrap_or_default()
+                                                    .to_vec();
+                                                let meta =
+                                                    crate::cog::parse_cog_metadata(&header_bytes)
+                                                        .unwrap_or_default();
                                                 (
-                                                    opendal::Operator::new(builder)
-                                                        .unwrap()
-                                                        .finish(),
-                                                    root_str,
+                                                    name,
+                                                    crate::virtual_store::VirtualCogStore::new(
+                                                        operator, root_str, meta,
+                                                    ),
                                                 )
-                                            } else {
-                                                let (endpoint, path) =
-                                                    split_http_endpoint_key(&href).unwrap();
-                                                let builder = opendal::services::Http::default()
-                                                    .endpoint(&endpoint);
-                                                (
-                                                    opendal::Operator::new(builder)
-                                                        .unwrap()
-                                                        .finish(),
-                                                    path,
-                                                )
-                                            };
-
-                                            let header_bytes = operator
-                                                .read_with(&root_str)
-                                                .range(0..16384)
-                                                .await
-                                                .unwrap_or_default()
-                                                .to_vec();
-                                            let meta =
-                                                crate::cog::parse_cog_metadata(&header_bytes)
-                                                    .unwrap_or_default();
-                                            (
-                                                name,
-                                                crate::virtual_store::VirtualCogStore::new(
-                                                    operator, root_str, meta,
-                                                ),
-                                            )
-                                        });
-                                    }
-
-                                    let mut children_map = std::collections::HashMap::new();
-                                    while let Some(res) = set.join_next().await {
-                                        if let Ok((name, store)) = res {
-                                            // A multi-band / unsupported child COG fails the
-                                            // whole STAC open; STAC is not first-class yet.
-                                            children_map.insert(name, store?);
+                                            });
                                         }
-                                    }
-                                    Ok::<_, String>(children_map)
-                                })
-                            })
-                            .join()
-                            .unwrap()?;
 
-                            let mut asset_names: Vec<String> = children.keys().cloned().collect();
-                            asset_names.sort();
-                            let store = std::sync::Arc::new(
-                                crate::virtual_stac_store::VirtualStacStore::new(children),
-                            );
-                            return Ok(ResolvedStore {
-                                store,
-                                is_remote: true,
-                                stac_assets: Some(asset_names),
-                            });
+                                        let mut children_map = std::collections::HashMap::new();
+                                        while let Some(res) = set.join_next().await {
+                                            if let Ok((name, store)) = res {
+                                                // A multi-band / unsupported child COG fails the
+                                                // whole STAC open; STAC is not first-class yet.
+                                                children_map.insert(name, store?);
+                                            }
+                                        }
+                                        Ok::<_, String>(children_map)
+                                    })
+                                })
+                                .join()
+                                .unwrap()?;
+
+                                let mut asset_names: Vec<String> =
+                                    children.keys().cloned().collect();
+                                asset_names.sort();
+                                let store = std::sync::Arc::new(
+                                    crate::virtual_stac_store::VirtualStacStore::new(children),
+                                );
+                                return Ok(ResolvedStore {
+                                    store,
+                                    is_remote: true,
+                                    stac_assets: Some(asset_names),
+                                });
+                            }
                         }
                     }
                 }
-            }
 
             // If it wasn't a STAC item itself, check if its parent is a STAC item.
             // E.g., path is "https://.../S2B_T21NYC_20221205T140704_L2A/swir22"

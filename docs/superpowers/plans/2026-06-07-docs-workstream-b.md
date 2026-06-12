@@ -12,7 +12,7 @@
 
 ## Conventions & verified facts
 
-Work from repo root `/Users/danielfisher/repos/zarrduck` on branch `docs/workstream-b-sql-reference` (do NOT commit to `main`). Conventional Commits, `--no-gpg-sign`, end messages with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
+Work from repo root `/Users/danielfisher/repos/eider` on branch `docs/workstream-b-sql-reference` (do NOT commit to `main`). Conventional Commits, `--no-gpg-sign`, end messages with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 
 Verified live this session:
 - The extension registers `read_geo`, `plan_read_geo`, `read_zarr_metadata` (`extension/src/lib.rs`).

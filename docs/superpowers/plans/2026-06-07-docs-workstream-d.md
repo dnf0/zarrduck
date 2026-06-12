@@ -12,7 +12,7 @@
 
 ## Conventions & prerequisites
 
-Work from repo root `/Users/danielfisher/repos/zarrduck`. Conventional Commits, `--no-gpg-sign`, end commit messages with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
+Work from repo root `/Users/danielfisher/repos/eider`. Conventional Commits, `--no-gpg-sign`, end commit messages with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 
 **DEPENDENCY ON WORKSTREAM C:** the guides cross-link to the CLI Reference pages (`cli_info.md`, `cli_extract.md`, `cli_resample.md`, `cli_plot.md`, `cli_shell.md`, `cli_ingest.md`, `cli_export.md`), which only exist once C is merged. Before building/verifying:
 

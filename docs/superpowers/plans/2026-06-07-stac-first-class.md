@@ -12,7 +12,7 @@
 
 ## Conventions & prerequisites
 
-Repo root `/Users/danielfisher/repos/zarrduck`, branch `feat/stac-first-class` (off `main`, which has the merged COG work). TDD: failing test → run → implement → pass → commit. Conventional Commits; every commit `--no-gpg-sign` ending with:
+Repo root `/Users/danielfisher/repos/eider`, branch `feat/stac-first-class` (off `main`, which has the merged COG work). TDD: failing test → run → implement → pass → commit. Conventional Commits; every commit `--no-gpg-sign` ending with:
 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 Pre-commit runs fmt/clippy/whitespace. Never `git add -A`; stage only named files. Tests: `cargo test -p geozarr_core`, `cargo test -p eider_extension` (or `cargo test`); `cargo clippy -p <crate> --lib --tests -- -D warnings` (NOT `--all-targets` — pre-existing unrelated failures on `main`); `cargo fmt --check`. Docs: `cd docs && (test -d node_modules || npm ci) && npm run build`.
 

@@ -11,7 +11,7 @@
 ---
 
 ## Conventions
-Repo root `/Users/danielfisher/repos/zarrduck`, branch `bench/remote-partial-read` (based on the COG centre-coords fix; rebase onto main once that merges). Venv `/tmp/bench_venv` (`source` it). Conventional Commits, `--no-gpg-sign`, trailer `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`. Never `git add -A` (note unrelated dirty `scanner.rs`/`mcts_state_scanner.json` — never stage them). Extension at `target/debug/eider.duckdb_extension` (rebuilt with the centre fix).
+Repo root `/Users/danielfisher/repos/eider`, branch `bench/remote-partial-read` (based on the COG centre-coords fix; rebase onto main once that merges). Venv `/tmp/bench_venv` (`source` it). Conventional Commits, `--no-gpg-sign`, trailer `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`. Never `git add -A` (note unrelated dirty `scanner.rs`/`mcts_state_scanner.json` — never stage them). Extension at `target/debug/eider.duckdb_extension` (rebuilt with the centre fix).
 
 **Confirmed (spike):** eider reads `read_geo('http://127.0.0.1:PORT/store.zarr/var', lon_min:=, …)` via opendal http; a logging server showed a time-pruned read fetched 1/79 chunk files (0.39 vs 30.3 MB). A Zarr chunk = one full-file GET; COG uses `Range` GETs → the server MUST support Range.
 

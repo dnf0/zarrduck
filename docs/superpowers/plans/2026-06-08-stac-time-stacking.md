@@ -12,7 +12,7 @@
 
 ## Conventions & prerequisites
 
-Repo root `/Users/danielfisher/repos/zarrduck`, branch `feat/stac-time-stacking` (off `main`). TDD: failing test → run → implement → pass → commit. Conventional Commits; `--no-gpg-sign`; trailer `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`. Pre-commit runs fmt/clippy/whitespace. Never `git add -A`. Clippy on touched files only (`-p geozarr_core --lib --tests`, NOT `--all-targets` — pre-existing `scanner.rs:165` lint on `main`).
+Repo root `/Users/danielfisher/repos/eider`, branch `feat/stac-time-stacking` (off `main`). TDD: failing test → run → implement → pass → commit. Conventional Commits; `--no-gpg-sign`; trailer `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`. Pre-commit runs fmt/clippy/whitespace. Never `git add -A`. Clippy on touched files only (`-p geozarr_core --lib --tests`, NOT `--all-targets` — pre-existing `scanner.rs:165` lint on `main`).
 
 ### Established source facts (don't re-derive)
 - **`CoordinateResolver::resolve(path, store, shape, dim_names)`** (`geozarr_core/src/coordinate_resolver.rs`): for each dim name it does `Array::open(store, "/{name}")`, requires a 1-D array whose length == `shape[dim]`, and reads it via `retrieve_array_subset_elements` for `Float64`/`Float32`/`Int64`/`Int32`. So synthesized coordinate arrays must be real zarrs-readable arrays at root keys `/time`,`/lat`,`/lon`. Filling `coords` for every dim makes `compute_bounds` use binary-search pushdown for all of them (the `time_min`/`time_max`/`lat`/`lon` params bind by dim name).
