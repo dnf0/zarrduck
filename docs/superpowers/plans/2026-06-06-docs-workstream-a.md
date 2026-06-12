@@ -12,7 +12,7 @@
 
 ## Conventions & verified facts
 
-Work from the repo root `/Users/danielfisher/repos/zarrduck` on branch `docs/workstream-a-getting-started` (do NOT commit to `main`). Conventional Commits, `--no-gpg-sign`, end messages with the `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` trailer.
+Work from the repo root `/Users/danielfisher/repos/eider` on branch `docs/workstream-a-getting-started` (do NOT commit to `main`). Conventional Commits, `--no-gpg-sign`, end messages with the `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` trailer.
 
 Verified live this session (use verbatim):
 - `docs/docusaurus.config.ts` sets `onBrokenLinks: 'throw'` — the build fails on broken internal links.

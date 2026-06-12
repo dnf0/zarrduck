@@ -12,7 +12,7 @@
 
 ## Conventions & prerequisites
 
-Repo root `/Users/danielfisher/repos/zarrduck`, branch `bench/zonal-headtohead`. Conventional Commits; `--no-gpg-sign`; trailer `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`. Never `git add -A`.
+Repo root `/Users/danielfisher/repos/eider`, branch `bench/zonal-headtohead`. Conventional Commits; `--no-gpg-sign`; trailer `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`. Never `git add -A`.
 
 **Venv:** `python3 -m venv /tmp/bench_venv && source /tmp/bench_venv/bin/activate && pip install -r scripts/bench_requirements.txt`. The eider extension is at `target/debug/eider.duckdb_extension` (build with `cargo duckdb-ext build -o target/debug/eider.duckdb_extension -d v1.5.2 -- --no-default-features --features loadable-extension` if missing). Run the harness with `GEOZARR_ALLOW_PATH=<data dir>` set.
 

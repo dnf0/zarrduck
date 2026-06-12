@@ -12,7 +12,7 @@
 
 ## Conventions & verified facts
 
-All commands run from the repo root `/Users/danielfisher/repos/zarrduck`. Branch: `docs/extension-demo-gif` (already created; do NOT commit to `main`). Commit messages use Conventional Commits, `--no-gpg-sign`, and end with the `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` trailer.
+All commands run from the repo root `/Users/danielfisher/repos/eider`. Branch: `docs/extension-demo-gif` (already created; do NOT commit to `main`). Commit messages use Conventional Commits, `--no-gpg-sign`, and end with the `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` trailer.
 
 These facts were verified live against the current `main` (post-#114) and must be relied upon:
 

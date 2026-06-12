@@ -18,12 +18,12 @@
 
 - [ ] **Step 1: Scaffold the Docusaurus site and clean up**
 
-Run: `cd /Users/danielfisher/repos/zarrduck && npx -y create-docusaurus@latest docs_new classic --typescript && rm -rf docs_new/blog`
+Run: `cd /Users/danielfisher/repos/eider && npx -y create-docusaurus@latest docs_new classic --typescript && rm -rf docs_new/blog`
 Expected: Successfully generates the base template without the default blog.
 
 - [ ] **Step 2: Install required plugins and types**
 
-Run: `cd /Users/danielfisher/repos/zarrduck/docs_new && npm install react-plotly.js plotly.js @docusaurus/theme-mermaid && npm install --save-dev @types/react-plotly.js @types/plotly.js`
+Run: `cd /Users/danielfisher/repos/eider/docs_new && npm install react-plotly.js plotly.js @docusaurus/theme-mermaid && npm install --save-dev @types/react-plotly.js @types/plotly.js`
 Expected: Dependencies and devDependencies installed in `package.json`.
 
 - [ ] **Step 3: Configure Docusaurus plugins**
