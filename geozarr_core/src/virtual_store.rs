@@ -41,8 +41,14 @@ impl VirtualCogStore {
 
         let (shape_json, chunks_json) = if meta.samples_per_pixel > 1 {
             (
-                format!("[{},{},{}]", meta.samples_per_pixel, meta.image_length, meta.image_width),
-                format!("[{},{},{}]", meta.samples_per_pixel, meta.tile_length, meta.tile_width),
+                format!(
+                    "[{},{},{}]",
+                    meta.samples_per_pixel, meta.image_length, meta.image_width
+                ),
+                format!(
+                    "[{},{},{}]",
+                    meta.samples_per_pixel, meta.tile_length, meta.tile_width
+                ),
             )
         } else {
             (
@@ -157,7 +163,8 @@ impl ReadableStorageTraits for VirtualCogStore {
                             if decoded.len() % pixel_stride != 0 {
                                 return Err(zarrs::storage::StorageError::Other(format!(
                                     "corrupt tile: length {} is not a multiple of pixel stride {}",
-                                    decoded.len(), pixel_stride
+                                    decoded.len(),
+                                    pixel_stride
                                 )));
                             }
                             let num_pixels = decoded.len() / pixel_stride;
@@ -165,10 +172,15 @@ impl ReadableStorageTraits for VirtualCogStore {
                             for band in 0..spp {
                                 for p in 0..num_pixels {
                                     let src_idx = p * pixel_stride + band * bytes_per_sample;
-                                    let dst_idx = band * (num_pixels * bytes_per_sample) + p * bytes_per_sample;
-                                    if src_idx + bytes_per_sample <= decoded.len() && dst_idx + bytes_per_sample <= planar.len() {
+                                    let dst_idx = band * (num_pixels * bytes_per_sample)
+                                        + p * bytes_per_sample;
+                                    if src_idx + bytes_per_sample <= decoded.len()
+                                        && dst_idx + bytes_per_sample <= planar.len()
+                                    {
                                         planar[dst_idx..dst_idx + bytes_per_sample]
-                                            .copy_from_slice(&decoded[src_idx..src_idx + bytes_per_sample]);
+                                            .copy_from_slice(
+                                                &decoded[src_idx..src_idx + bytes_per_sample],
+                                            );
                                     }
                                 }
                             }

@@ -497,7 +497,7 @@ mod tests {
     fn test_jp2_fallback_error() {
         let err = parse_tiff_header(b"JP2     ").unwrap_err();
         assert!(err.contains("DuckDB's native st_read()"));
-        
+
         let m = CogMetadata {
             compression: 2,
             ..Default::default()

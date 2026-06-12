@@ -27,9 +27,9 @@ use zarrs::array::DataType;
 
 pub trait GeoDataset: Send + Sync {
     fn schema(&self) -> Result<Vec<(String, DataType)>, Box<dyn std::error::Error>>;
-    
+
     fn scan(
-        &self, 
+        &self,
         constraints: &QueryConstraints
     ) -> Result<Box<dyn ChunkStream>, Box<dyn std::error::Error>>;
 }
@@ -38,8 +38,8 @@ pub trait ChunkStream: Send + Sync {
     fn estimated_chunks(&self) -> Option<u64>;
 
     fn read_chunk(
-        &self, 
-        chunk_idx: u64, 
+        &self,
+        chunk_idx: u64,
         buffer: &mut ChunkBuffer
     ) -> Result<bool, Box<dyn std::error::Error>>;
 }
@@ -86,16 +86,16 @@ impl ChunkStream for ZarrChunkStream {
     }
 
     fn read_chunk(
-        &self, 
-        chunk_idx: u64, 
+        &self,
+        chunk_idx: u64,
         buffer: &mut ChunkBuffer
     ) -> Result<bool, Box<dyn std::error::Error>> {
         if chunk_idx >= self.num_chunks {
             return Ok(false);
         }
-        
+
         let grid_pos = self.grid_iterator.get_chunk_pos(chunk_idx);
-        // Note: use the existing chunk reading logic here 
+        // Note: use the existing chunk reading logic here
         // to populate the buffer using grid_pos.
         crate::scanner::read_chunk_into_buffer(&self.dataset, &grid_pos, buffer)
             .map(|_| true)
@@ -114,11 +114,11 @@ impl GeoDataset for Arc<ZarrDataset> {
     }
 
     fn scan(
-        &self, 
+        &self,
         constraints: &QueryConstraints
     ) -> Result<Box<dyn ChunkStream>, Box<dyn std::error::Error>> {
         let (bounds_min, bounds_max) = self.compute_bounds(constraints);
-        
+
         let rank = self.shape.len();
         let mut chunk_bounds_min = vec![0; rank];
         let mut chunk_bounds_max = vec![0; rank];

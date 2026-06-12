@@ -15,7 +15,7 @@ Instead of immediately parsing and extracting assets, we will implement a sequen
 After all features have been accumulated across all pages, we construct a consolidated JSON object (or simply pass the accumulated features) to `sorted_features_by_datetime` and the rest of the existing header-fetching logic.
 
 ## Components Modified
-- `geozarr_core/src/store.rs`: Update the STAC API arm in `resolve_sync_store` to loop and accumulate features. 
+- `geozarr_core/src/store.rs`: Update the STAC API arm in `resolve_sync_store` to loop and accumulate features.
 
 ## Testing
 - Ensure `scripts/bench_stac_pushdown.py` tests pass natively (the naive runner should now show 100 requests).

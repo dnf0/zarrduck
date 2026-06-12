@@ -158,7 +158,7 @@ Inside `VirtualCogStore::get()`, right after `let mut decoded = match self.meta.
                             let bytes_per_sample = (self.meta.bits_per_sample / 8) as usize;
                             let pixel_stride = spp * bytes_per_sample;
                             let num_pixels = decoded.len() / pixel_stride;
-                            
+
                             let mut planar = vec![0u8; decoded.len()];
                             for band in 0..spp {
                                 for p in 0..num_pixels {

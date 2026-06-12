@@ -42,13 +42,13 @@ def run_eider_stac(
     extension_path,
     use_pushdown: bool
 ) -> tuple[dict, int, int]:
-    """Runs eider against the STAC Search API. 
+    """Runs eider against the STAC Search API.
     If use_pushdown is True, uses lon_min/etc parameters.
     Otherwise, reads everything and relies on duckdb's WHERE clause."""
-    
+
     url = f"http://127.0.0.1:{port}/search"
     lon_min, lat_min, lon_max, lat_max = bbox
-    
+
     conn = _eider_conn(extension_path)
     try:
         accumulator.reset()
@@ -61,7 +61,7 @@ def run_eider_stac(
                     lon_min := {lon_min}, lat_min := {lat_min},
                     lon_max := {lon_max}, lat_max := {lat_max}
                 )
-                -- Even with pushdown, we apply WHERE to ensure correctness 
+                -- Even with pushdown, we apply WHERE to ensure correctness
                 WHERE lon >= {lon_min} AND lon <= {lon_max}
                   AND lat >= {lat_min} AND lat <= {lat_max}
             """
@@ -69,7 +69,7 @@ def run_eider_stac(
             sql = f"""
                 SELECT lat, lon, value
                 FROM read_geo(
-                    '{url}', 
+                    '{url}',
                     asset := 'data',
                     lon_min := {lon_min}, lat_min := {lat_min},
                     lon_max := {lon_max}, lat_max := {lat_max}
@@ -77,14 +77,14 @@ def run_eider_stac(
                 WHERE lon >= {lon_min} AND lon <= {lon_max}
                   AND lat >= {lat_min} AND lat <= {lat_max}
             """
-        
-        # We expect this to fail gracefully because the mock server returns dummy.tif 
+
+        # We expect this to fail gracefully because the mock server returns dummy.tif
         # which isn't a real file, but it SHOULD make the STAC requests first.
         try:
             conn.execute(sql).fetchall()
         except duckdb.Error as e:
             pass # We only care about the STAC API requests for this benchmark
-            
+
         snap = accumulator.snapshot()
         return {}, snap["total_bytes"], snap["n_requests"]
     finally:
@@ -102,7 +102,7 @@ def _make_stac_handler(accumulator: ByteAccumulator):
                 return
 
             query = urllib.parse.parse_qs(parsed.query)
-            
+
             page = int(query.get("page", ["1"])[0])
 
             # Unbounded/large box = 100 pages, Small box = 1 page
@@ -113,9 +113,9 @@ def _make_stac_handler(accumulator: ByteAccumulator):
                 # small box like 0,0,1,1
                 if coords[2] - coords[0] < 10.0:
                     is_large = False
-                    
+
             total_pages = 100 if is_large else 1
-            
+
             features = []
             # Add a mock item
             features.append({
@@ -146,7 +146,7 @@ def _make_stac_handler(accumulator: ByteAccumulator):
                 "features": features,
                 "links": links
             }
-            
+
             payload = json.dumps(response_data).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/geo+json")
@@ -160,7 +160,7 @@ def _make_stac_handler(accumulator: ByteAccumulator):
 def start_stac_server() -> tuple[ThreadingHTTPServer, int, ByteAccumulator]:
     accumulator = ByteAccumulator()
     handler = _make_stac_handler(accumulator)
-    
+
     class _QuietServer(ThreadingHTTPServer):
         daemon_threads = True
         def handle_error(self, request, client_address):
@@ -184,7 +184,7 @@ class TestStacServer(unittest.TestCase):
                 # Next link should be present for pagination
                 next_links = [l for l in data.get("links", []) if l["rel"] == "next"]
                 self.assertTrue(len(next_links) > 0)
-            
+
             acc.reset()
             # Bounded query -> 1 page
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/search?bbox=0,0,1,1") as res:
@@ -193,7 +193,7 @@ class TestStacServer(unittest.TestCase):
                 # Next link should NOT be present (single page)
                 next_links = [l for l in data.get("links", []) if l["rel"] == "next"]
                 self.assertEqual(len(next_links), 0)
-            
+
             snap = acc.snapshot()
             self.assertEqual(snap["n_requests"], 1)
         finally:
@@ -210,12 +210,12 @@ class TestStacServer(unittest.TestCase):
 
             bbox_small = (0.0, 0.0, 1.0, 1.0)
             bbox_large = (0.0, 0.0, 31.0, 31.0)
-            
+
             # Run naive (needs bbox to pass bind check, but large enough to trigger 100 pages)
             acc.reset()
             _, naive_bytes, naive_reqs = run_eider_stac(port, bbox_large, acc, ext_path, use_pushdown=False)
             self.assertEqual(naive_reqs, 100) # Should hit all 100 pages
-            
+
             # Run pushdown
             acc.reset()
             _, push_bytes, push_reqs = run_eider_stac(port, bbox_small, acc, ext_path, use_pushdown=True)
@@ -252,7 +252,7 @@ def main():
 
     server, port, acc = start_stac_server()
     bbox = (0.0, 0.0, 1.0, 1.0)
-    
+
     try:
         print(f"Benchmarking STAC Pushdown vs Naive (reps={args.reps})")
         print("-" * 60)
@@ -264,10 +264,10 @@ def main():
         # Run Naive
         def run_n():
             run_eider_stac(port, bbox, acc, ext_path, use_pushdown=False)
-        
+
         _, naive_bytes, naive_reqs = run_eider_stac(port, bbox, acc, ext_path, use_pushdown=False)
         naive_time = time_call(run_n, reps=args.reps)
-        
+
         print(f"{'Naive':<15} | {naive_reqs:>10} | {naive_bytes:>10} | {naive_time:>10.3f}")
         results["naive"] = {
             "requests": naive_reqs,
@@ -278,7 +278,7 @@ def main():
         # Run Pushdown
         def run_p():
             run_eider_stac(port, bbox, acc, ext_path, use_pushdown=True)
-            
+
         _, push_bytes, push_reqs = run_eider_stac(port, bbox, acc, ext_path, use_pushdown=True)
         push_time = time_call(run_p, reps=args.reps)
 
@@ -300,7 +300,7 @@ def main():
 
     finally:
         server.shutdown()
-        
+
     return 0
 
 if __name__ == "__main__":

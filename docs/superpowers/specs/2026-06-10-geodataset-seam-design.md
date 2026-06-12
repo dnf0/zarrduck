@@ -22,22 +22,22 @@ pub trait GeoDataset: Send + Sync {
 
     /// Entry Point 2: Plan a spatial/temporal scan and prepare an executable stream.
     fn scan(
-        &self, 
+        &self,
         constraints: &QueryConstraints
     ) -> Result<Box<dyn ChunkStream>, Box<dyn std::error::Error>>;
 }
 
 /// The adapter for DuckDB's parallel workers to pull data.
 pub trait ChunkStream: Send + Sync {
-    /// The estimated maximum number of chunks this scan will produce. 
+    /// The estimated maximum number of chunks this scan will produce.
     /// Used to size the DuckDB thread pool. Returns None if unknown.
     fn estimated_chunks(&self) -> Option<u64>;
 
     /// Fill the output buffer for a specific chunk index (0..num_chunks).
     /// Returns Ok(true) if data was read, Ok(false) if the stream is exhausted.
     fn read_chunk(
-        &self, 
-        chunk_idx: u64, 
+        &self,
+        chunk_idx: u64,
         buffer: &mut ChunkBuffer
     ) -> Result<bool, Box<dyn std::error::Error>>;
 }
