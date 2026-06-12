@@ -42,7 +42,7 @@ impl VirtualCogStore {
         let (shape_json, chunks_json) = if meta.samples_per_pixel > 1 {
             (
                 format!("[{},{},{}]", meta.samples_per_pixel, meta.image_length, meta.image_width),
-                format!("[{},{},{}]", meta.samples_per_pixel, meta.tile_length, meta.tile_width),
+                format!("[1,{},{}]", meta.tile_length, meta.tile_width),
             )
         } else {
             (
@@ -314,6 +314,58 @@ mod tests {
             .unwrap()
             .finish();
         assert!(VirtualCogStore::new(op, "".to_string(), meta).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_multiband_chunk_read_deinterleaves_band() {
+        use zarrs::storage::ReadableStorageTraits;
+        // 2x4 tile, 3 bands, 16-bit pixel-interleaved (chunky) LE:
+        // for each of the 8 pixels, 3 consecutive i16 values (one per band).
+        let samples = 3usize;
+        let mut raw: Vec<u8> = Vec::new();
+        for p in 0..8i16 {
+            for b in 0..samples as i16 {
+                raw.extend_from_slice(&(p * 10 + b).to_le_bytes());
+            }
+        }
+        assert_eq!(raw.len(), 8 * samples * 2);
+
+        let op = opendal::Operator::new(opendal::services::Memory::default())
+            .unwrap()
+            .finish();
+        op.write("tile.bin", raw.clone()).await.unwrap();
+
+        let meta = crate::cog::CogMetadata {
+            image_width: 4,
+            image_length: 2,
+            tile_width: 4,
+            tile_length: 2,
+            tile_offsets: vec![0],
+            tile_byte_counts: vec![raw.len() as u64],
+            is_little_endian: true,
+            bits_per_sample: 16,
+            sample_format: 2,
+            samples_per_pixel: samples as u16,
+            compression: 1,
+            predictor: 1,
+            planar_configuration: 1,
+            ..Default::default()
+        };
+        let store = VirtualCogStore::new(op, "tile.bin".to_string(), meta).unwrap();
+
+        for band in 0..samples {
+            let key = format!("{band}.0.0");
+            let out = store
+                .get(&zarrs::storage::StoreKey::new(&key).unwrap())
+                .unwrap()
+                .unwrap();
+            // Single-band tile worth of bytes (8 pixels * 2 bytes), not all bands.
+            assert_eq!(out.len(), 8 * 2, "band {band} chunk must be one band's worth");
+            let expected: Vec<u8> = (0..8i16)
+                .flat_map(|p| (p * 10 + band as i16).to_le_bytes())
+                .collect();
+            assert_eq!(out.to_vec(), expected, "band {band} de-interleaved bytes");
+        }
     }
 
     #[tokio::test]

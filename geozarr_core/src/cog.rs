@@ -57,6 +57,7 @@ pub struct CogMetadata {
     pub samples_per_pixel: u16,         // 277; default 1
     pub compression: u16,               // 259; 1=none (default)
     pub predictor: u16,                 // 317; 1=none (default)
+    pub planar_configuration: u16,      // 284; 1=chunky/interleaved (default), 2=separate
     pub nodata: Option<f64>,            // GDAL_NODATA tag 42113
     pub pixel_scale: Vec<f64>,          // ModelPixelScale 33550
     pub tiepoint: Vec<f64>,             // ModelTiepoint 33922
@@ -188,6 +189,9 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
         return Err("IFD offset out of bounds".into());
     }
 
+    let mut bits_per_sample_heterogeneous = false;
+    let mut sample_format_heterogeneous = false;
+
     let num_entries = if header.is_little_endian {
         u16::from_le_bytes(buffer[offset..offset + 2].try_into().unwrap())
     } else {
@@ -302,16 +306,53 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
             res
         };
 
+        // Read `count` SHORT values, handling both the inline (<=4 bytes) and
+        // offset cases. Used to detect per-sample heterogeneity for multi-band COGs.
+        let extract_short_values = |count: usize| -> Vec<u16> {
+            if count * 2 <= 4 {
+                let mut res = Vec::with_capacity(count);
+                for i in 0..count {
+                    let p = offset + 8 + i * 2;
+                    let v = if header.is_little_endian {
+                        u16::from_le_bytes(buffer[p..p + 2].try_into().unwrap())
+                    } else {
+                        u16::from_be_bytes(buffer[p..p + 2].try_into().unwrap())
+                    };
+                    res.push(v);
+                }
+                res
+            } else {
+                extract_u16_array(count, val_or_offset)
+            }
+        };
+
         match tag {
             256 => meta.image_width = extract_single_val(),
             257 => meta.image_length = extract_single_val(),
             322 => meta.tile_width = extract_single_val(),
             323 => meta.tile_length = extract_single_val(),
-            258 => meta.bits_per_sample = extract_single_val() as u16,
+            258 => {
+                if count > 1 {
+                    let vals = extract_short_values(count as usize);
+                    if vals.windows(2).any(|w| w[0] != w[1]) {
+                        bits_per_sample_heterogeneous = true;
+                    }
+                }
+                meta.bits_per_sample = extract_single_val() as u16;
+            }
             277 => meta.samples_per_pixel = extract_single_val() as u16,
-            339 => meta.sample_format = extract_single_val() as u16,
+            339 => {
+                if count > 1 {
+                    let vals = extract_short_values(count as usize);
+                    if vals.windows(2).any(|w| w[0] != w[1]) {
+                        sample_format_heterogeneous = true;
+                    }
+                }
+                meta.sample_format = extract_single_val() as u16;
+            }
             259 => meta.compression = extract_single_val() as u16,
             317 => meta.predictor = extract_single_val() as u16,
+            284 => meta.planar_configuration = extract_single_val() as u16,
             42113 => {
                 let n = count as usize;
                 let raw: &[u8] = if n <= 4 {
@@ -381,6 +422,24 @@ pub fn parse_cog_metadata(buffer: &[u8]) -> Result<CogMetadata, String> {
     }
     if meta.predictor == 0 {
         meta.predictor = 1; // none
+    }
+    if meta.planar_configuration == 0 {
+        meta.planar_configuration = 1; // chunky/interleaved
+    }
+
+    if meta.samples_per_pixel > 1 {
+        if bits_per_sample_heterogeneous || sample_format_heterogeneous {
+            return Err(
+                "multi-band COGs with heterogeneous BitsPerSample/SampleFormat across bands are not supported"
+                    .into(),
+            );
+        }
+        if meta.planar_configuration != 1 {
+            return Err(format!(
+                "multi-band COGs with PlanarConfiguration={} (band-separate) are not supported; only pixel-interleaved (PlanarConfiguration=1) is supported",
+                meta.planar_configuration
+            ));
+        }
     }
 
     Ok(meta)
@@ -479,6 +538,17 @@ mod tests {
         // multi-band is now supported
         m.samples_per_pixel = 3;
         assert_eq!(m.zarr_dtype().unwrap(), ">u2");
+    }
+
+    #[test]
+    fn test_unsupported_bit_depth_rejected() {
+        let bad = CogMetadata {
+            samples_per_pixel: 1,
+            bits_per_sample: 12,
+            sample_format: 1,
+            ..Default::default()
+        };
+        assert!(bad.zarr_dtype().is_err());
     }
 
     #[test]
