@@ -164,6 +164,9 @@ impl ReadableStorageTraits for VirtualCogStore {
                         };
                         let samples = self.meta.samples_per_pixel as usize;
                         if samples > 1 {
+                            if req_band >= samples {
+                                return Ok(None);
+                            }
                             let bytes_per_sample = (self.meta.bits_per_sample as usize + 7) / 8;
                             let bytes_per_pixel = bytes_per_sample * samples;
                             let expected = self.meta.tile_length as usize
